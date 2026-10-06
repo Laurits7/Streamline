@@ -326,15 +326,16 @@
   }
   .now {
     position: absolute;
-    left: 44px;
+    left: 48px;
     right: 0;
     border-top: 2px solid var(--danger);
     z-index: 3;
     pointer-events: none;
   }
+  /* Label at the right end, clear of the hour numbers on the left. */
   .now span {
     position: absolute;
-    left: -44px;
+    right: 4px;
     top: -9px;
     font-size: 10px;
     font-weight: 700;

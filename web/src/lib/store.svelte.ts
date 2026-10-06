@@ -12,6 +12,7 @@ import type { FocusTimer } from './api/types/FocusTimer'
 import type { Me } from './api/types/Me'
 import type { Notification } from './api/types/Notification'
 import type { Project } from './api/types/Project'
+import type { Series } from './api/types/Series'
 import type { SyncResponse } from './api/types/SyncResponse'
 import type { Task } from './api/types/Task'
 import type { TaskType } from './api/types/TaskType'
@@ -19,8 +20,8 @@ import { keyAt, keyBetween } from './order'
 import { toast } from './toast.svelte'
 import { ulid } from './ulid'
 
-type Kind = 'task' | 'project' | 'day_entry' | 'day_plan' | 'focus_session'
-type Entity = Task | Project | DayEntry | DayPlan | FocusSession
+type Kind = 'task' | 'project' | 'day_entry' | 'day_plan' | 'focus_session' | 'series'
+type Entity = Task | Project | DayEntry | DayPlan | FocusSession | Series
 
 export type TaskPatch = Partial<
   Pick<
@@ -66,6 +67,7 @@ class Store {
   entries = new SvelteMap<string, DayEntry>()
   dayPlans = new SvelteMap<string, DayPlan>()
   focusSessions = new SvelteMap<string, FocusSession>()
+  series = new SvelteMap<string, Series>()
   focusTimer = $state<FocusTimer>(IDLE_TIMER)
   /** server clock - local clock (ms), from the last response that carried server_now. */
   clockOffset = 0
@@ -109,6 +111,7 @@ class Store {
     this.entries.clear()
     this.dayPlans.clear()
     this.focusSessions.clear()
+    this.series.clear()
     this.focusTimer = IDLE_TIMER
   }
 
@@ -168,6 +171,7 @@ class Store {
       this.entries.clear()
       this.dayPlans.clear()
       this.focusSessions.clear()
+      this.series.clear()
     }
     this.clockOffset = r.server_now - Date.now()
     if (r.focus_timer.rev >= this.focusTimer.rev) this.focusTimer = r.focus_timer
@@ -182,6 +186,7 @@ class Store {
     for (const e of r.day_entries) this.applyRemote('day_entry', e)
     for (const p of r.day_plans) this.applyRemote('day_plan', p)
     for (const f of r.focus_sessions) this.applyRemote('focus_session', f)
+    for (const x of r.series) this.applyRemote('series', x)
     this.rev = Math.max(this.rev, r.rev)
     this.ready = true
   }
@@ -202,7 +207,7 @@ class Store {
       else if (c.kind === 'focus_timer') {
         const t = c.data as FocusTimer
         if (t.rev >= this.focusTimer.rev) this.focusTimer = t
-      } else if (c.kind === 'focus_session') this.applyRemote('focus_session', c.data as Entity)
+      } else if (c.kind === 'focus_session' || c.kind === 'series') this.applyRemote(c.kind, c.data as Entity)
       else if (c.kind === 'task' || c.kind === 'project' || c.kind === 'day_entry' || c.kind === 'day_plan')
         this.applyRemote(c.kind, c.data as Entity)
     })
@@ -229,6 +234,7 @@ class Store {
       day_entry: this.entries,
       day_plan: this.dayPlans,
       focus_session: this.focusSessions,
+      series: this.series,
     }
     return maps[kind] as SvelteMap<string, Entity>
   }
@@ -342,10 +348,23 @@ class Store {
     return n
   }
 
+  /**
+   * Routine occurrences for a later day (they exist from the day before, or when a
+   * future day is viewed) stay out of lists until their day.
+   */
+  isUpcoming(t: Task, day = this.today): boolean {
+    return !!t.occurrence_date && t.occurrence_date > day
+  }
+
   /** Tasks in a project (`null` = inbox), ordered. */
   tasksIn(projectId: string | null, status: 'open' | 'closed' = 'open'): Task[] {
     return [...this.tasks.values()]
-      .filter((t) => t.project_id === projectId && (status === 'open' ? t.status === 'open' : t.status !== 'open'))
+      .filter(
+        (t) =>
+          t.project_id === projectId &&
+          !this.isUpcoming(t) &&
+          (status === 'open' ? t.status === 'open' : t.status !== 'open'),
+      )
       .sort(status === 'open' ? byPosition : (a, b) => ((a.completed_at ?? a.updated_at) < (b.completed_at ?? b.updated_at) ? 1 : -1))
   }
 
@@ -361,7 +380,9 @@ class Store {
   /** Open tasks that could be pulled into `date`. */
   readyStack(date: string): Task[] {
     const plannedHere = new Set(this.dayEntries(date).map((e) => e.task_id))
-    return [...this.tasks.values()].filter((t) => t.status === 'open' && !plannedHere.has(t.id)).sort(byPosition)
+    return [...this.tasks.values()]
+      .filter((t) => t.status === 'open' && !plannedHere.has(t.id) && !this.isUpcoming(t, date))
+      .sort(byPosition)
   }
 
   taskType(id: string) {
@@ -399,6 +420,10 @@ class Store {
       ext_source: null,
       ext_id: null,
       ext_url: null,
+      series_id: null,
+      occurrence_key: null,
+      occurrence_date: null,
+      window_end: null,
       created_at: ts,
       updated_at: ts,
       deleted_at: null,
@@ -817,6 +842,68 @@ class Store {
     } catch {
       if (this.me) this.me = { ...this.me, prefs: prev }
     }
+  }
+
+  // ---- routines ------------------------------------------------------------
+
+  /** Routines that are still running (not ended before today). */
+  activeSeries(): Series[] {
+    return [...this.series.values()]
+      .filter((s) => !s.until || s.until >= this.today)
+      .sort((a, b) => a.title.localeCompare(b.title))
+  }
+
+  /** Done/total of a flexible routine's occurrences in the window that contains `day`. */
+  windowProgress(seriesId: string, day: string): { done: number; total: number } {
+    let done = 0
+    let total = 0
+    for (const t of this.tasks.values())
+      if (t.series_id === seriesId && t.window_end && t.occurrence_date! <= day && day <= t.window_end) {
+        total++
+        if (t.status === 'done') done++
+      }
+    return { done, total }
+  }
+
+  async createSeries(input: Record<string, unknown>): Promise<Series | null> {
+    try {
+      const s = await api.post<Series>('/series', { id: ulid(), ...input })
+      this.applyRemote('series', s)
+      return s
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : 'Could not save the routine', 'error')
+      return null
+    }
+  }
+
+  /** Change a routine from `from` on (default today). May return a new routine (split). */
+  async updateSeries(id: string, patch: Record<string, unknown>): Promise<Series | null> {
+    try {
+      const s = await api.patch<Series>(`/series/${id}`, patch)
+      this.applyRemote('series', s)
+      await this.sync()
+      return s
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : 'Could not save the routine', 'error')
+      return null
+    }
+  }
+
+  /** End a routine; its history stays. */
+  endSeries(id: string) {
+    const cur = this.series.get(id)
+    if (!cur) return
+    const open = [...this.tasks.values()].filter(
+      (t) => t.series_id === id && t.status === 'open' && (t.occurrence_date ?? '') >= this.today,
+    )
+    this.optimistic(
+      [['series', id], ...open.map((t) => ['task', t.id] as [Kind, string])],
+      () => {
+        this.series.delete(id)
+        open.forEach((t) => this.tasks.delete(t.id))
+      },
+      () => api.del(`/series/${id}`),
+    )
   }
 
   // ---- account --------------------------------------------------------------

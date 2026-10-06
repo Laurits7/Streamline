@@ -402,11 +402,21 @@ pub async fn patch(
         ended.rev = rev;
         upsert_series(&mut tx, &ended).await?;
         changes.push(Change::series(&ended));
+        // Don't redo what's already settled: start after the last occurrence (or, for
+        // "N per week/month", the last window) that is done, missed or skipped.
+        let last_closed: Option<String> = sqlx::query_scalar(
+            "SELECT MAX(COALESCE(window_end, occurrence_date)) FROM tasks
+             WHERE series_id = ? AND deleted_at IS NULL AND status <> 'open'",
+        )
+        .bind(&old.id)
+        .fetch_one(&mut *tx)
+        .await?;
+        let mut start = date(&old.dtstart).map_or(from, |d| d.max(from));
+        if let Some(d) = last_closed.as_deref().and_then(date) {
+            start = start.max(d + Duration::days(1));
+        }
         next.id = crate::util::new_id();
-        next.dtstart = date(&old.dtstart)
-            .map_or(from, |d| d.max(from))
-            .format("%Y-%m-%d")
-            .to_string();
+        next.dtstart = start.format("%Y-%m-%d").to_string();
         next.materialized_through = None;
         next.created_at = ts.clone();
         next

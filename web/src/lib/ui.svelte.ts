@@ -4,6 +4,8 @@ export const ui = $state({
   editing: null as string | null,
   /** Date for which the "pull in tasks" sheet is open. */
   pullFor: null as string | null,
+  /** Routine being edited: an id, 'new', or null. */
+  routine: null as string | null,
 })
 
 // Collapsed projects in project trees (remembered in this browser only).

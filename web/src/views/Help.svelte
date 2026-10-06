@@ -8,6 +8,7 @@
     ['today', 'The Today view'],
     ['planning', 'Planning your day'],
     ['dnd', 'Drag and drop'],
+    ['routines', 'Routines and repeating tasks'],
     ['views', 'List, board and matrix'],
     ['focus', 'Focus timer'],
     ['tasks', 'Tasks and their details'],
@@ -96,6 +97,26 @@
       <li><strong>On the timeline</strong>: gives the task a time (in 15-minute steps). Drag a block to move it, drag its bottom edge to make it longer or shorter, or drag it back into the Plan list to remove the time.</li>
     </ul>
     <p class="muted">Everything you can drag can also be done from the task's details, for small screens and keyboards.</p>
+  </section>
+
+  <section id="routines">
+    <h2><Icon name="repeat" size={18} /> Routines and repeating tasks</h2>
+    <p>Create them on the <a href="/routines">Routines</a> page. There are three kinds:</p>
+    <ul>
+      <li><strong>On a schedule</strong>: due on certain days, e.g. pay rent on the 1st, bins out every Tuesday. Daily, weekdays, certain days, every N days, monthly (also “last day”), yearly, or any iCalendar rule.</li>
+      <li><strong>At a fixed time</strong>: e.g. vitamins every morning at 8:00. It appears on the day's timeline by itself.</li>
+      <li><strong>N times a week or month</strong>: e.g. laundry twice a week, any day you like. Today shows them under “This week / month” with your progress (1/2).</li>
+    </ul>
+    <p>
+      Each occurrence is an ordinary task: plan it, move it, focus on it, or <strong>Skip this time</strong>. Editing
+      that task changes only that occurrence; <strong>Edit routine</strong> changes it from a date on, and earlier
+      occurrences keep their history. Occurrences appear the day before (so you can plan them in the evening).
+    </p>
+    <p>
+      What happens when one isn't done depends on its type: fixed-time routines <em>expire</em> (counted as missed),
+      “N times” routines are missed if the week or month ends first, and scheduled ones <em>carry on</em> by default.
+      The Routines page shows your streak 🔥 for each.
+    </p>
   </section>
 
   <section id="views">
@@ -218,7 +239,6 @@
     <h2>Coming later</h2>
     <p class="muted">Planned, roughly in this order:</p>
     <ul>
-      <li>Repeating tasks and routines (daily, weekly, “twice a week”).</li>
       <li>Multi-step chores (e.g. laundry: wash → dry → fold) where the next step appears when the previous one is done.</li>
       <li>Shared household groups and chores anyone can complete.</li>
       <li>Your calendar (CalDAV/Radicale) on the timeline.</li>

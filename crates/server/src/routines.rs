@@ -263,8 +263,11 @@ pub async fn stats(state: &AppState, user: &User, s: &Series) -> anyhow::Result<
         }
         windows
             .iter()
-            .map(|(_, slots)| {
-                let current = slots.iter().any(|(_, e)| e.is_some_and(|e| e >= today));
+            .map(|(start, slots)| {
+                // The window containing today (later windows may already exist when a
+                // future day was viewed).
+                let current = date(start).is_some_and(|s| s <= today)
+                    && slots.iter().any(|(_, e)| e.is_some_and(|e| e >= today));
                 let done = slots.iter().filter(|(st, _)| st == "done").count() as u32;
                 if current {
                     window_done = done;

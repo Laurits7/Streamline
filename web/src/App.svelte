@@ -8,6 +8,8 @@
   import MiniTimer from './lib/components/MiniTimer.svelte'
   import { announce, live } from './lib/announce.svelte'
   import AllTasks from './views/AllTasks.svelte'
+  import Routines from './views/Routines.svelte'
+  import RoutineSheet from './lib/components/RoutineSheet.svelte'
   import { droppable, type DragItem } from './lib/dnd.svelte'
   import { match, router } from './lib/router.svelte'
   import { store } from './lib/store.svelte'
@@ -133,6 +135,7 @@
         <a href="/" class="drop-zone" draggable="false" aria-current={todayActive} use:droppable={toToday}><Icon name="sun" /> Today</a>
         <a href="/inbox" class="drop-zone" draggable="false" aria-current={active('inbox')} use:droppable={toProject(null)}><Icon name="inbox" /> Inbox</a>
         <a href="/tasks" draggable="false" aria-current={active('tasks')}><Icon name="list" /> All tasks</a>
+        <a href="/routines" draggable="false" aria-current={active('routines')}><Icon name="repeat" /> Routines</a>
         <a href="/focus" draggable="false"><Icon name="target" /> Focus</a>
         <a href="/projects" draggable="false" aria-current={active('projects')}><Icon name="folder" /> Projects</a>
         <div class="projects">
@@ -167,6 +170,8 @@
         <Day date={route.date} />
       {:else if route.name === 'plan'}
         {#await import('./views/Plan.svelte') then m}{#key route.date}<m.default date={route.date} />{/key}{/await}
+      {:else if route.name === 'routines'}
+        <Routines />
       {:else if route.name === 'tasks'}
         <AllTasks />
       {:else if route.name === 'inbox'}
@@ -194,6 +199,7 @@
 
   {#if ui.editing}<TaskSheet id={ui.editing} />{/if}
   {#if ui.pullFor}<PullSheet date={ui.pullFor} />{/if}
+  {#if ui.routine}{#key ui.routine}<RoutineSheet id={ui.routine} />{/key}{/if}
 {/if}
 
 <Toasts />

@@ -68,6 +68,15 @@ Any of them can be revisited when the chunk that implements it starts.
   - **Focus timer:** one per user, server-side (`domain::focus`). Work rolls into a break automatically; after a break the next work interval waits. Intervals abandoned within a minute aren't logged. Completed or partial work minutes are added to `tasks.actual_min`. Clients correct for clock differences with `server_now`, chime and buzz at zero (sound can be switched off), then ask the server to advance. A background job advances timers nobody is watching and sends an in-app notification; a device's own timer already signals, so those notifications only matter for other devices.
   - **Bundles:** Focus and Plan load on demand. Vite's shared chunk counts as initial in `measure.sh`, which now reads the initial set from `index.html`.
 - **D-45 · 2026-10-06 · Places: manual or GPS** (owner, answers Q-25): Places act as a filter. The user picks the current place from a list. If "Use GPS" is enabled in Settings *and* the browser grants location permission, the current place is detected automatically from each place's coordinates and radius; otherwise the list is used. Note: browsers expose geolocation only in secure contexts (HTTPS or localhost), so on plain-HTTP LAN installs it is always manual.
+- **D-46 · 2026-10-06 · Recurrence via the `rrule` crate** (Phase 3 spike): rrule 0.14 handled every case tested (weekdays, intervals, last day / last Friday of month, the 31st skipped in short months, Feb 29, exceptions) and shares chrono-tz with us, so nothing was hand-rolled. Occurrences are expanded as *dates* (with time of day applied later), so DST can't move a routine to another day. `UNTIL`/`COUNT` are rejected in rules; routines have their own start/end dates, which "change from a date on" needs.
+- **D-47 · 2026-10-06 · Routine model** (Phase 3):
+  - **Occurrences are ordinary tasks.** A routine (`series`) creates one task per occurrence. The occurrence key (a date, or window start + `#n`) is unique per routine even among deleted rows, so a skipped or deleted occurrence never comes back.
+  - **When occurrences are created:** up to tomorrow (job, sync), so the evening plan sees them; for later days, on demand when they're viewed or planned. Lists hide occurrences whose date hasn't come yet.
+  - **Kinds:** *repeat* is due on its dates (default Carry on). *anchored* is also put on the day's timeline at its time (default Expires). *flexible* means N slots per fixed week or month, due at the window's end (default the new built-in "Within its week/month" type).
+  - **Day end:** expiring occurrences are missed even if unplanned. Open window tasks whose window ended are missed, or roll into the current window when the type's `window_overflow = roll`.
+  - **Edits:** "this one" means editing the task. "All future" (`PATCH /series/{id}` with `from`) updates content in place on open occurrences from that date. A *schedule* change splits the routine: the old one ends the day before (or is deleted if it has no history), and the new one starts after the last settled occurrence or window, so nothing is done twice. Ending a routine removes open occurrences from today on and keeps the history.
+  - **Known limit:** splitting a "N per week" routine mid-window when only some slots are done starts the new routine next week; this week's remaining open slots are removed.
+  - **Streaks:** consecutive done occurrences (or fully done windows). Skips don't break a streak; open, carry-on occurrences are undecided.
 
 ## Resource log
 
@@ -77,3 +86,4 @@ Any of them can be revisited when the chunk that implements it starts.
 | End of Phase 2 | 7.5 MB | 3.6–4.1 MiB (fresh container, 20 s) | 48.0 KB initial (+4.0 KB lazy Help) | not measured | 2026-10-06 |
 | End of Phase 2a | 7.6 MB | 4.0 MiB (fresh container, 20 s) | 51.2 KB initial (+4.5 Help, +5.4 Plan lazy) | not measured | 2026-10-06 |
 | End of Phase 2b | 7.8 MB | 4.2 MiB (fresh container, 20 s) | 59.6 KB initial (+5.3 Help, +5.5 Plan, +2.6 Focus lazy) | not measured | 2026-10-06 |
+| End of Phase 3 | 8.7 MB (+rrule) | 4.6 MiB (fresh container, 20 s) | 66.2 KB initial | not measured | 2026-10-06 |

@@ -34,6 +34,10 @@
     <span class="name">All tasks</span>
     <span class="count">{[...store.tasks.values()].filter((t) => t.status === 'open').length}</span>
   </a>
+  <a class="item" href="/routines">
+    <span class="icon"><Icon name="repeat" /></span>
+    <span class="name">Routines</span>
+  </a>
   <a class="item" href="/focus">
     <span class="icon"><Icon name="target" /></span>
     <span class="name">Focus timer</span>

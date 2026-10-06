@@ -1,8 +1,9 @@
 # Streamline: Work Plan
 
 > Companion to [`SPEC.md`](SPEC.md). Section numbers like §6.2c refer to the spec.
-> Status (2026-10-06): Part A and Part C **confirmed** (see `DECISIONS.md`). **Phases 1, 2, 2a and 2b
-> are complete** (2b.6a Places waits for Q-25). Next: Phase 3 (recurrence and routines).
+> Status (2026-10-06): Part A and Part C **confirmed** (see `DECISIONS.md`). **Phases 1, 2, 2a, 2b
+> and 3 are complete.** Next: the owner's follow-up requests (unplanned-banner colour, done → to do on
+> the board, tasks in several projects, daily activity log), then 2b.6a Places, then Phase 3b.
 > Legend: `[x]` done · `[~]` partly done (the remaining work is noted) · `[ ]` not started.
 
 ## MVP status (2026-10-06)
@@ -317,13 +318,13 @@ Legend: **Deliverables** = what exists afterwards · **Tests** = what must be co
 
 ### Phase 3: Recurrence and routines (§6.3, remaining §6.2c types)
 
-- [ ] **3.1 Recurrence spike and module**
+- [x] **3.1 Recurrence spike and module** (rrule 0.14: all edge cases pass, nothing hand-rolled, D-46)
   - Check how mature and well maintained the `rrule` crate is; check `chrono-tz` for
     timezones. Report any gaps to the owner. Then build `domain::recurrence`: expand an RRULE
     (with DTSTART, TZID, EXDATE, UNTIL/COUNT) into local dates/times within a range.
   - Tests: daily/weekly/monthly/BYDAY/BYSETPOS, last day of month, DST, EXDATE, COUNT across
     the horizon.
-- [ ] **3.2 Series and occurrence materialization**
+- [x] **3.2 Series and occurrence materialization**
   - Deliverables: `series` table (template fields, rrule, mode, task type, project/owner);
     materializer job that spawns task rows within the horizon (idempotent via a unique key
     on `series_id, occurrence_key`); "edit this occurrence" (detaches into an exception) vs
@@ -331,21 +332,21 @@ Legend: **Deliverables** = what exists afterwards · **Tests** = what must be co
     new one); deleting future occurrences.
   - Tests: completing one occurrence does not affect others; editing all future keeps past
     history; the materializer is idempotent; changing the horizon.
-- [ ] **3.3 Anchored routines**: occurrences with a fixed time appear automatically in the
+- [x] **3.3 Anchored routines**: occurrences with a fixed time appear automatically in the
       Today view timeline; default type `expires`; missed occurrences are logged.
-- [ ] **3.4 Flexible routines and the window type**  *(needs Q-3)*
+- [x] **3.4 Flexible routines and the window type**  *(needs Q-3)*
   - Deliverables: series with `times_per_window` and a window (week/month); spawns N task
     rows per window ("Laundry 1/2", "2/2") that can be done on any day; `window` task type
     activated (overflow: miss or roll into the next window, per config); UI shows "1 of 2
     this week".
   - Tests: window boundaries respect week start and day end; overflow behavior; completing
     early in the window.
-- [ ] **3.5 Deadline type, routines UI and streaks**
+- [x] **3.5 Deadline type, routines UI and streaks**
   - Deliverables: `deadline` type (carries on until the due date, then overdue); routines
     page; recurrence editor with presets (daily, weekdays, weekly on…, every N days, N times
     per week) plus a raw RRULE field for advanced use; streak calculation from `task_events`
     (only types with `counts_for_streak`).
-- [ ] **3.6 Phase gate**
+- [x] **3.6 Phase gate** (2026-10-06: tests green, measurements logged, browser run of routines)
 
 ---
 

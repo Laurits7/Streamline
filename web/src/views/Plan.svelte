@@ -2,6 +2,7 @@
   // The planning wizard (SPEC §6.2d): Review → Look ahead → Pick → Arrange → Confirm.
   // Progress is saved as a draft, so it resumes at the same step on any device.
   import { untrack } from 'svelte'
+  import { api } from '../lib/api/client'
   import type { DayEntry } from '../lib/api/types/DayEntry'
   import type { Task } from '../lib/api/types/Task'
   import Icon from '../lib/components/Icon.svelte'
@@ -28,6 +29,10 @@
     store.setPlan(date, 'draft', step)
     window.scrollTo(0, 0)
   }
+  // Make sure routine occurrences exist for days after tomorrow.
+  $effect(() => {
+    if (date > addDays(store.today, 1)) api.get(`/days/${date}`).catch(() => {})
+  })
   // Opening the wizard counts as starting to plan.
   $effect(() => {
     if (!store.planFor(date)) store.setPlan(date, 'draft', step)
@@ -69,7 +74,7 @@
   const plannedIds = $derived(new Set(target.map((i) => i.task.id)))
   const due = $derived(
     [...store.tasks.values()]
-      .filter((t) => t.status === 'open' && t.due_date && t.due_date <= date && !plannedIds.has(t.id))
+      .filter((t) => t.status === 'open' && t.due_date && t.due_date <= date && !plannedIds.has(t.id) && !store.isUpcoming(t, date))
       .sort((a, b) => (a.due_date! < b.due_date! ? -1 : 1)),
   )
 

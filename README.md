@@ -3,7 +3,7 @@
 A self-hosted todo list and day planner for a household. One small container, one data
 folder, and it works from any phone, tablet or computer on your network.
 
-> **Status: Phases 1–2b done (foundation, day plan, planning ritual, views and focus).** See [`docs/WORKPLAN.md`](docs/WORKPLAN.md)
+> **Status: Phases 1–3 done (foundation, day plan, planning ritual, views and focus, routines).** See [`docs/WORKPLAN.md`](docs/WORKPLAN.md)
 > for what's built and what's next, and [`docs/SPEC.md`](docs/SPEC.md) for the full vision.
 
 What works today:
@@ -17,6 +17,10 @@ What works today:
     block's bottom edge to change its duration, and drag a block back into the plan to unschedule it.
 - **Projects, subprojects (any depth) and inbox**: quick-add, complete with undo, archive.
 - **Built-in help** at `/help` (sidebar, or Settings on a phone).
+- **Routines and repeating tasks**: on a schedule (any iCalendar rule: weekdays, monthly on the
+  last day, …), at a fixed time (put on the timeline), or N times a week/month. Each occurrence is
+  a normal task; skip one, edit just one, or change the routine from a date on with history kept;
+  streaks per routine.
 - **Views**: All tasks, the Inbox and every project as a list, a board (columns by status,
   project, difficulty or task type) or an urgent/important matrix; drag cards between
   columns/quadrants to change them. Each place remembers its view on all your devices.

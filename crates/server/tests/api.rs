@@ -1175,6 +1175,38 @@ async fn routines_create_occurrences_once() {
     assert_eq!(this_week[0]["window_end"], ymd(we));
     assert_eq!(this_week[0]["due_date"], ymd(we));
 
+    // Window progress counts the done slot, even after next week's slots were created
+    // by viewing a day next week.
+    t.req(
+        "GET",
+        &format!("/api/v1/days/{}", ymd(we + chrono::Duration::days(3))),
+        Some(&admin),
+        None,
+    )
+    .await;
+    t.req(
+        "PATCH",
+        &format!("/api/v1/tasks/{}", this_week[0]["id"].as_str().unwrap()),
+        Some(&admin),
+        Some(json!({"status": "done"})),
+    )
+    .await;
+    let (_, stats, _) = t
+        .req("GET", "/api/v1/series/stats", Some(&admin), None)
+        .await;
+    let ls = stats
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["series_id"] == laundry["id"])
+        .unwrap()
+        .clone();
+    assert_eq!(
+        (ls["window_done"].as_i64(), ls["window_total"].as_i64()),
+        (Some(1), Some(2)),
+        "{ls}"
+    );
+
     // A later day is filled in on demand when viewed.
     let later = today + chrono::Duration::days(10);
     let (_, day, _) = t
@@ -1405,6 +1437,39 @@ async fn routine_edits_this_one_vs_all_future() {
             .map(|o| o["occurrence_date"].as_str().unwrap())
             .collect::<Vec<_>>(),
         [ymd(tomorrow)]
+    );
+
+    // Changing the schedule "from today" after today's is done doesn't create today's again.
+    let (_, daily, _) = t.req("POST", "/api/v1/series", Some(&admin), Some(json!({"title": "Floss", "mode": "anchored", "rrule": "FREQ=DAILY", "start_time": "21:00"}))).await;
+    let did = daily["id"].as_str().unwrap().to_string();
+    let first = occurrences(&t, &admin, &did).await[0].clone();
+    t.req(
+        "PATCH",
+        &format!("/api/v1/tasks/{}", first["id"].as_str().unwrap()),
+        Some(&admin),
+        Some(json!({"status": "done"})),
+    )
+    .await;
+    let (_, moved, _) = t
+        .req(
+            "PATCH",
+            &format!("/api/v1/series/{did}"),
+            Some(&admin),
+            Some(json!({"start_time": "22:00"})),
+        )
+        .await;
+    assert_eq!(moved["dtstart"], ymd(today + chrono::Duration::days(1)));
+    let all: Vec<Value> = [
+        occurrences(&t, &admin, &did).await,
+        occurrences(&t, &admin, moved["id"].as_str().unwrap()).await,
+    ]
+    .concat();
+    assert_eq!(
+        all.iter()
+            .filter(|o| o["occurrence_date"] == ymd(today))
+            .count(),
+        1,
+        "no duplicate for today"
     );
 
     // Ending a routine removes open occurrences from today on, keeps history.

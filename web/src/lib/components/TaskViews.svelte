@@ -22,7 +22,7 @@
     return [...store.tasks.values()].filter((t) => {
       const inScope =
         scope.kind === 'all' || (scope.kind === 'inbox' ? t.project_id === null : t.project_id !== null && ids!.has(t.project_id))
-      return inScope && (t.status === 'open' || (t.status === 'done' && (t.completed_at ?? '') >= since))
+      return inScope && !store.isUpcoming(t) && (t.status === 'open' || (t.status === 'done' && (t.completed_at ?? '') >= since))
     })
   })
 

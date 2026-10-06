@@ -6,6 +6,7 @@
   import Icon from './Icon.svelte'
   import Sheet from './Sheet.svelte'
   import { router } from '../router.svelte'
+  import { describeSeries } from '../rrule'
 
   let { id }: { id: string } = $props()
 
@@ -71,6 +72,22 @@
       onblur={saveTitle}
       onkeydown={(e) => e.key === 'Enter' && (e.currentTarget as HTMLInputElement).blur()}
       aria-label="Title" />
+
+    {#if task.series_id}
+      {@const series = store.series.get(task.series_id)}
+      <div class="routine-box">
+        <Icon name="repeat" size={16} />
+        <span>
+          {#if series}Part of a routine: <strong>{describeSeries(series)}</strong>{:else}Part of a routine that has ended{/if}
+          {#if task.occurrence_date}<span class="muted"> · this one is for {shortDate(task.occurrence_date, store.today)}{task.window_end ? `–${shortDate(task.window_end, store.today)}` : ''}</span>{/if}
+        </span>
+        <div class="acts">
+          {#if task.status === 'open'}<button class="btn small" onclick={() => store.updateTask(id, { status: 'skipped' })}>Skip this time</button>{/if}
+          {#if series}<button class="btn small" onclick={() => { ui.routine = series.id; ui.editing = null }}>Edit routine</button>{/if}
+        </div>
+      </div>
+      <p class="muted help">Changes below apply to this occurrence only.</p>
+    {/if}
 
     {#if task.status === 'open'}
       <div class="quick">
@@ -241,6 +258,26 @@
   }
   section {
     margin-top: 20px;
+  }
+  .routine-box {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-top: 12px;
+    padding: 10px 12px;
+    border-radius: var(--radius-sm);
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-size: 14px;
+  }
+  .routine-box > span {
+    flex: 1 1 200px;
+    color: var(--text);
+  }
+  .routine-box .acts {
+    display: flex;
+    gap: 6px;
   }
   .quick {
     display: flex;

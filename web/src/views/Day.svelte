@@ -10,6 +10,7 @@
   import Timeline from '../lib/components/Timeline.svelte'
   import { addDays, dayLabel, fmtMinutes, longDate, nowHHMM } from '../lib/dates'
   import { announce } from '../lib/announce.svelte'
+  import { api } from '../lib/api/client'
   import { dropList, type DragItem } from '../lib/dnd.svelte'
   import { keyAt } from '../lib/order'
   import { router } from '../lib/router.svelte'
@@ -32,9 +33,15 @@
   const flexible = $derived(open.filter((i) => !i.entry.start_time))
   const closed = $derived(items.filter((i) => i.task.status !== 'open'))
   const plannedIds = $derived(new Set(items.map((i) => i.task.id)))
+  // "N times a week/month" routines whose window includes this day (doable any day of it).
+  const windowed = $derived(
+    [...store.tasks.values()]
+      .filter((t) => t.status === 'open' && t.window_end && t.occurrence_date! <= date && date <= t.window_end && !plannedIds.has(t.id))
+      .sort((a, b) => a.title.localeCompare(b.title) || (a.occurrence_key ?? '').localeCompare(b.occurrence_key ?? '')),
+  )
   const due = $derived(
     [...store.tasks.values()]
-      .filter((t) => t.status === 'open' && t.due_date && t.due_date <= date && !plannedIds.has(t.id))
+      .filter((t) => t.status === 'open' && !t.window_end && t.due_date && t.due_date <= date && !plannedIds.has(t.id) && !store.isUpcoming(t, date))
       .sort((a, b) => (a.due_date! < b.due_date! ? -1 : 1)),
   )
 
@@ -73,6 +80,11 @@
     store.plan(item.taskId, date, { position: keyAt(others, index), startTime: null })
     announce(`“${store.tasks.get(item.taskId)?.title}” is now number ${index + 1} in the plan`)
   }
+
+  // Routine occurrences exist up to tomorrow; ask the server to fill in later days.
+  $effect(() => {
+    if (date > addDays(store.today, 1)) api.get(`/days/${date}`).catch(() => {})
+  })
 
   let showDone = $state(false)
   const go = (d: string) => router.go(d === store.today ? '/' : `/day/${d}`)
@@ -157,6 +169,15 @@
         </div>
       {/each}
     </div>
+
+    {#if windowed.length}
+      <h2 class="section-title"><Icon name="repeat" size={14} /> This week / month</h2>
+      <div class="card list">
+        {#each windowed as t (t.id)}
+          <TaskRow task={t} showProject planButton planDate={date} />
+        {/each}
+      </div>
+    {/if}
 
     {#if due.length}
       <h2 class="section-title"><Icon name="calendar" size={14} /> Due {isToday ? '& overdue' : ''}</h2>

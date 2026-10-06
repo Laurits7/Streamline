@@ -75,7 +75,11 @@
       {#if (task.importance ?? 0) >= 2}<span class="tag accent">Important</span>{/if}
       {#if (task.urgency ?? 0) >= 2}<span class="tag warn">Urgent</span>{/if}
       {#if task.carry_count > 0 && type?.shows_carry_count && task.status === 'open'}<span title="Carried over {task.carry_count} day(s)"><Icon name="repeat" size={12} />{task.carry_count}d</span>{/if}
-      {#if type && type.key !== 'carry_on'}<span class="tag">{type.name}</span>{/if}
+      {#if type && type.key !== 'carry_on' && !(task.window_end && type.key === 'window')}<span class="tag">{type.name}</span>{/if}
+      {#if task.series_id}
+        {@const prog = task.window_end ? store.windowProgress(task.series_id, store.today) : null}
+        <span title="Routine"><Icon name="repeat" size={12} />{prog && prog.total > 1 ? ` ${prog.done}/${prog.total} this ${store.series.get(task.series_id)?.window ?? 'week'}` : ''}</span>
+      {/if}
       {#if task.notes.trim()}<span title="Has notes">¶</span>{/if}
     </span>
   </button>
