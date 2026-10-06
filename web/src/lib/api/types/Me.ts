@@ -3,4 +3,12 @@
 /**
  * The signed-in user as seen by themselves (and by admins in the user list).
  */
-export type Me = { id: string, username: string, display_name: string, is_admin: boolean, timezone: string, day_end: string, };
+export type Me = { id: string, username: string, display_name: string, is_admin: boolean, timezone: string, day_end: string, 
+/**
+ * BCP 47 language tag for dates and numbers; empty = the browser's language.
+ */
+locale: string, 
+/**
+ * First day of the week, ISO weekday (1 = Monday ... 7 = Sunday).
+ */
+week_start: number, };

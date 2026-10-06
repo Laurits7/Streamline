@@ -1,4 +1,10 @@
 // Dates are local calendar days as 'YYYY-MM-DD' strings; the server decides "today".
+// Formatting follows the user's locale setting (empty = the browser's language).
+
+import { store } from './store.svelte'
+
+/** The user's locale, or undefined for the browser default. Reactive (reads the store). */
+export const userLocale = (): string | undefined => store.me?.locale || undefined
 
 export function addDays(date: string, n: number): string {
   const [y, m, d] = date.split('-').map(Number)
@@ -11,18 +17,18 @@ export function dayLabel(date: string, today: string): string {
   if (date === today) return 'Today'
   if (date === addDays(today, 1)) return 'Tomorrow'
   if (date === addDays(today, -1)) return 'Yesterday'
-  return utc(date).toLocaleDateString(undefined, { weekday: 'long', timeZone: 'UTC' })
+  return utc(date).toLocaleDateString(userLocale(), { weekday: 'long', timeZone: 'UTC' })
 }
 
 export function longDate(date: string): string {
-  return utc(date).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'long', timeZone: 'UTC' })
+  return utc(date).toLocaleDateString(userLocale(), { weekday: 'short', day: 'numeric', month: 'long', timeZone: 'UTC' })
 }
 
 export function shortDate(date: string, today: string): string {
   if (date === today) return 'Today'
   if (date === addDays(today, 1)) return 'Tomorrow'
   if (date === addDays(today, -1)) return 'Yesterday'
-  return utc(date).toLocaleDateString(undefined, { day: 'numeric', month: 'short', timeZone: 'UTC' })
+  return utc(date).toLocaleDateString(userLocale(), { day: 'numeric', month: 'short', timeZone: 'UTC' })
 }
 
 export function fmtMinutes(m: number): string {

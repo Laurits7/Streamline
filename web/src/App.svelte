@@ -57,6 +57,11 @@
     })
   })
 
+  // Let the browser know the page language (affects hyphenation, screen readers).
+  $effect(() => {
+    document.documentElement.lang = store.me?.locale || navigator.language || 'en'
+  })
+
   const route = $derived(match(router.path))
   const projects = $derived(store.projectTree(isCollapsed))
   const active = (name: string, id?: string) =>

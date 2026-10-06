@@ -610,7 +610,7 @@ class Store {
 
   // ---- account --------------------------------------------------------------
 
-  async updateMe(patch: Partial<Pick<Me, 'display_name' | 'timezone' | 'day_end'>>) {
+  async updateMe(patch: Partial<Pick<Me, 'display_name' | 'timezone' | 'day_end' | 'locale' | 'week_start'>>) {
     try {
       this.me = await api.patch<Me>('/me', patch)
       await this.sync()

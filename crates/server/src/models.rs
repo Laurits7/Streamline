@@ -15,6 +15,8 @@ pub struct User {
     pub timezone: String,
     pub day_end: String,
     pub last_rollover_date: Option<String>,
+    pub locale: String,
+    pub week_start: i32,
 }
 
 /// The signed-in user as seen by themselves (and by admins in the user list).
@@ -27,6 +29,10 @@ pub struct Me {
     pub is_admin: bool,
     pub timezone: String,
     pub day_end: String,
+    /// BCP 47 language tag for dates and numbers; empty = the browser's language.
+    pub locale: String,
+    /// First day of the week, ISO weekday (1 = Monday ... 7 = Sunday).
+    pub week_start: i32,
 }
 
 impl From<&User> for Me {
@@ -38,6 +44,8 @@ impl From<&User> for Me {
             is_admin: u.is_admin,
             timezone: u.timezone.clone(),
             day_end: u.day_end.clone(),
+            locale: u.locale.clone(),
+            week_start: u.week_start,
         }
     }
 }

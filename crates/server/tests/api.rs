@@ -543,3 +543,31 @@ async fn subprojects() {
         .await;
     assert_eq!(s, StatusCode::NOT_FOUND);
 }
+
+#[tokio::test]
+async fn profile_preferences() {
+    let t = setup().await;
+    let admin = t.admin().await;
+    let (_, v, _) = t.req("GET", "/api/v1/me", Some(&admin), None).await;
+    assert_eq!(
+        (v["locale"].as_str(), v["week_start"].as_i64()),
+        (Some(""), Some(1))
+    );
+    let (s, v, _) = t
+        .req("PATCH", "/api/v1/me", Some(&admin), Some(json!({"locale": "et-EE", "week_start": 7, "timezone": "Europe/Tallinn", "day_end": "03:30"})))
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(v["locale"], "et-EE");
+    assert_eq!(v["week_start"], 7);
+    for bad in [
+        json!({"locale": "en_GB!"}),
+        json!({"week_start": 0}),
+        json!({"timezone": "Mars/Base"}),
+        json!({"day_end": "25:00"}),
+    ] {
+        let (s, _, _) = t
+            .req("PATCH", "/api/v1/me", Some(&admin), Some(bad.clone()))
+            .await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "{bad}");
+    }
+}

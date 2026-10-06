@@ -217,7 +217,7 @@ Legend: **Deliverables** = what exists afterwards · **Tests** = what must be co
 
 ### Phase 2: Day plan (§6.2, §6.2c, §6.6, basic §6.12)
 
-- [~] **2.1 Time model and user preferences** (MVP: timezone + day end done; locale and week start not yet)  *(needs Q-2)*
+- [x] **2.1 Time model and user preferences**  *(needs Q-2)* (timezone, day end, locale, week start; `day_bounds`/`week_bounds` with DST tests)
   - Deliverables: user prefs (timezone, day-end time, week start, locale); `domain::time`
     with `logical_date()`, day bounds, `HH:MM` handling.
   - Tests: DST transitions (Europe/Tallinn spring/autumn), a day end of 04:00 around midnight,

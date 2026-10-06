@@ -119,6 +119,8 @@ pub struct PatchMe {
     display_name: Option<String>,
     timezone: Option<String>,
     day_end: Option<String>,
+    locale: Option<String>,
+    week_start: Option<i32>,
 }
 
 pub async fn patch_me(
@@ -142,12 +144,37 @@ pub async fn patch_me(
         crate::util::check_hhmm(&de)?;
         u.day_end = de;
     }
+    if let Some(l) = p.locale {
+        let ok = l.is_empty()
+            || (l.len() <= 35
+                && l.split('-').all(|part| {
+                    !part.is_empty()
+                        && part.len() <= 8
+                        && part.chars().all(|c| c.is_ascii_alphanumeric())
+                }));
+        if !ok {
+            return Err(bad(
+                "locale must be a language tag like en-GB, or empty for the browser default",
+            ));
+        }
+        u.locale = l;
+    }
+    if let Some(w) = p.week_start {
+        if !(1..=7).contains(&w) {
+            return Err(bad("week_start must be 1 (Monday) to 7 (Sunday)"));
+        }
+        u.week_start = w;
+    }
     let mut tx = state.db.write.begin().await?;
     let rev = crate::db::next_rev(&mut tx).await?;
-    sqlx::query("UPDATE users SET display_name = ?, timezone = ?, day_end = ?, updated_at = ?, rev = ? WHERE id = ?")
+    sqlx::query(
+        "UPDATE users SET display_name = ?, timezone = ?, day_end = ?, locale = ?, week_start = ?, updated_at = ?, rev = ? WHERE id = ?",
+    )
         .bind(&u.display_name)
         .bind(&u.timezone)
         .bind(&u.day_end)
+        .bind(&u.locale)
+        .bind(u.week_start)
         .bind(now())
         .bind(rev)
         .bind(&u.id)

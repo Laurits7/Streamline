@@ -11,6 +11,18 @@
   const me = $derived(store.me!)
   const zones: string[] = (Intl as unknown as { supportedValuesOf?: (k: string) => string[] }).supportedValuesOf?.('timeZone') ?? []
 
+  const locales = ['', 'en-GB', 'en-US', 'et-EE', 'fi-FI', 'sv-SE', 'de-DE', 'nl-NL', 'fr-FR', 'es-ES', 'it-IT', 'pl-PL', 'lv-LV', 'lt-LT', 'ru-RU']
+  const localeName = (l: string) => {
+    if (!l) return 'Browser default'
+    try {
+      return `${new Intl.DisplayNames([l], { type: 'language' }).of(l)} (${l})`
+    } catch {
+      return l
+    }
+  }
+  const sample = $derived(
+    new Date().toLocaleDateString(me.locale || undefined, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }),
+  )
   const err = (e: unknown) => toast(e instanceof ApiError ? e.message : 'Something went wrong', 'error')
 
   // Password
@@ -131,6 +143,24 @@
       <input type="time" value={me.day_end} onchange={(e) => store.updateMe({ day_end: (e.currentTarget as HTMLInputElement).value })} />
     </label>
   </div>
+  <div class="grid2">
+    <label>
+      <span>Language for dates</span>
+      <select value={me.locale} onchange={(e) => store.updateMe({ locale: (e.currentTarget as HTMLSelectElement).value })}>
+        {#if !locales.includes(me.locale)}<option value={me.locale}>{me.locale}</option>{/if}
+        {#each locales as l (l)}<option value={l}>{localeName(l)}</option>{/each}
+      </select>
+    </label>
+    <label>
+      <span>Week starts on</span>
+      <select value={me.week_start} onchange={(e) => store.updateMe({ week_start: Number((e.currentTarget as HTMLSelectElement).value) })}>
+        <option value={1}>Monday</option>
+        <option value={7}>Sunday</option>
+        <option value={6}>Saturday</option>
+      </select>
+    </label>
+  </div>
+  <p class="help muted">Example: {sample}. The week start is used by weekly routines and views.</p>
   <p class="help muted">
     Unfinished tasks are carried over or marked missed when your day ends. A time after midnight (e.g. 04:00) keeps
     late evenings on the same day.
