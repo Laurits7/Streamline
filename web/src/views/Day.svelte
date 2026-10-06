@@ -5,9 +5,11 @@
   import Icon from '../lib/components/Icon.svelte'
   import QuickAdd from '../lib/components/QuickAdd.svelte'
   import TaskRow from '../lib/components/TaskRow.svelte'
+  import Timeline from '../lib/components/Timeline.svelte'
   import { addDays, dayLabel, fmtMinutes, longDate, nowHHMM } from '../lib/dates'
+  import { dropList, type DragItem } from '../lib/dnd.svelte'
+  import { keyAt } from '../lib/order'
   import { router } from '../lib/router.svelte'
-  import { sortable } from '../lib/sortable'
   import { store } from '../lib/store.svelte'
   import { ui } from '../lib/ui.svelte'
 
@@ -23,9 +25,7 @@
       .filter((i): i is Item => !!i.task),
   )
   const open = $derived(items.filter((i) => i.task.status === 'open'))
-  const scheduled = $derived(
-    open.filter((i) => i.entry.start_time).sort((a, b) => (a.entry.start_time! < b.entry.start_time! ? -1 : 1)),
-  )
+  const timed = $derived(items.filter((i) => i.entry.start_time))
   const flexible = $derived(open.filter((i) => !i.entry.start_time))
   const closed = $derived(items.filter((i) => i.task.status !== 'open'))
   const plannedIds = $derived(new Set(items.map((i) => i.task.id)))
@@ -38,101 +38,143 @@
   const doneCount = $derived(closed.filter((i) => i.task.status === 'done').length)
   const minutesLeft = $derived(open.reduce((s, i) => s + (i.entry.duration_min ?? i.task.estimate_min ?? 0), 0))
 
-  // Current time, refreshed every 30 s, for the "now" marker.
+  // Current time, refreshed every 30 s.
   let now = $state(nowHHMM(store.me?.timezone ?? 'UTC'))
   $effect(() => {
     const t = setInterval(() => (now = nowHHMM(store.me?.timezone ?? 'UTC')), 30_000)
     return () => clearInterval(t)
   })
-  const nowIndex = $derived(isToday ? scheduled.findIndex((i) => i.entry.start_time! >= now) : -1)
-  const next = $derived(isToday ? (nowIndex >= 0 ? scheduled[nowIndex] : (flexible[0] ?? null)) : null)
+  const upcoming = $derived(
+    open.filter((i) => i.entry.start_time && i.entry.start_time >= now).sort((a, b) => (a.entry.start_time! < b.entry.start_time! ? -1 : 1)),
+  )
+  const next = $derived(isToday ? (upcoming[0] ?? flexible[0] ?? null) : null)
+
+  // Wide screens show the timeline beside the plan; phones show it above.
+  const mq = window.matchMedia('(min-width: 1100px)')
+  let wide = $state(mq.matches)
+  $effect(() => {
+    const on = () => (wide = mq.matches)
+    mq.addEventListener('change', on)
+    return () => mq.removeEventListener('change', on)
+  })
+
+  /** Drop into the plan list: plan the task here, at that position, without a time. */
+  function dropOnPlan(item: DragItem, index: number) {
+    if (item.kind !== 'task') return
+    const others = flexible.filter((i) => i.task.id !== item.taskId).map((i) => i.entry.position)
+    store.plan(item.taskId, date, { position: keyAt(others, index), startTime: null })
+  }
 
   let showDone = $state(false)
   const go = (d: string) => router.go(d === store.today ? '/' : `/day/${d}`)
 </script>
 
-<header class="head">
-  <div class="title">
-    <h1>{dayLabel(date, store.today)}</h1>
-    <p class="muted">{longDate(date)}</p>
-  </div>
-  <nav class="daynav" aria-label="Change day">
-    <button class="icon-btn" onclick={() => go(addDays(date, -1))} aria-label="Previous day"><Icon name="left" /></button>
-    {#if !isToday}<button class="btn small" onclick={() => go(store.today)}>Today</button>{/if}
-    <button class="icon-btn" onclick={() => go(addDays(date, 1))} aria-label="Next day"><Icon name="right" /></button>
-  </nav>
-</header>
+{#snippet timeline()}
+  <h2 class="section-title">
+    <Icon name="clock" size={14} /> Timeline
+    <span class="hint">drag tasks onto a time</span>
+  </h2>
+  <Timeline {date} items={timed} now={isToday ? now : null} />
+{/snippet}
 
-{#if items.length}
-  <div class="progress" aria-label="{doneCount} of {items.length} done">
-    <div class="bar"><div style:width="{(doneCount / items.length) * 100}%"></div></div>
-    <span class="muted">{doneCount}/{items.length} done{minutesLeft ? ` · ${fmtMinutes(minutesLeft)} left` : ''}</span>
-  </div>
-{/if}
-
-{#if next}
-  <button class="next card" onclick={() => (ui.editing = next.task.id)}>
-    <span class="label">{next.entry.start_time ? `Next · ${next.entry.start_time}` : 'Up next'}</span>
-    <span class="next-title">{next.task.title}</span>
-  </button>
-{/if}
-
-<QuickAdd placeholder={isToday ? 'Add a task for today…' : `Add a task for ${dayLabel(date, store.today).toLowerCase()}…`} onadd={(title) => store.createTask({ title, day: date })} />
-
-{#if scheduled.length}
-  <h2 class="section-title"><Icon name="clock" size={14} /> Scheduled</h2>
-  <div class="card list">
-    {#each scheduled as i, idx (i.entry.id)}
-      {#if idx === nowIndex}<div class="now"><span>Now {now}</span></div>{/if}
-      <div class:past={isToday && nowIndex !== -1 && idx < nowIndex || isToday && nowIndex === -1}>
-        <TaskRow task={i.task} entry={i.entry} showProject />
+<div class="day" class:wide>
+  <div class="main-col">
+    <header class="head">
+      <div class="title">
+        <h1>{dayLabel(date, store.today)}</h1>
+        <p class="muted">{longDate(date)}</p>
       </div>
-    {/each}
-  </div>
-{/if}
+      <nav class="daynav" aria-label="Change day">
+        <button class="icon-btn" onclick={() => go(addDays(date, -1))} aria-label="Previous day"><Icon name="left" /></button>
+        {#if !isToday}<button class="btn small" onclick={() => go(store.today)}>Today</button>{/if}
+        <button class="icon-btn" onclick={() => go(addDays(date, 1))} aria-label="Next day"><Icon name="right" /></button>
+      </nav>
+    </header>
 
-<h2 class="section-title">
-  <Icon name="list" size={14} /> Plan
-  <button class="btn small pull" onclick={() => (ui.pullFor = date)}><Icon name="plus" size={14} /> Pull in tasks</button>
-</h2>
-{#if flexible.length}
-  <div
-    class="card list"
-    use:sortable={{ onMove: (id, index) => store.reorderEntry(flexible.map((i) => i.entry), id, index) }}>
-    {#each flexible as i (i.entry.id)}
-      <TaskRow task={i.task} entry={i.entry} showProject draggable />
-    {/each}
-  </div>
-{:else}
-  <div class="card empty">
-    {#if items.length}All planned tasks are done.{:else}Nothing planned yet.{/if}
-    <br /><button class="btn primary small" style="margin-top:12px" onclick={() => (ui.pullFor = date)}>Pull in tasks</button>
-  </div>
-{/if}
+    {#if items.length}
+      <div class="progress" aria-label="{doneCount} of {items.length} done">
+        <div class="bar"><div style:width="{(doneCount / items.length) * 100}%"></div></div>
+        <span class="muted">{doneCount}/{items.length} done{minutesLeft ? ` · ${fmtMinutes(minutesLeft)} left` : ''}</span>
+      </div>
+    {/if}
 
-{#if due.length}
-  <h2 class="section-title"><Icon name="calendar" size={14} /> Due {isToday ? '& overdue' : ''}</h2>
-  <div class="card list">
-    {#each due as t (t.id)}
-      <TaskRow task={t} showProject planButton planDate={date} />
-    {/each}
-  </div>
-{/if}
+    {#if next}
+      <button class="next card" onclick={() => (ui.editing = next.task.id)}>
+        <span class="label">{next.entry.start_time ? `Next · ${next.entry.start_time}` : 'Up next'}</span>
+        <span class="next-title">{next.task.title}</span>
+      </button>
+    {/if}
 
-{#if closed.length}
-  <button class="section-title toggle" onclick={() => (showDone = !showDone)} aria-expanded={showDone}>
-    <Icon name={showDone ? 'left' : 'right'} size={14} /> Done & closed ({closed.length})
-  </button>
-  {#if showDone}
-    <div class="card list">
-      {#each closed as i (i.entry.id)}
-        <TaskRow task={i.task} entry={i.entry} showProject />
+    <QuickAdd
+      placeholder={isToday ? 'Add a task for today…' : `Add a task for ${dayLabel(date, store.today).toLowerCase()}…`}
+      onadd={(title) => store.createTask({ title, day: date })} />
+
+    {#if !wide}{@render timeline()}{/if}
+
+    <h2 class="section-title">
+      <Icon name="list" size={14} /> Plan
+      <button class="btn small pull" onclick={() => (ui.pullFor = date)}><Icon name="plus" size={14} /> Pull in tasks</button>
+    </h2>
+    <div
+      class="card list"
+      use:dropList={{
+        accepts: (it) => it.kind === 'task',
+        drop: dropOnPlan,
+        keyMove: (id, index) => store.reorderEntry(flexible.map((i) => i.entry), id, index),
+      }}>
+      {#each flexible as i (i.entry.id)}
+        <TaskRow task={i.task} entry={i.entry} showProject handle />
+      {:else}
+        <div class="empty">
+          {#if timed.length || closed.length}Nothing left without a time.{:else}Nothing planned yet.{/if}
+          Drop tasks here, or
+          <button class="link" onclick={() => (ui.pullFor = date)}>pull them in</button>.
+        </div>
       {/each}
     </div>
+
+    {#if due.length}
+      <h2 class="section-title"><Icon name="calendar" size={14} /> Due {isToday ? '& overdue' : ''}</h2>
+      <div class="card list">
+        {#each due as t (t.id)}
+          <TaskRow task={t} showProject planButton planDate={date} />
+        {/each}
+      </div>
+    {/if}
+
+    {#if closed.length}
+      <button class="section-title toggle" onclick={() => (showDone = !showDone)} aria-expanded={showDone}>
+        <Icon name={showDone ? 'left' : 'right'} size={14} /> Done & closed ({closed.length})
+      </button>
+      {#if showDone}
+        <div class="card list">
+          {#each closed as i (i.entry.id)}
+            <TaskRow task={i.task} entry={i.entry} showProject />
+          {/each}
+        </div>
+      {/if}
+    {/if}
+  </div>
+
+  {#if wide}
+    <aside class="time-col">{@render timeline()}</aside>
   {/if}
-{/if}
+</div>
 
 <style>
+  .day.wide {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 360px;
+    gap: 32px;
+    align-items: start;
+  }
+  .time-col {
+    position: sticky;
+    top: 12px;
+  }
+  .time-col .section-title {
+    margin-top: 0;
+  }
   .head {
     display: flex;
     align-items: flex-end;
@@ -202,27 +244,21 @@
     text-transform: none;
     letter-spacing: 0;
   }
+  .hint {
+    text-transform: none;
+    letter-spacing: 0;
+    font-weight: 400;
+    color: var(--faint);
+    margin-left: auto;
+  }
   .toggle {
     width: 100%;
   }
-  .now {
-    position: relative;
-    height: 0;
-    border-top: 2px solid var(--danger);
-    z-index: 1;
+  .link {
+    color: var(--accent);
+    font-weight: 600;
   }
-  .now span {
-    position: absolute;
-    right: 8px;
-    top: -10px;
-    font-size: 11px;
-    font-weight: 700;
-    background: var(--danger);
-    color: #fff;
-    border-radius: 999px;
-    padding: 1px 8px;
-  }
-  .past {
-    opacity: 0.6;
+  .list:global(.drop-hover) .empty {
+    background: var(--accent-soft);
   }
 </style>

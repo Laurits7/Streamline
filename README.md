@@ -8,9 +8,14 @@ folder, and it works from any phone, tablet or computer on your network.
 
 What works today:
 
-- **Today view** (the landing page): scheduled items with a "now" line, an ordered plan you can
-  drag to reorder, what's up next, due/overdue tasks, progress, and browsing other days.
-- **Projects and inbox**: quick-add, drag to reorder, complete with undo, archive.
+- **Today view** (the landing page): a timeline with a "now" line, an ordered plan, what's up
+  next, due/overdue tasks, progress, and browsing other days.
+- **Drag and drop** with mouse, touch (long-press) or keyboard (grip + arrow keys):
+  - reorder tasks and projects;
+  - drop a task on a project, Inbox or Today in the sidebar (or the Today/Inbox tabs on a phone);
+  - drop tasks onto the timeline to schedule them, drag blocks to move them in time, drag a
+    block's bottom edge to change its duration, and drag a block back into the plan to unschedule it.
+- **Projects and inbox**: quick-add, complete with undo, archive.
 - **Pull tasks into a day** from the ready stack, give them a time and duration, or move them to
   another day.
 - **Task details**: notes, due date, estimate, difficulty, importance and urgency, and task type.

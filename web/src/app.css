@@ -245,16 +245,45 @@ textarea {
   white-space: nowrap;
 }
 
-/* Lists that can be drag-sorted */
-.sorting {
-  user-select: none;
+/* Drag and drop (lib/dnd.svelte.ts) */
+[data-draggable] {
+  -webkit-touch-callout: none;
 }
-.dragging {
-  position: relative;
-  z-index: 5;
+.drag-ghost {
   box-shadow: var(--shadow-lg);
   border-radius: var(--radius-sm);
   background: var(--surface);
+  opacity: 0.95;
+}
+.drag-source {
+  opacity: 0.35;
+}
+body.dragging-active,
+body.dragging-active * {
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: grabbing !important;
+}
+.drop-before {
+  box-shadow: inset 0 3px 0 -1px var(--accent);
+}
+.drop-after {
+  box-shadow: inset 0 -3px 0 -1px var(--accent);
+}
+.drop-zone {
+  transition:
+    background 120ms,
+    outline-color 120ms;
+  outline: 2px dashed transparent;
+  outline-offset: -2px;
+}
+body.dragging-active .drop-zone {
+  outline-color: var(--border);
+}
+.drop-zone.drop-hover {
+  background: var(--accent-soft) !important;
+  color: var(--accent) !important;
+  outline-color: var(--accent) !important;
 }
 
 @media (prefers-reduced-motion: reduce) {

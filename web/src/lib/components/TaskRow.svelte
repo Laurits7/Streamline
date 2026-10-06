@@ -2,6 +2,7 @@
   import type { DayEntry } from '../api/types/DayEntry'
   import type { Task } from '../api/types/Task'
   import { fmtMinutes, shortDate } from '../dates'
+  import { draggable } from '../dnd.svelte'
   import { store } from '../store.svelte'
   import { ui } from '../ui.svelte'
   import Check from './Check.svelte'
@@ -11,14 +12,15 @@
     task,
     entry = null,
     showProject = false,
-    draggable = false,
+    handle = false,
     planButton = false,
     planDate = null,
   }: {
     task: Task
     entry?: DayEntry | null
     showProject?: boolean
-    draggable?: boolean
+    /** Show a grip: keyboard reorder (arrow keys) and immediate touch drag. */
+    handle?: boolean
     planButton?: boolean
     planDate?: string | null
   } = $props()
@@ -33,17 +35,29 @@
   const statusLabel: Record<string, string> = { missed: 'Missed', skipped: 'Skipped', wont_do: "Won't do" }
 </script>
 
-<div class="row" class:closed data-id={entry?.id ?? task.id}>
-  {#if draggable}
+<div
+  class="row"
+  class:closed
+  data-id={entry?.id ?? task.id}
+  use:draggable={{
+    disabled: task.status !== 'open',
+    item: () => ({
+      kind: 'task',
+      taskId: task.id,
+      entryId: entry?.id,
+      durationMin: entry?.duration_min ?? task.estimate_min ?? 30,
+    }),
+  }}>
+  {#if handle}
     <button class="handle" data-handle aria-label="Reorder {task.title} (drag, or use arrow keys)">
       <Icon name="grip" size={16} />
     </button>
   {/if}
   {#if task.status === 'open' || task.status === 'done'}
-    <Check
+    <span data-nodrag class="check-wrap"><Check
       done={task.status === 'done'}
       onclick={() => store.toggleDone(task.id)}
-      label={task.status === 'done' ? `Mark ${task.title} as not done` : `Complete ${task.title}`} />
+      label={task.status === 'done' ? `Mark ${task.title} as not done` : `Complete ${task.title}`} /></span>
   {:else}
     <span class="status-dot" title={statusLabel[task.status]}><Icon name="x" size={12} /></span>
   {/if}
@@ -67,6 +81,7 @@
   </button>
   {#if planButton && task.status === 'open'}
     <button
+      data-nodrag
       class="icon-btn plan"
       class:on={plannedHere}
       aria-label={plannedHere ? `Remove ${task.title} from ${shortDate(target, store.today)}` : `Plan ${task.title} for ${shortDate(target, store.today)}`}
@@ -87,6 +102,9 @@
     min-height: 52px;
     border-bottom: 1px solid var(--border);
     background: var(--surface);
+  }
+  .check-wrap {
+    display: contents;
   }
   .row:last-child {
     border-bottom: 0;

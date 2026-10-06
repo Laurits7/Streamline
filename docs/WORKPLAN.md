@@ -252,7 +252,7 @@ Legend: **Deliverables** = what exists afterwards · **Tests** = what must be co
     navigation (yesterday/tomorrow).
   - Done when: opening the app on a phone shows the day in one screen within ~1 s on LAN.
 
-- [~] **2.6 Basic drag and drop** (MVP: handle-based reorder within lists + keyboard; dragging between lists/onto time slots and real-device testing still to do)
+- [x] **2.6 Basic drag and drop** (own pointer-based layer, D-36: reorder, drop onto projects/Inbox/Today, timeline scheduling/move/resize; tested in headless Chrome with mouse and emulated touch, real-device check still advisable)
   - Deliverables: choose a DnD approach (evaluate `svelte-dnd-action` against a small custom
     pointer-events action; pick on bundle size, touch quality and keyboard support, and log the
     choice in DECISIONS.md). Reorder within a list, drag from the ready stack into the day,
@@ -293,7 +293,7 @@ Legend: **Deliverables** = what exists afterwards · **Tests** = what must be co
       type; drag between columns changes the matching field; adds an `in_progress` status.
 - [ ] **2b.3 Eisenhower matrix**  *(needs Q-22)*: four quadrants; drag sets importance and
       urgency; blocked tasks are dimmed (once 3b lands).
-- [ ] **2b.4 DnD everywhere and accessibility pass**: drag tasks onto projects in the
+- [~] **2b.4 DnD everywhere and accessibility pass** (shared layer and sidebar/project drop targets done in 2.6; kanban/matrix targets, screen-reader announcements remain): drag tasks onto projects in the
       sidebar; one shared DnD layer for all views; screen reader announcements; menu
       alternatives everywhere.
 - [ ] **2b.5 Focus sessions backend**  *(needs Q-20)*

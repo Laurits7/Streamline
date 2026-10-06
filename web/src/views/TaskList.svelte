@@ -4,7 +4,8 @@
   import QuickAdd from '../lib/components/QuickAdd.svelte'
   import TaskRow from '../lib/components/TaskRow.svelte'
   import { router } from '../lib/router.svelte'
-  import { sortable } from '../lib/sortable'
+  import { dropList, type DragItem } from '../lib/dnd.svelte'
+  import { keyAt } from '../lib/order'
   import { store } from '../lib/store.svelte'
 
   let { projectId = null }: { projectId?: string | null } = $props()
@@ -31,6 +32,12 @@
       store.deleteProject(projectId)
       router.go('/projects', true)
     }
+  }
+  /** Drop a task into this list: reorder, or move it here from another project/inbox. */
+  function dropTask(item: DragItem, index: number) {
+    if (item.kind !== 'task') return
+    const others = open.filter((t) => t.id !== item.taskId).map((t) => t.position)
+    store.moveToProject(item.taskId, projectId, keyAt(others, index))
   }
   const colors = ['#4f46e5', '#0891b2', '#16a34a', '#ca8a04', '#ea580c', '#dc2626', '#db2777', '#7c3aed', '#64748b']
 </script>
@@ -68,15 +75,15 @@
 
   <QuickAdd placeholder={project ? `Add to ${project.name}…` : 'Add to inbox…'} onadd={(title) => store.createTask({ title, project_id: projectId })} />
 
-  {#if open.length}
-    <div class="card list" use:sortable={{ onMove: (id, index) => store.reorderTask(open, id, index) }}>
-      {#each open as t (t.id)}
-        <TaskRow task={t} draggable planButton />
-      {/each}
-    </div>
-  {:else}
-    <p class="empty">{project ? 'No open tasks in this project.' : 'Inbox zero. Capture anything above.'}</p>
-  {/if}
+  <div
+    class="card list"
+    use:dropList={{ accepts: (it) => it.kind === 'task', drop: dropTask, keyMove: (id, index) => store.reorderTask(open, id, index) }}>
+    {#each open as t (t.id)}
+      <TaskRow task={t} handle planButton />
+    {:else}
+      <p class="empty">{project ? 'No open tasks in this project.' : 'Inbox zero. Capture anything above.'}</p>
+    {/each}
+  </div>
 
   {#if closed.length}
     <button class="section-title toggle" onclick={() => (showDone = !showDone)} aria-expanded={showDone}>

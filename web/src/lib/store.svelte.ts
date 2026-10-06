@@ -376,11 +376,6 @@ class Store {
     this.updateTask(id, { position: keyAt(others, index) })
   }
 
-  moveToProject(id: string, projectId: string | null) {
-    const last = this.tasksIn(projectId).at(-1)
-    this.updateTask(id, { project_id: projectId, position: keyBetween(last?.position, null) })
-  }
-
   // ---- projects -------------------------------------------------------------
 
   createProject(name: string, color: string | null = null): string {
@@ -446,21 +441,29 @@ class Store {
 
   // ---- day plan -------------------------------------------------------------
 
-  /** Plan a task into a day (moves it if it is planned elsewhere). */
-  plan(taskId: string, date: string, index?: number) {
+  /**
+   * Plan a task into a day (moves it if it is planned elsewhere). Options left out
+   * keep their current value on the same day, or default when the day changes:
+   * appended to the end, no time slot.
+   */
+  plan(taskId: string, date: string, opts: { position?: string; startTime?: string | null } = {}) {
     const existing = this.entryForTask(taskId)
-    const day = this.dayEntries(date).filter((e) => e.task_id !== taskId)
-    const position = index === undefined ? keyBetween(day.at(-1)?.position, null) : keyAt(day.map((e) => e.position), index)
+    const sameDay = existing?.date === date
+    const last = this.dayEntries(date)
+      .filter((e) => e.task_id !== taskId)
+      .at(-1)
+    const position = opts.position ?? (sameDay ? existing!.position : keyBetween(last?.position, null))
+    const start_time = opts.startTime !== undefined ? opts.startTime : sameDay ? existing!.start_time : null
     const ts = now()
     const entry: DayEntry = existing
-      ? { ...existing, date, position, start_time: existing.date === date ? existing.start_time : null, updated_at: ts }
+      ? { ...existing, date, position, start_time, updated_at: ts }
       : {
           id: ulid(),
           user_id: this.me?.id ?? '',
           date,
           task_id: taskId,
           position,
-          start_time: null,
+          start_time,
           duration_min: null,
           created_at: ts,
           updated_at: ts,
@@ -477,12 +480,21 @@ class Store {
             id: entry.id,
             task_id: taskId,
             position,
-            start_time: entry.start_time,
+            start_time,
             duration_min: entry.duration_min,
           }),
         ],
       ],
     )
+  }
+
+  /** Move a task into a project (null = inbox), optionally at a given position. */
+  moveToProject(id: string, projectId: string | null, position?: string) {
+    const t = this.tasks.get(id)
+    if (!t) return
+    if (t.project_id === projectId && position === undefined) return
+    const last = this.tasksIn(projectId).filter((x) => x.id !== id).at(-1)
+    this.updateTask(id, { project_id: projectId, position: position ?? keyBetween(last?.position, null) })
   }
 
   updateEntry(id: string, patch: EntryPatch) {

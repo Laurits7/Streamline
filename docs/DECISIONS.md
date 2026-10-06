@@ -46,6 +46,8 @@ Any of them can be revisited when the chunk that implements it starts.
 - **D-33 · 2026-10-05 · Sync model**: The client does one full `/sync`, then applies SSE `change` events. On every (re)connect (`hello` event) it calls `/sync?since=<rev>`. A full sync sends open tasks plus the last 30 days of history; older data is fetched on demand later.
 - **D-34 · 2026-10-05 · Deferred from Phase 1**: The OpenAPI document (utoipa) isn't in the MVP; the API is documented in README for now. Tracked in WORKPLAN 1.5.
 - **D-35 · 2026-10-05 · New users start in UTC**: The web app adopts the browser's timezone once on first login (with a toast); it can be changed in Settings.
+- **D-36 · 2026-10-06 · Own drag-and-drop layer** (`web/src/lib/dnd.svelte.ts`, ~300 lines, no library): built on pointer events, so mouse, touch and pen share one code path. Mouse drags start after 5 px. Touch drags start on a 350 ms long-press, so normal scrolling never starts a drag, or immediately from the grip handle. Keyboard: grip + arrow keys. A floating copy of the row follows the pointer; drop targets are any element (`droppable`) or ordered lists (`dropList`); the window and the timeline auto-scroll near their edges. Chosen over `svelte-dnd-action`, which handles list-to-list moves but not free-form targets like timeline slots or sidebar links. Cost: +3 KB gzip.
+- **D-37 · 2026-10-06 · Timeline on the day view**: a 24 h grid (15-minute snapping, overlapping blocks side by side). Dropping a task sets `start_time`; the bottom-edge handle sets `duration_min` (also adjustable with arrow keys). Dropping a timed task on the plan list clears its time. Shown beside the plan on wide screens, above it on phones.
 
 ## Resource log
 

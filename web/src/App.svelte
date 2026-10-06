@@ -4,6 +4,7 @@
   import PullSheet from './lib/components/PullSheet.svelte'
   import TaskSheet from './lib/components/TaskSheet.svelte'
   import Toasts from './lib/components/Toasts.svelte'
+  import { droppable, type DragItem } from './lib/dnd.svelte'
   import { match, router } from './lib/router.svelte'
   import { store } from './lib/store.svelte'
   import { ui } from './lib/ui.svelte'
@@ -61,6 +62,17 @@
   const active = (name: string, id?: string) =>
     route.name === name && (!id || (route.name === 'project' && route.id === id)) ? 'page' : undefined
   const todayActive = $derived(route.name === 'today' || route.name === 'day' ? 'page' : undefined)
+  const isDayRoute = $derived(route.name === 'today' || route.name === 'day')
+
+  // Navigation links double as drop targets for tasks.
+  const toProject = (projectId: string | null) => ({
+    accepts: (it: DragItem) => it.kind === 'task',
+    drop: (it: DragItem) => it.kind === 'task' && store.moveToProject(it.taskId, projectId),
+  })
+  const toToday = {
+    accepts: (it: DragItem) => it.kind === 'task',
+    drop: (it: DragItem) => it.kind === 'task' && store.plan(it.taskId, store.today),
+  }
   const projectsActive = $derived(route.name === 'projects' || route.name === 'project' ? 'page' : undefined)
 </script>
 
@@ -82,19 +94,24 @@
         <span class="live" class:on={store.live} title={store.live ? 'Live sync connected' : 'Reconnecting…'}></span>
       </div>
       <nav aria-label="Main">
-        <a href="/" aria-current={todayActive}><Icon name="sun" /> Today</a>
-        <a href="/inbox" aria-current={active('inbox')}><Icon name="inbox" /> Inbox</a>
-        <a href="/projects" aria-current={active('projects')}><Icon name="folder" /> Projects</a>
+        <a href="/" class="drop-zone" draggable="false" aria-current={todayActive} use:droppable={toToday}><Icon name="sun" /> Today</a>
+        <a href="/inbox" class="drop-zone" draggable="false" aria-current={active('inbox')} use:droppable={toProject(null)}><Icon name="inbox" /> Inbox</a>
+        <a href="/projects" draggable="false" aria-current={active('projects')}><Icon name="folder" /> Projects</a>
         <div class="projects">
           {#each projects as p (p.id)}
-            <a href="/projects/{p.id}" aria-current={active('project', p.id)}><i style:background={p.color ?? 'var(--faint)'}></i>{p.name}</a>
+            <a
+              href="/projects/{p.id}"
+              class="drop-zone"
+              draggable="false"
+              aria-current={active('project', p.id)}
+              use:droppable={toProject(p.id)}><i style:background={p.color ?? 'var(--faint)'}></i>{p.name}</a>
           {/each}
         </div>
       </nav>
       <a class="settings" href="/settings" aria-current={active('settings')}><Icon name="settings" /> {store.me?.display_name}</a>
     </aside>
 
-    <main class="content">
+    <main class="content" class:wide={isDayRoute}>
       {#if route.name === 'today'}
         <Day />
       {:else if route.name === 'day'}
@@ -113,8 +130,8 @@
     </main>
 
     <nav class="tabbar" aria-label="Main">
-      <a href="/" aria-current={todayActive}><Icon name="sun" size={22} /><span>Today</span></a>
-      <a href="/inbox" aria-current={active('inbox')}><Icon name="inbox" size={22} /><span>Inbox</span></a>
+      <a href="/" class="drop-zone" draggable="false" aria-current={todayActive} use:droppable={toToday}><Icon name="sun" size={22} /><span>Today</span></a>
+      <a href="/inbox" class="drop-zone" draggable="false" aria-current={active('inbox')} use:droppable={toProject(null)}><Icon name="inbox" size={22} /><span>Inbox</span></a>
       <a href="/projects" aria-current={projectsActive}><Icon name="folder" size={22} /><span>Projects</span></a>
       <a href="/settings" aria-current={active('settings')}><Icon name="settings" size={22} /><span>Settings</span></a>
     </nav>
@@ -138,9 +155,13 @@
     min-height: 100dvh;
   }
   .content {
-    max-width: 760px;
+    --content-w: 760px;
+    max-width: var(--content-w);
     margin: 0 auto;
     padding: calc(20px + env(safe-area-inset-top)) 16px calc(var(--nav-h) + 32px + env(safe-area-inset-bottom));
+  }
+  .content.wide {
+    --content-w: 1160px;
   }
   .sidebar {
     display: none;
@@ -190,7 +211,7 @@
       overflow-y: auto;
     }
     .content {
-      margin-left: calc(var(--sidebar-w) + max(0px, (100vw - var(--sidebar-w) - 760px) / 2));
+      margin-left: calc(var(--sidebar-w) + max(0px, (100vw - var(--sidebar-w) - var(--content-w)) / 2));
       padding: 36px 32px 48px;
     }
   }

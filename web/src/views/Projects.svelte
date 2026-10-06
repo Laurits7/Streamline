@@ -1,7 +1,7 @@
 <script lang="ts">
   import Icon from '../lib/components/Icon.svelte'
   import QuickAdd from '../lib/components/QuickAdd.svelte'
-  import { sortable } from '../lib/sortable'
+  import { draggable, droppable, dropList, type DragItem } from '../lib/dnd.svelte'
   import { store } from '../lib/store.svelte'
 
   const projects = $derived(store.projectList())
@@ -12,6 +12,12 @@
     return m
   })
   let showArchived = $state(false)
+
+  /** Each project row (and the inbox row) accepts tasks dropped onto it. */
+  const taskTarget = (projectId: string | null) => ({
+    accepts: (it: DragItem) => it.kind === 'task',
+    drop: (it: DragItem) => it.kind === 'task' && store.moveToProject(it.taskId, projectId),
+  })
 </script>
 
 <header class="head">
@@ -21,7 +27,7 @@
 <QuickAdd placeholder="New project…" onadd={(name) => store.createProject(name)} />
 
 <div class="card list">
-  <a class="item" href="/inbox">
+  <a class="item drop-zone" href="/inbox" draggable="false" use:droppable={taskTarget(null)}>
     <span class="icon"><Icon name="inbox" /></span>
     <span class="name">Inbox</span>
     <span class="count">{counts.get(null) ?? 0}</span>
@@ -29,11 +35,21 @@
 </div>
 
 {#if projects.length}
-  <div class="card list" use:sortable={{ onMove: (id, i) => store.reorderProject(projects, id, i) }}>
+  <div
+    class="card list"
+    use:dropList={{
+      accepts: (it) => it.kind === 'project',
+      drop: (it, i) => it.kind === 'project' && store.reorderProject(projects, it.projectId, i),
+      keyMove: (id, i) => store.reorderProject(projects, id, i),
+    }}>
     {#each projects as p (p.id)}
-      <div class="item" data-id={p.id}>
-        <button class="handle" data-handle aria-label="Reorder {p.name}"><Icon name="grip" size={16} /></button>
-        <a class="link" href="/projects/{p.id}">
+      <div
+        class="item drop-zone"
+        data-id={p.id}
+        use:draggable={{ item: () => ({ kind: 'project', projectId: p.id }) }}
+        use:droppable={taskTarget(p.id)}>
+        <button class="handle" data-handle aria-label="Reorder {p.name} (drag, or use arrow keys)"><Icon name="grip" size={16} /></button>
+        <a class="link" href="/projects/{p.id}" draggable="false">
           <i class="dot" style:background={p.color ?? 'var(--faint)'}></i>
           <span class="name">{p.name}</span>
           <span class="count">{counts.get(p.id) ?? 0}</span>
