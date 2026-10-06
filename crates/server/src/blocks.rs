@@ -112,6 +112,19 @@ pub async fn materialize_user(state: &AppState, user: &User) -> anyhow::Result<(
             .fetch_all(&state.db.read)
             .await?;
     let today = today_for(user);
+    // Nothing to keep in line: no weekday templates and no auto-set-up days ahead.
+    if templates.iter().all(|t| t.weekdays.0.is_empty()) {
+        let auto: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM block_days WHERE user_id = ? AND manual = 0 AND template_id IS NOT NULL AND date >= ?)",
+        )
+        .bind(&user.id)
+        .bind(fmt(today))
+        .fetch_one(&state.db.read)
+        .await?;
+        if !auto {
+            return Ok(());
+        }
+    }
     let mut tx = state.db.write.begin().await?;
     let mut changes = vec![];
     for i in 0..8 {

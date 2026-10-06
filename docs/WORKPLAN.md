@@ -5,7 +5,7 @@
 > and 3 are complete**, plus the owner's follow-ups (orange unplanned banner, Done → To do on the board,
 > tasks in several projects, daily activity log; D-48), routine versions (D-49) and 2b.6a Places (D-50).
 > Phases 3b (prerequisites, multi-step chores) and 4 (groups) are complete too. Phase 5 (calendar)
-> and 3b.6a Occasions (D-57) are complete. Phase 5a (conflicts, blocks, planner) 5b (summary, tracking) and 5c (goals) too (D-58..D-60). Phase 6.1–6.3 (installable app, push, backups) are done (D-62, D-63). Next: 6.4 performance/accessibility pass, 6.5 v1.0 release.
+> and 3b.6a Occasions (D-57) are complete. Phase 5a (conflicts, blocks, planner) 5b (summary, tracking) and 5c (goals) too (D-58..D-60). Phase 6.1–6.3 (installable app, push, backups) are done (D-62, D-63). 6.4 (performance and accessibility, D-66) too. Next: 6.5 v1.0 release.
 > Legend: `[x]` done · `[~]` partly done (the remaining work is noted) · `[ ]` not started.
 
 ## MVP status (2026-10-06)
@@ -515,7 +515,7 @@ Legend: **Deliverables** = what exists afterwards · **Tests** = what must be co
 - [x] **6.3 Backup and restore**: SQLite online backup (`VACUUM INTO`) on a schedule into
       `data/backups/` with retention; an admin download endpoint; restore documented in the
       README.
-- [ ] **6.4 Performance and accessibility pass**: Lighthouse on a mid-range phone profile,
+- [x] **6.4 Performance and accessibility pass** (D-66): Lighthouse on a mid-range phone profile,
       bundle audit, query plans/indices for the day aggregate, accessibility audit
       (contrast, focus order, reduced motion).
 - [ ] **6.5 Release v1.0**: complete README (install, proxy setups for Caddy, Traefik and

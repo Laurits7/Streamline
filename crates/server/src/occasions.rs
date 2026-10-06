@@ -113,6 +113,18 @@ pub async fn materialize_user(state: &AppState, user: &User) -> anyhow::Result<(
         return Ok(());
     }
     let today = today_for(user);
+    // Skip when nothing changed since the last run today (people, templates, calendar).
+    let stamp: (Option<i64>, Option<i64>, Option<String>) = sqlx::query_as(
+        "SELECT (SELECT MAX(rev) FROM people WHERE owner_user_id = ?1), (SELECT MAX(rev) FROM occasion_templates WHERE owner_user_id = ?1),
+                (SELECT loaded_at FROM nameday_source WHERE id = 1)",
+    )
+    .bind(&user.id)
+    .fetch_one(&state.db.read)
+    .await?;
+    let key = format!("{today}|{:?}", stamp);
+    if CHECKED.lock().unwrap().get(&user.id) == Some(&key) {
+        return Ok(());
+    }
     let mut tx = state.db.write.begin().await?;
     let mut changes = vec![];
     let templates = templates(&mut tx, &user.id, &mut changes).await?;
@@ -147,8 +159,13 @@ pub async fn materialize_user(state: &AppState, user: &User) -> anyhow::Result<(
     }
     tx.commit().await?;
     state.bus.publish(changes);
+    CHECKED.lock().unwrap().insert(user.id.clone(), key);
     Ok(())
 }
+
+/// Per user: the state last materialized (see `materialize_user`).
+static CHECKED: std::sync::LazyLock<Mutex<HashMap<String, String>>> =
+    std::sync::LazyLock::new(Default::default);
 
 #[allow(clippy::too_many_arguments)]
 async fn create_occasion(

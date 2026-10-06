@@ -141,7 +141,8 @@
     outline: 2px solid var(--accent);
   }
   .day.past {
-    opacity: 0.7;
+    background: var(--bg);
+    box-shadow: none;
   }
   .dayhead {
     display: flex;

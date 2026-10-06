@@ -221,11 +221,17 @@ pub async fn sync(
     .bind(&cutoff_date)
     .fetch_all(db)
     .await?;
-    {
+    // Built-in metrics exist after the first sync; only write when they don't.
+    let builtins: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM metric_definitions WHERE owner_user_id = ? AND key IN ('mood', 'weight')")
+        .bind(user.id())
+        .fetch_one(db)
+        .await?;
+    if builtins < 2 {
         let mut tx = state.db.write.begin().await?;
         let mut changes = vec![];
         crate::tracking::ensure_builtins(&mut tx, user.id(), &mut changes).await?;
         tx.commit().await?;
+        state.bus.publish(changes);
     }
     let day_records = sqlx::query_as(
         "SELECT * FROM day_records WHERE user_id = ?1 AND (?2 = 0 AND deleted_at IS NULL AND date >= ?3 OR ?2 > 0 AND rev > ?2)",
@@ -267,13 +273,17 @@ pub async fn sync(
     .bind(since)
     .fetch_all(db)
     .await?;
-    let occasion_templates = {
+    let mut occasion_templates: Vec<crate::models::OccasionTemplate> =
+        sqlx::query_as("SELECT * FROM occasion_templates WHERE owner_user_id = ?")
+            .bind(user.id())
+            .fetch_all(db)
+            .await?;
+    if occasion_templates.len() < crate::occasions::KINDS.len() {
         let mut tx = state.db.write.begin().await?;
         let mut changes = vec![];
-        let t = crate::occasions::templates(&mut tx, user.id(), &mut changes).await?;
+        occasion_templates = crate::occasions::templates(&mut tx, user.id(), &mut changes).await?;
         tx.commit().await?;
-        t
-    };
+    }
 
     Ok(Json(SyncResponse {
         rev,

@@ -152,6 +152,12 @@ Any of them can be revisited when the chunk that implements it starts.
 - **D-64 · 2026-10-06 · Mood is a log** (owner): mood changes through the day, so each tap is a new entry ("how I feel now") with its time, with undo; the day's value is the average, and the Today card and summary show the entries through the day.
 - **D-65 · 2026-10-06 · Desktop layout** (owner): content starts right after the menu with a responsive gutter (24–48 px) instead of being centred in the remaining space (which left a wide gap on big screens). It is wider: lists up to 980 px, the day view (plan + timeline) up to 1320 px; extra width on very wide screens stays on the right. The menu is grouped (main pages / Reflect / Projects), and Settings shows two columns of sections from 1280 px.
   - **Revised (owner: "fill the screen"):** content is fluid up to 1760 px. Today uses three columns from 1500 px (plan | tracking and activity log | timeline) and two from 1100 px. All tasks and Routines show their groups side by side, Goals and Namedays use card grids, the Summary sections sit in a grid next to the month calendar, and Trends charts sit side by side. Phones are unchanged.
+- **D-66 · 2026-10-06 · Performance and accessibility pass** (Phase 6.4):
+  - **Lighthouse (mobile profile, signed in):** accessibility 100 on Today, All tasks, Summary, Settings, Agenda, Goals, Trends, Namedays and Inbox (fixed: the "faint" grey text #a1a1aa → #71717a, dark #6b6b75 → #8f8f9a; the warning colour #d97706 → #b45309 for white-on-orange buttons; past agenda days no longer use opacity). Best practices 100. Performance 98–99 except Today at 90 (Lighthouse's simulated parse cost of the main script; a real CPU profile under 4× slowdown shows ~50 ms of work).
+  - **Bundle:** Settings, Projects, project/inbox lists, All tasks and Routines load on demand: initial JavaScript 179 → 116 KB (initial payload 78.6 KB gzipped).
+  - **Layout shift:** the Summary renders its stats and task card with placeholders, and the reflection comes before the sections that only appear with data (shift 0.26 → 0).
+  - **Server, seeded with a busy year** (3,000 tasks, 2,000 planned entries, 1,500 events, 1,200 mood entries), release build on a desktop: day view p95 9.9 ms, day summary 10.0, delta sync 8.7, planner 3.2, month glance 2.7; full sync 3.5 MB raw / 200 KB gzipped (once per session). New indexes for the summary (`tasks(completed_by, completed_at)`, task history by kind and carried-from date); syncs no longer open write transactions when built-in records already exist, and occasions/day templates skip work when nothing changed.
+  - `crates/server/build.rs` makes Cargo rebuild when a migration is added (`sqlx::migrate!` embeds them); without it a local build could miss a new migration.
 
 ## Resource log
 
@@ -166,3 +172,4 @@ Any of them can be revisited when the chunk that implements it starts.
 | End of Phase 4 | 9.3 MB | 4.4 MiB (fresh container, 20 s) | 78.6 KB initial | not measured | 2026-10-06 |
 | End of Phase 5 | 11.3 MB (+HTTPS client: reqwest/rustls/ring) | 5.0 MiB (fresh container, 20 s) | 82.2 KB initial (+1.9 Agenda lazy) | not measured | 2026-10-06 |
 | End of Phases 3b.6a, 5a, 5b, 5c | 12.5 MB | 6.8 MiB (fresh container, 20 s, incl. the first nameday download) | 94.8 KB initial (new pages lazy) | not measured | 2026-10-06 |
+| End of Phase 6.1–6.4 | 12.8 MB | 7.0 MiB (fresh container, 20 s, incl. first nameday download) | 78.6 KB initial (more views lazy) | day view p95 9.9 ms on a desktop with a busy year of data (Pi not measured) | 2026-10-06 |

@@ -88,26 +88,30 @@
 
 <div class="layout">
   <div class="sections">
-    {#if summary}
       <section class="card stats">
-        <div><strong>{summary.done}/{summary.planned}</strong><span>planned done</span></div>
-        <div><strong>{summary.completion_rate === null ? '–' : `${Math.round(summary.completion_rate * 100)}%`}</strong><span>completion</span></div>
-        <div><strong>{summary.completed_total}</strong><span>completed in all</span></div>
-        <div><strong>{fmtMinutes(summary.focus_min)}</strong><span>focus</span></div>
+        <div><strong>{summary ? `${summary.done}/${summary.planned}` : '–'}</strong><span>planned done</span></div>
+        <div><strong>{summary?.completion_rate == null ? '–' : `${Math.round(summary.completion_rate * 100)}%`}</strong><span>completion</span></div>
+        <div><strong>{summary?.completed_total ?? '–'}</strong><span>completed in all</span></div>
+        <div><strong>{summary ? fmtMinutes(summary.focus_min) : '–'}</strong><span>focus</span></div>
       </section>
       <section class="card">
         <h2>Tasks</h2>
         <ul class="facts">
-          <li>Done <strong>{summary.done}</strong></li>
-          <li>Carried over <strong>{summary.carried}</strong></li>
-          <li>Missed <strong>{summary.missed}</strong></li>
-          {#if summary.skipped}<li>Skipped <strong>{summary.skipped}</strong></li>{/if}
-          {#if summary.open}<li>Still open <strong>{summary.open}</strong></li>{/if}
-          {#if summary.steps_done}<li>Workflow steps done <strong>{summary.steps_done}</strong></li>{/if}
-          {#if summary.estimated_min}<li>Estimated vs. recorded <strong>{fmtMinutes(summary.estimated_min)} / {fmtMinutes(summary.actual_min)}</strong></li>{/if}
+          <li>Done <strong>{summary?.done ?? '–'}</strong></li>
+          <li>Carried over <strong>{summary?.carried ?? '–'}</strong></li>
+          <li>Missed <strong>{summary?.missed ?? '–'}</strong></li>
+          <li>Skipped <strong>{summary?.skipped ?? '–'}</strong></li>
+          <li>Still open <strong>{summary?.open ?? '–'}</strong></li>
+          <li>Workflow steps done <strong>{summary?.steps_done ?? '–'}</strong></li>
+          <li>Estimated vs. recorded <strong>{summary?.estimated_min ? `${fmtMinutes(summary.estimated_min)} / ${fmtMinutes(summary.actual_min)}` : '–'}</strong></li>
         </ul>
         <a class="small" href={date === store.today ? '/' : `/day/${date}`}>Open the day →</a>
       </section>
+    <section class="card reflection-card">
+      <h2>Reflection</h2>
+      {#key date}<Reflection {date} />{/key}
+    </section>
+    {#if summary}
       {#if summary.routines.length}
         <section class="card">
           <h2>Routines</h2>
@@ -152,10 +156,7 @@
         </section>
       {/if}
     {/if}
-    <section class="card reflection-card">
-      <h2>Reflection</h2>
-      {#key date}<Reflection {date} />{/key}
-    </section>
+
   </div>
 
   <aside class="card month">

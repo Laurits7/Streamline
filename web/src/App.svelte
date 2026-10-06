@@ -9,8 +9,6 @@
   import FocusTicker from './lib/components/FocusTicker.svelte'
   import MiniTimer from './lib/components/MiniTimer.svelte'
   import { announce, live } from './lib/announce.svelte'
-  import AllTasks from './views/AllTasks.svelte'
-  import Routines from './views/Routines.svelte'
   import RoutineSheet from './lib/components/RoutineSheet.svelte'
   import WorkflowSheet from './lib/components/WorkflowSheet.svelte'
   import StartWorkflowSheet from './lib/components/StartWorkflowSheet.svelte'
@@ -21,9 +19,6 @@
   import { isCollapsed, toggleCollapsed, ui } from './lib/ui.svelte'
   import Day from './views/Day.svelte'
   import Login from './views/Login.svelte'
-  import Projects from './views/Projects.svelte'
-  import Settings from './views/Settings.svelte'
-  import TaskList from './views/TaskList.svelte'
   import { toast } from './lib/toast.svelte'
 
   let phase = $state<'loading' | 'login' | 'setup' | 'app' | 'error'>('loading')
@@ -205,19 +200,19 @@
       {:else if route.name === 'agenda'}
         {#await import('./views/Agenda.svelte') then m}<m.default start={route.start} />{/await}
       {:else if route.name === 'routines'}
-        <Routines />
+        {#await import('./views/Routines.svelte') then m}<m.default />{/await}
       {:else if route.name === 'tasks'}
-        <AllTasks />
+        {#await import('./views/AllTasks.svelte') then m}<m.default />{/await}
       {:else if route.name === 'inbox'}
-        <TaskList />
+        {#await import('./views/TaskList.svelte') then m}<m.default />{/await}
       {:else if route.name === 'projects'}
-        <Projects />
+        {#await import('./views/Projects.svelte') then m}<m.default />{/await}
       {:else if route.name === 'project'}
-        {#key route.id}<TaskList projectId={route.id} />{/key}
+        {#await import('./views/TaskList.svelte') then m}{#key route.id}<m.default projectId={route.id} />{/key}{/await}
       {:else if route.name === 'help'}
         {#await import('./views/Help.svelte') then m}<m.default />{/await}
       {:else if route.name === 'settings'}
-        <Settings onlogout={logout} />
+        {#await import('./views/Settings.svelte') then m}<m.default onlogout={logout} />{/await}
       {:else}
         <p class="empty">Page not found. <a href="/">Go to today</a></p>
       {/if}
