@@ -3,7 +3,7 @@
 A self-hosted todo list and day planner for a household. One small container, one data
 folder, and it works from any phone, tablet or computer on your network.
 
-> **Status: early MVP (Phase 1 + a basic day plan).** See [`docs/WORKPLAN.md`](docs/WORKPLAN.md)
+> **Status: Phases 1 and 2 done (foundation and day plan).** See [`docs/WORKPLAN.md`](docs/WORKPLAN.md)
 > for what's built and what's next, and [`docs/SPEC.md`](docs/SPEC.md) for the full vision.
 
 What works today:
@@ -59,9 +59,14 @@ push notifications), put it behind a proxy and set `TRUST_PROXY: "true"`. Caddy 
 
 ```
 todo.example.home {
-    reverse_proxy streamline:3000
+    reverse_proxy streamline:3000 {
+        flush_interval -1   # deliver live-sync events immediately
+    }
 }
 ```
+
+A complete, tested setup (Streamline + Caddy, automatic or internal certificates) is in
+[`docs/examples/caddy`](docs/examples/caddy).
 
 Tailscale: `tailscale serve --bg 3000` on the host also works (set `TRUST_PROXY: "true"`).
 
@@ -85,10 +90,20 @@ git pull && docker compose up -d --build
 
 Database migrations run automatically on startup.
 
+### Raspberry Pi (arm64)
+
+Two options:
+
+- **Prebuilt image** (published by CI from `main` for amd64 and arm64): in `docker-compose.yml`,
+  remove the `build:` section and set `image: ghcr.io/laurits7/streamline:latest`.
+- **Build on the Pi**: works as-is. On a model with 1–2 GB of RAM, uncomment the `args:` in
+  `docker-compose.yml` (`LTO: thin`, `CODEGEN_UNITS: "16"`) so compiling fits in memory.
+
 ## Resource use
 
-Measured on the MVP (x86-64): Docker image 7 MB, about 5 MB of memory while idle, and a web
-app of about 41 KB gzipped on first load.
+Measured at the end of Phase 2 (x86-64, `scripts/measure.sh`): Docker image 7.5 MB, about
+4 MB of memory while idle, and 48 KB gzipped for the first load of the web app (Help loads
+separately, 4 KB).
 
 ## API
 

@@ -50,8 +50,12 @@ Any of them can be revisited when the chunk that implements it starts.
 - **D-37 · 2026-10-06 · Timeline on the day view**: a 24 h grid (15-minute snapping, overlapping blocks side by side). Dropping a task sets `start_time`; the bottom-edge handle sets `duration_min` (also adjustable with arrow keys). Dropping a timed task on the plan list clears its time. Shown beside the plan on wide screens, above it on phones.
 - **D-38 · 2026-10-06 · Nested projects**: Projects have an optional `parent_id` with unlimited depth (owner's request: e.g. Paper › Research / Analysis / Writing). The server rejects cycles and parents owned by someone else (`domain::tree`). Subprojects inherit the parent's colour. Archive and delete cascade to the subtree. A project page shows its own tasks plus one section per direct subproject. Counts include descendants. Tasks still belong to exactly one project.
 
+- **D-39 · 2026-10-06 · arm64 and HTTPS**: Multi-arch images (amd64 + arm64) are built in CI with QEMU + buildx; pull requests only build them (this is what verifies arm64), while `main` and `v*` tags publish to `ghcr.io/laurits7/streamline`. Building on a Pi stays possible; `LTO`/`CODEGEN_UNITS` build args reduce compile-time RAM. The HTTPS setup is documented and tested as Streamline behind Caddy (`docs/examples/caddy`, `flush_interval -1` for SSE). Verified: Secure cookie, origin check, live events through the proxy, HTTP→HTTPS redirect, container health check.
+- **D-40 · 2026-10-06 · Sync queue**: `store.sync()` runs syncs one at a time and in order. Repeated delta requests merge, but a full reload never merges into a pending delta. Responses that arrive after sign-out are dropped (found by the new store tests).
+
 ## Resource log
 
 | Phase | Image size | Idle RSS | Initial payload (gz) | Day aggregate p95 | Date |
 |---|---|---|---|---|---|
 | MVP (Phase 1 + core of 2) | 7.0 MB | 4.6 MiB (after browser smoke test) | 41 KB (36.2 JS + 4.6 CSS + 0.4 HTML) | not measured | 2026-10-06 |
+| End of Phase 2 | 7.5 MB | 3.6–4.1 MiB (fresh container, 20 s) | 48.0 KB initial (+4.0 KB lazy Help) | not measured | 2026-10-06 |

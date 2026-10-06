@@ -1,0 +1,10 @@
+# Replace with your hostname, e.g. todo.example.com (public: automatic Let's Encrypt).
+{$SITE_ADDRESS:localhost} {
+	# For names that aren't publicly reachable, use Caddy's internal CA:
+	tls internal
+	encode zstd gzip
+	# Live sync uses server-sent events; flush them immediately.
+	reverse_proxy streamline:3000 {
+		flush_interval -1
+	}
+}

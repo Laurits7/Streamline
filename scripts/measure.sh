@@ -15,15 +15,18 @@ trap 'docker rm -f "$name" >/dev/null 2>&1 || true' EXIT
 sleep 20
 docker stats --no-stream --format '  mem: {{.MemUsage}}  cpu: {{.CPUPerc}}' "$name"
 
-echo "== Web payload (gzip)"
+echo "== Web payload (gzip -9)"
 if [ -d web/dist ]; then
-  total=0
-  for f in web/dist/index.html web/dist/assets/*.js web/dist/assets/*.css; do
+  initial=0
+  for f in web/dist/index.html web/dist/assets/*; do
     s=$(gzip -9c "$f" | wc -c)
-    total=$((total + s))
-    printf '  %-40s %6.1f KB\n' "${f#web/dist/}" "$(echo "$s/1024" | bc -l)"
+    case "$(basename "$f")" in
+      index.html | index-*.js | style-*.css) kind=initial; initial=$((initial + s)) ;;
+      *) kind=lazy ;;
+    esac
+    LC_ALL=C awk -v f="${f#web/dist/}" -v s="$s" -v k="$kind" 'BEGIN { printf "  %-40s %6.1f KB  %s\n", f, s / 1024, k }'
   done
-  printf '  %-40s %6.1f KB\n' "total" "$(echo "$total/1024" | bc -l)"
+  LC_ALL=C awk -v s="$initial" 'BEGIN { printf "  %-40s %6.1f KB  (budget 150 KB)\n", "initial load total", s / 1024 }'
 else
   echo "  web/dist missing: run 'cd web && npm run build'"
 fi

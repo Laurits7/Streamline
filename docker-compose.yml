@@ -1,6 +1,13 @@
 services:
   streamline:
-    build: .
+    # Builds from source. To use the prebuilt image instead (amd64 and arm64, e.g. a
+    # Raspberry Pi), remove `build:` and set `image: ghcr.io/laurits7/streamline:latest`.
+    build:
+      context: .
+      # On a low-memory device, uncomment to reduce RAM needed while compiling:
+      # args:
+      #   LTO: thin
+      #   CODEGEN_UNITS: "16"
     image: streamline:latest
     container_name: streamline
     restart: unless-stopped

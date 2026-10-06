@@ -1,8 +1,8 @@
 # Streamline: Work Plan
 
 > Companion to [`SPEC.md`](SPEC.md). Section numbers like §6.2c refer to the spec.
-> Status (2026-10-06): Part A and Part C **confirmed** (see `DECISIONS.md`). An **MVP** covering
-> most of Phase 1 and the core of Phase 2 has been built; see "MVP status" below.
+> Status (2026-10-06): Part A and Part C **confirmed** (see `DECISIONS.md`). **Phases 1 and 2
+> are complete.** Next: Phase 2a (planning ritual) — or Phase 3 (recurrence) if prioritised.
 > Legend: `[x]` done · `[~]` partly done (the remaining work is noted) · `[ ]` not started.
 
 ## MVP status (2026-10-06)
@@ -205,7 +205,7 @@ Legend: **Deliverables** = what exists afterwards · **Tests** = what must be co
   - Done when: two browser windows stay in sync live; actions feel instant with network
     throttling set to "Slow 3G".
 
-- [~] **1.9 Packaging and phase gate** (MVP: arm64 image build and a Caddy/HTTPS smoke test still to do)
+- [x] **1.9 Packaging and phase gate** (multi-arch CI image → GHCR; Caddy example in `docs/examples/caddy`, tested over HTTPS 2026-10-06; arm64 build itself only verified once CI runs it)
   - Deliverables: multi-stage Dockerfile (amd64 and arm64), `docker-compose.yml` with
     `./data` volume and `PORT`, `scripts/measure.sh` (image size, idle RSS via `docker stats`
     after 60 s, initial gzip/brotli payload), README quick start, `docs/DECISIONS.md`
@@ -261,7 +261,7 @@ Legend: **Deliverables** = what exists afterwards · **Tests** = what must be co
   - Done when: it works on a real phone (iOS Safari + Android Chrome) and with the keyboard
     only.
 
-- [ ] **2.7 Phase gate**
+- [x] **2.7 Phase gate** (2026-10-06: tests green, measurements logged, HTTP + HTTPS browser smoke tests, no secrets in trace logs)
 
 ---
 

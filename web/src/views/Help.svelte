@@ -145,7 +145,7 @@
   <section id="account">
     <h2><Icon name="settings" size={18} /> Account, users and API tokens</h2>
     <ul>
-      <li><strong>Profile</strong>: your name, timezone and day end.</li>
+      <li><strong>Profile</strong>: your name, timezone, day end, the language used for dates, and which day your week starts on.</li>
       <li><strong>Password</strong>: changing it signs out your other devices.</li>
       <li><strong>Users</strong> (admins): add people from your household, reset passwords. There is no public sign-up.</li>
       <li><strong>API tokens</strong>: let scripts and other apps use Streamline (<code>Authorization: Bearer …</code> on <code>/api/v1</code>). The README lists the endpoints.</li>

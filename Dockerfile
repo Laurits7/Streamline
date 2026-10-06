@@ -12,6 +12,11 @@ RUN npm run build
 # 2. Server: a static musl binary with the web app embedded
 FROM rust:1-alpine AS server
 RUN apk add --no-cache musl-dev
+# Low-memory hosts (e.g. a Raspberry Pi with 1-2 GB) can build with
+# --build-arg LTO=thin --build-arg CODEGEN_UNITS=16: slightly larger binary, much less RAM.
+ARG LTO=true
+ARG CODEGEN_UNITS=1
+ENV CARGO_PROFILE_RELEASE_LTO=$LTO CARGO_PROFILE_RELEASE_CODEGEN_UNITS=$CODEGEN_UNITS
 WORKDIR /src
 # Build dependencies first against stub sources, so code changes don't recompile them.
 COPY Cargo.toml Cargo.lock ./
