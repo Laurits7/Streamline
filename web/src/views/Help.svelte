@@ -16,6 +16,7 @@
     ['dayend', 'What happens at the end of the day'],
     ['projects', 'Projects and the inbox'],
     ['devices', 'Phones, tablets and sync'],
+    ['groups', 'Sharing with your household'],
     ['places', 'Places'],
     ['account', 'Account, users and API tokens'],
     ['soon', 'Coming later'],
@@ -257,6 +258,22 @@
     </p>
   </section>
 
+  <section id="groups">
+    <h2><Icon name="users" size={18} /> Sharing with your household</h2>
+    <p>
+      Create a group in <a href="/settings">Settings</a> (e.g. “Family”) and add people. Then share a project with it
+      (project <Icon name="more" size={14} /> menu → <em>Shared with</em>): its subprojects, tasks and routines are shared
+      too. Tasks and routines without a project can be shared on their own.
+    </p>
+    <ul>
+      <li>Everyone in the group sees shared things, and <strong>anyone can complete them</strong> — it shows who did (“✓ Anna”).</li>
+      <li>Changes appear instantly for everyone: when someone takes out the garbage, it disappears from your list too.</li>
+      <li>Repeating chores (bins out every Tuesday) have one shared occurrence, not one each.</li>
+      <li>Each person plans their own day: you can put a shared chore on your plan without it landing on anyone else's.</li>
+      <li>Your day plans, focus time, activity log and notes are never shared.</li>
+    </ul>
+  </section>
+
   <section id="places">
     <h2><Icon name="pin" size={18} /> Places</h2>
     <p>
@@ -290,7 +307,6 @@
     <p class="muted">Planned, roughly in this order:</p>
     <ul>
       <li>Multi-step chores (e.g. laundry: wash → dry → fold) where the next step appears when the previous one is done.</li>
-      <li>Shared household groups and chores anyone can complete.</li>
       <li>Your calendar (CalDAV/Radicale) on the timeline.</li>
       <li>Daily reflection, mood and other trackers, and long-term goals.</li>
     </ul>

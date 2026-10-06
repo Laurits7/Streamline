@@ -4,8 +4,8 @@
 > Status (2026-10-06): Part A and Part C **confirmed** (see `DECISIONS.md`). **Phases 1, 2, 2a, 2b
 > and 3 are complete**, plus the owner's follow-ups (orange unplanned banner, Done → To do on the board,
 > tasks in several projects, daily activity log; D-48), routine versions (D-49) and 2b.6a Places (D-50).
-> Phase 3b (prerequisites, multi-step chores) is complete too. Next: Phase 4 (groups) — or 3b.6a
-> Occasions once Q-24 is answered.
+> Phases 3b (prerequisites, multi-step chores) and 4 (groups) are complete too. Next: Phase 5
+> (calendar / CalDAV) — 3b.6a Occasions waits for Q-24 (nameday calendar source).
 > Legend: `[x]` done · `[~]` partly done (the remaining work is noted) · `[ ]` not started.
 
 ## MVP status (2026-10-06)
@@ -397,23 +397,23 @@ Legend: **Deliverables** = what exists afterwards · **Tests** = what must be co
 
 ### Phase 4: Groups (§6.4)
 
-- [ ] **4.1 Groups and visibility**
+- [x] **4.1 Groups and visibility**
   - Deliverables: `groups`, `group_members`; admin and group-owner management; build out the
     `visible_to` function (A.4.4) and route **every** list/detail/SSE path through it.
   - Tests: a visibility matrix (owner / group member / non-member / admin) for projects,
     tasks, series, workflow instances, day-plan entries and personal data. This test is
     required to pass before the phase can close.
-- [ ] **4.2 Group projects, tasks and chores**  *(needs Q-4)*
+- [x] **4.2 Group projects, tasks and chores**  *(needs Q-4)*
   - Deliverables: create a project or task for a group; group tasks show up in every member's
     ready stack; **any** member completes it, and `completed_by` is shown; recurring group
     chores use the same series system (one shared occurrence, not one per member); a member's
     day plan can include a group task, and if another member completes it, it shows as done
     for everyone.
-- [ ] **4.3 Live sync between members**: SSE fan-out to group audiences; membership changes
+- [x] **4.3 Live sync between members**: SSE fan-out to group audiences; membership changes
       update subscriptions; UI shows group badges and avatars on completions.
       E2E test: two users, one completes the garbage chore, and it disappears for the other
       within 1 s.
-- [ ] **4.4 Phase gate**
+- [x] **4.4 Phase gate** (2026-10-06: visibility matrix + live-stream tests, two-browser run)
 
 ---
 

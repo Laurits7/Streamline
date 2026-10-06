@@ -23,6 +23,7 @@
   let window = $state<'week' | 'month'>((existing?.window as 'week' | 'month') ?? 'week')
   let projectId = $state(existing?.project_id ?? '')
   let placeId = $state(existing?.place_id ?? '')
+  let groupId = $state(existing?.owner_group_id ?? '')
   let workflowId = $state(existing?.workflow_template_id ?? '')
   let variantIds = $state<string[]>(existing ? [...existing.workflow_variant_ids] : [])
   const workflow = $derived(workflowId ? store.workflows.get(workflowId) : null)
@@ -89,6 +90,7 @@
       window: mode === 'flexible' ? window : null,
       project_id: projectId || null,
       place_id: placeId || null,
+      ...(existing ? {} : { owner_group_id: projectId ? null : groupId || null }),
       workflow_template_id: workflowId || null,
       workflow_variant_ids: workflowId ? variantIds : [],
       task_type_id: effectiveType,
@@ -208,6 +210,16 @@
       {#each projects as { project: p, depth } (p.id)}<option value={p.id}>{'   '.repeat(depth)}{p.name}</option>{/each}
     </select>
   </section>
+
+  {#if !existing && !projectId && store.myGroups().length}
+    <section>
+      <h3>Shared with</h3>
+      <select bind:value={groupId}>
+        <option value="">Just me</option>
+        {#each store.myGroups() as g (g.id)}<option value={g.id}>{g.name} (anyone can do it)</option>{/each}
+      </select>
+    </section>
+  {/if}
 
   {#if store.workflows.size && mode !== 'flexible'}
     <section>

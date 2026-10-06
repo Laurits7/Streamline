@@ -14,6 +14,8 @@ import type { Notification } from './api/types/Notification'
 import type { Place } from './api/types/Place'
 import type { Project } from './api/types/Project'
 import type { Series } from './api/types/Series'
+import type { Group } from './api/types/Group'
+import type { UserSummary } from './api/types/UserSummary'
 import type { WorkflowTemplate } from './api/types/WorkflowTemplate'
 import type { SyncResponse } from './api/types/SyncResponse'
 import type { Task } from './api/types/Task'
@@ -23,8 +25,8 @@ import { keyAt, keyBetween } from './order'
 import { toast } from './toast.svelte'
 import { ulid } from './ulid'
 
-type Kind = 'task' | 'project' | 'day_entry' | 'day_plan' | 'focus_session' | 'series' | 'place' | 'workflow'
-type Entity = Task | Project | DayEntry | DayPlan | FocusSession | Series | Place | WorkflowTemplate
+type Kind = 'task' | 'project' | 'day_entry' | 'day_plan' | 'focus_session' | 'series' | 'place' | 'workflow' | 'group'
+type Entity = Task | Project | DayEntry | DayPlan | FocusSession | Series | Place | WorkflowTemplate | Group
 
 export type TaskPatch = Partial<
   Pick<
@@ -90,6 +92,7 @@ class Store {
   series = new SvelteMap<string, Series>()
   places = new SvelteMap<string, Place>()
   workflows = new SvelteMap<string, WorkflowTemplate>()
+  groups = new SvelteMap<string, Group>()
   /** Where this device is ('' = anywhere/not set). Per device, like the GPS setting (D-45). */
   currentPlace = $state(readLocal('sl.place', ''))
   /** Use GPS to set the current place (per device; needs HTTPS and permission). */
@@ -140,6 +143,7 @@ class Store {
     this.series.clear()
     this.places.clear()
     this.workflows.clear()
+    this.groups.clear()
     this.focusTimer = IDLE_TIMER
   }
 
@@ -203,6 +207,9 @@ class Store {
       this.places.clear()
       this.workflows.clear()
     }
+    // Groups always come complete.
+    this.groups.clear()
+    for (const g of r.groups) this.groups.set(g.id, g)
     this.clockOffset = r.server_now - Date.now()
     if (r.focus_timer.rev >= this.focusTimer.rev) this.focusTimer = r.focus_timer
     this.me = r.me
@@ -239,6 +246,15 @@ class Store {
       else if (c.kind === 'focus_timer') {
         const t = c.data as FocusTimer
         if (t.rev >= this.focusTimer.rev) this.focusTimer = t
+      } else if (c.kind === 'membership') {
+        // What we can see changed (joined/left a group): reload everything and resubscribe.
+        this.sync(0)
+          .then(() => this.connect())
+          .catch(() => {})
+      } else if (c.kind === 'group') {
+        const g = c.data as Group
+        if (g.deleted_at || !g.members.some((m) => m.user_id === this.me?.id) && !this.me?.is_admin) this.groups.delete(g.id)
+        else this.groups.set(g.id, g)
       } else if (c.kind === 'focus_session' || c.kind === 'series' || c.kind === 'place' || c.kind === 'workflow')
         this.applyRemote(c.kind, c.data as Entity)
       else if (c.kind === 'task' || c.kind === 'project' || c.kind === 'day_entry' || c.kind === 'day_plan')
@@ -270,6 +286,7 @@ class Store {
       series: this.series,
       place: this.places,
       workflow: this.workflows,
+      group: this.groups,
     }
     return maps[kind] as SvelteMap<string, Entity>
   }
@@ -470,8 +487,8 @@ class Store {
     const ts = now()
     const task: Task = {
       id,
-      owner_user_id: this.me?.id ?? null,
-      owner_group_id: null,
+      owner_user_id: projectId && this.projects.get(projectId)?.owner_group_id ? null : (this.me?.id ?? null),
+      owner_group_id: projectId ? (this.projects.get(projectId)?.owner_group_id ?? null) : null,
       assignee_user_id: null,
       project_id: projectId,
       title: input.title,
@@ -641,6 +658,7 @@ class Store {
       archived?: boolean
       parent_id?: string | null
       default_place_id?: string | null
+      owner_group_id?: string | null
     },
   ) {
     const cur = this.projects.get(id)
@@ -648,6 +666,7 @@ class Store {
     const { archived, ...rest } = patch
     const ts = now()
     // Archiving applies to the whole subtree (the server does the same).
+    if ('owner_group_id' in patch) (rest as Record<string, unknown>).owner_user_id = patch.owner_group_id ? null : (this.me?.id ?? null)
     const touched = archived === undefined ? [id] : this.subtree(id)
     const updated = touched.map((pid) => {
       const p = pid === id ? { ...cur, ...rest } : { ...this.projects.get(pid)! }
@@ -951,6 +970,67 @@ class Store {
     } catch {
       if (this.me) this.me = { ...this.me, prefs: prev }
     }
+  }
+
+  // ---- groups ----------------------------------------------------------------
+
+  /** Groups I'm a member of (admins also see others in `groups`, for managing them). */
+  myGroups(): Group[] {
+    return [...this.groups.values()]
+      .filter((g) => g.members.some((m) => m.user_id === this.me?.id))
+      .sort((a, b) => a.name.localeCompare(b.name))
+  }
+
+  groupName(id: string | null | undefined): string {
+    return (id && this.groups.get(id)?.name) || ''
+  }
+
+  /** A user's display name, from my groups' member lists. */
+  personName(userId: string | null | undefined): string {
+    if (!userId) return ''
+    if (userId === this.me?.id) return 'you'
+    for (const g of this.groups.values()) {
+      const m = g.members.find((x) => x.user_id === userId)
+      if (m) return m.display_name
+    }
+    return 'someone'
+  }
+
+  async groupAction<T>(fn: () => Promise<T>): Promise<T | null> {
+    try {
+      const out = await fn()
+      if (out && typeof out === 'object' && 'members' in (out as object)) {
+        const g = out as unknown as Group
+        this.groups.set(g.id, g)
+      }
+      return out
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : 'Something went wrong', 'error')
+      return null
+    }
+  }
+  createGroup = (name: string) => this.groupAction(() => api.post<Group>('/groups', { id: ulid(), name }))
+  renameGroup = (id: string, name: string) => this.groupAction(() => api.patch<Group>(`/groups/${id}`, { name }))
+  addMember = (id: string, userId: string, role: 'member' | 'owner' = 'member') =>
+    this.groupAction(() => api.post<Group>(`/groups/${id}/members`, { user_id: userId, role }))
+  removeMember = (id: string, userId: string) => this.groupAction(() => api.del(`/groups/${id}/members/${userId}`))
+  deleteGroup = (id: string) => this.groupAction(() => api.del(`/groups/${id}`))
+  directory = () => api.get<UserSummary[]>('/users/directory')
+
+  /** Share a task without a project (`null` = just me). */
+  shareTask(id: string, groupId: string | null) {
+    const t = this.tasks.get(id)
+    if (!t) return
+    this.optimistic(
+      [['task', id]],
+      () => this.tasks.set(id, { ...t, owner_group_id: groupId, owner_user_id: groupId ? null : (this.me?.id ?? null) }),
+      async () => [['task', await api.patch<Task>(`/tasks/${id}`, { owner_group_id: groupId })]],
+    )
+  }
+
+  /** Share a top-level project and everything in it (`null` = just me). The server updates the rest. */
+  shareProject(id: string, groupId: string | null) {
+    this.updateProject(id, { owner_group_id: groupId })
   }
 
   // ---- workflows -------------------------------------------------------------

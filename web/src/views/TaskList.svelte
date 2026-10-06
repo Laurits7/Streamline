@@ -69,6 +69,7 @@
       {/if}
       <h1>
         {#if project}<i class="dot" style:background={project.color ?? 'var(--faint)'}></i>{project.name}{:else}Inbox{/if}
+        {#if project?.owner_group_id}<span class="shared" title="Shared with {store.groupName(project.owner_group_id)}"><Icon name="users" size={16} /> {store.groupName(project.owner_group_id)}</span>{/if}
       </h1>
       <p class="muted">
         {[
@@ -105,6 +106,20 @@
                 {/each}
               </select>
             </label>
+            {#if store.myGroups().length && !project.parent_id}
+              <label class="move">
+                <span>Shared with</span>
+                <select
+                  value={project.owner_group_id ?? ''}
+                  onchange={(e) => {
+                    store.shareProject(projectId!, (e.currentTarget as HTMLSelectElement).value || null)
+                    menu = false
+                  }}>
+                  <option value="">Just me</option>
+                  {#each store.myGroups() as g (g.id)}<option value={g.id}>{g.name}</option>{/each}
+                </select>
+              </label>
+            {/if}
             {#if store.places.size}
               <label class="move">
                 <span>Default place for new tasks</span>
@@ -210,6 +225,17 @@
     display: flex;
     align-items: center;
     gap: 10px;
+  }
+  .shared {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--accent);
+    background: var(--accent-soft);
+    border-radius: 999px;
+    padding: 2px 10px;
   }
   .crumbs {
     display: flex;

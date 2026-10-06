@@ -158,7 +158,7 @@
                 class="drop-zone"
                 draggable="false"
                 aria-current={active('project', p.id)}
-                use:droppable={toProject(p.id)}><i style:background={p.color ?? 'var(--faint)'}></i>{p.name}</a>
+                use:droppable={toProject(p.id)}><i style:background={p.color ?? 'var(--faint)'}></i>{p.name}{#if p.owner_group_id && !p.parent_id}<span class="sharedicon" title="Shared with {store.groupName(p.owner_group_id)}"><Icon name="users" size={12} /></span>{/if}</a>
             </div>
           {/each}
         </div>
@@ -338,6 +338,11 @@
     min-width: 0;
     font-size: 14px;
     padding: 6px 8px;
+  }
+  .sharedicon {
+    margin-left: auto;
+    color: var(--faint);
+    display: inline-grid;
   }
   .tree-row {
     display: flex;

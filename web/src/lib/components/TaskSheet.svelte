@@ -212,6 +212,21 @@
       </div>
     </section>
 
+    {#if task.project_id && task.owner_group_id}
+      <p class="muted help"><Icon name="users" size={12} /> Shared with {store.groupName(task.owner_group_id)} through its project.</p>
+    {:else if !task.project_id && store.myGroups().length}
+      <section>
+        <h3><Icon name="users" size={14} /> Shared with</h3>
+        <select value={task.owner_group_id ?? ''} onchange={(e) => store.shareTask(id, (e.currentTarget as HTMLSelectElement).value || null)}>
+          <option value="">Just me</option>
+          {#each store.myGroups() as g (g.id)}<option value={g.id}>{g.name}</option>{/each}
+        </select>
+      </section>
+    {/if}
+    {#if task.status === 'done' && task.owner_group_id && task.completed_by}
+      <p class="muted help">✓ Done by {store.personName(task.completed_by)}</p>
+    {/if}
+
     {#if store.places.size}
       <section>
         <h3><Icon name="pin" size={14} /> Place</h3>

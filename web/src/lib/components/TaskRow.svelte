@@ -94,6 +94,12 @@
           <i style:background={project.color ?? 'var(--faint)'}></i>{project.name}{task.also_project_ids.length ? ` +${task.also_project_ids.length}` : ''}
         </span>
       {/if}
+      {#if task.owner_group_id && !task.project_id}
+        <span class="groupchip" title="Shared with {store.groupName(task.owner_group_id)}"><Icon name="users" size={12} />{store.groupName(task.owner_group_id)}</span>
+      {/if}
+      {#if task.status === 'done' && task.owner_group_id && task.completed_by && task.completed_by !== store.me?.id}
+        <span class="by">✓ {store.personName(task.completed_by)}</span>
+      {/if}
       {#if task.place_id && store.places.get(task.place_id)}
         <span class="placechip" class:here={task.place_id === store.currentPlace}><Icon name="pin" size={12} />{store.places.get(task.place_id)?.name}</span>
       {/if}
@@ -198,6 +204,13 @@
     height: 8px;
     border-radius: 50%;
     display: inline-block;
+  }
+  .groupchip {
+    color: var(--accent);
+  }
+  .by {
+    color: var(--ok);
+    font-weight: 600;
   }
   .placechip.here {
     color: var(--accent);

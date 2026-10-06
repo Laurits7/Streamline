@@ -2,6 +2,7 @@
   import { api, ApiError } from '../lib/api/client'
   import type { ApiToken } from '../lib/api/types/ApiToken'
   import type { Me } from '../lib/api/types/Me'
+  import type { UserSummary } from '../lib/api/types/UserSummary'
   import Icon from '../lib/components/Icon.svelte'
   import PlaceSwitcher from '../lib/components/PlaceSwitcher.svelte'
   import { store } from '../lib/store.svelte'
@@ -25,6 +26,11 @@
     new Date().toLocaleDateString(me.locale || undefined, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }),
   )
   let newPlace = $state('')
+  let newGroup = $state('')
+  let people = $state<UserSummary[]>([])
+  async function loadPeople() {
+    if (!people.length) people = await store.directory().catch(() => [])
+  }
   const canLocate = typeof window !== 'undefined' && window.isSecureContext && 'geolocation' in navigator
   function locate(id: string) {
     navigator.geolocation.getCurrentPosition(
@@ -221,6 +227,58 @@
 </section>
 
 <section class="card">
+  <h2>Groups</h2>
+  <p class="help muted">
+    Share projects, tasks and routines with a group (e.g. your family). Everyone in the group sees them, and anyone can
+    complete them. Your day plans, focus time and notes stay your own.
+  </p>
+  {#each store.myGroups() as g (g.id)}
+    {@const mine = g.members.find((m) => m.user_id === me.id)}
+    {@const canManage = mine?.role === 'owner' || me.is_admin}
+    <div class="group card">
+      <div class="line top">
+        {#if canManage}
+          <input class="place-name" type="text" value={g.name} onchange={(e) => store.renameGroup(g.id, (e.currentTarget as HTMLInputElement).value)} aria-label="Group name" />
+        {:else}<strong>{g.name}</strong>{/if}
+        <div class="row">
+          <button class="btn small" onclick={() => confirm(`Leave “${g.name}”? Its shared things disappear from your lists.`) && store.removeMember(g.id, me.id)}>Leave</button>
+          {#if canManage}<button class="btn small danger" onclick={() => confirm(`Delete “${g.name}”?`) && store.deleteGroup(g.id)}>Delete</button>{/if}
+        </div>
+      </div>
+      <ul class="members">
+        {#each g.members as m (m.user_id)}
+          <li>
+            <Icon name="users" size={14} /> {m.display_name} <span class="muted small">@{m.username}{m.role === 'owner' ? ' · owner' : ''}</span>
+            {#if canManage && m.user_id !== me.id}
+              <button class="link" onclick={() => store.addMember(g.id, m.user_id, m.role === 'owner' ? 'member' : 'owner')}>{m.role === 'owner' ? 'make member' : 'make owner'}</button>
+              <button class="link danger" onclick={() => store.removeMember(g.id, m.user_id)}>remove</button>
+            {/if}
+          </li>
+        {/each}
+      </ul>
+      {#if canManage}
+        <select
+          value=""
+          aria-label="Add someone to {g.name}"
+          onfocus={loadPeople}
+          onchange={(e) => {
+            const v = (e.currentTarget as HTMLSelectElement).value
+            if (v) store.addMember(g.id, v)
+            ;(e.currentTarget as HTMLSelectElement).value = ''
+          }}>
+          <option value="">+ Add someone…</option>
+          {#each people.filter((p) => !g.members.some((m) => m.user_id === p.id)) as p (p.id)}<option value={p.id}>{p.display_name} (@{p.username})</option>{/each}
+        </select>
+      {/if}
+    </div>
+  {/each}
+  <form class="row" onsubmit={(e) => { e.preventDefault(); if (newGroup.trim()) { store.createGroup(newGroup.trim()); newGroup = '' } }}>
+    <input type="text" bind:value={newGroup} placeholder="New group, e.g. Family" />
+    <button class="btn" type="submit">Create</button>
+  </form>
+</section>
+
+<section class="card">
   <h2>Places</h2>
   <p class="help muted">
     Where tasks are done (e.g. Home, Cottage, Town). Pick where you are with the 📍 switcher and lists show only what
@@ -388,6 +446,34 @@
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
     gap: 0 12px;
+  }
+  .group {
+    padding: 10px 12px;
+    margin-bottom: 10px;
+  }
+  .group .top {
+    border: 0;
+    padding: 0 0 6px;
+  }
+  .members {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 8px;
+  }
+  .members li {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 0;
+    font-size: 14px;
+  }
+  .link {
+    color: var(--accent);
+    font-size: 12px;
+  }
+  .link.danger {
+    color: var(--danger);
   }
   .where {
     display: flex;
