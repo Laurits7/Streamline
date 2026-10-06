@@ -30,7 +30,7 @@ use crate::AppState;
         sync::sync, sync::events, sync::today, sync::task_types,
         projects::list, projects::create, projects::patch, projects::delete,
         tasks::list, tasks::create, tasks::get_one, tasks::patch, tasks::delete,
-        days::get_day, days::add_entry, days::patch_entry, days::delete_entry,
+        days::get_day, days::add_entry, days::put_plan, days::delete_plan, days::patch_entry, days::delete_entry,
     ),
     tags(
         (name = "account", description = "Setup, sign-in, profile and API tokens"),
@@ -117,6 +117,10 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/days/{date}", get(days::get_day))
         .route("/days/{date}/entries", post(days::add_entry))
+        .route(
+            "/days/{date}/plan",
+            axum::routing::put(days::put_plan).delete(days::delete_plan),
+        )
         .route(
             "/day-entries/{id}",
             patch(days::patch_entry).delete(days::delete_entry),

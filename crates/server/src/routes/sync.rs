@@ -19,7 +19,7 @@ use crate::{
     auth::AuthUser,
     db::current_rev,
     error::ApiResult,
-    models::{DayEntry, Me, Project, Task, TaskType},
+    models::{DayEntry, DayPlan, Me, Project, Task, TaskType},
     rollover,
 };
 
@@ -44,6 +44,7 @@ pub struct SyncResponse {
     pub projects: Vec<Project>,
     pub tasks: Vec<Task>,
     pub day_entries: Vec<DayEntry>,
+    pub day_plans: Vec<DayPlan>,
 }
 
 #[utoipa::path(get, path = "/sync", tag = "sync", summary = "Everything visible to you, or only what changed after `since`", params(SyncQuery), responses((status = 200, body = SyncResponse), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
@@ -99,6 +100,17 @@ pub async fn sync(
     .fetch_all(db)
     .await?;
 
+    let day_plans = sqlx::query_as(
+        "SELECT * FROM day_plans WHERE user_id = ?1 AND (
+            ?2 = 0 AND deleted_at IS NULL AND date >= ?3
+            OR ?2 > 0 AND rev > ?2)",
+    )
+    .bind(user.id())
+    .bind(since)
+    .bind(&cutoff_date)
+    .fetch_all(db)
+    .await?;
+
     Ok(Json(SyncResponse {
         rev,
         full,
@@ -108,6 +120,7 @@ pub async fn sync(
         projects,
         tasks,
         day_entries,
+        day_plans,
     }))
 }
 

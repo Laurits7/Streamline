@@ -15,7 +15,7 @@ use crate::{
     db::next_rev,
     error::{ApiResult, AppError},
     events::Change,
-    models::{DayEntry, Task, log_task_event, upsert_entry},
+    models::{DayEntry, DayPlan, Task, User, log_task_event, upsert_day_plan, upsert_entry},
     rollover,
     util::{check_hhmm, check_position, check_range, double_option, id_or_new, now, parse_date},
     visibility,
@@ -30,6 +30,60 @@ pub struct DayView {
     pub entries: Vec<DayEntry>,
     /// Tasks referenced by `entries`, plus open tasks due on or before the date.
     pub tasks: Vec<Task>,
+    /// Planning state; `null` = unplanned.
+    pub plan: Option<DayPlan>,
+    /// Minutes of the user's available window not taken by scheduled (timed) tasks.
+    pub free_min: u32,
+    /// Estimated minutes of open planned tasks without a time.
+    pub planned_min: u32,
+}
+
+/// Minutes a planned task takes: its slot's duration, else the estimate, else `default`.
+fn entry_minutes(e: &DayEntry, t: Option<&Task>, default: i32) -> u32 {
+    e.duration_min
+        .or(t.and_then(|t| t.estimate_min))
+        .unwrap_or(default)
+        .max(0) as u32
+}
+
+/// Free time and planned time for a day (SPEC §6.2d, step "Pick").
+pub fn day_load(user: &User, entries: &[DayEntry], tasks: &[Task]) -> (u32, u32) {
+    use streamline_domain::time::parse_hhmm;
+    let task = |id: &str| tasks.iter().find(|t| t.id == id);
+    let busy: Vec<_> = entries
+        .iter()
+        .filter_map(|e| {
+            Some((
+                parse_hhmm(e.start_time.as_deref()?)?,
+                entry_minutes(e, task(&e.task_id), 30),
+            ))
+        })
+        .collect();
+    let start = parse_hhmm(&user.day_window_start).unwrap_or_default();
+    let end = parse_hhmm(&user.day_window_end).unwrap_or_default();
+    let free = streamline_domain::planning::free_minutes(start, end, &busy);
+    let planned = entries
+        .iter()
+        .filter(|e| e.start_time.is_none())
+        .filter_map(|e| {
+            task(&e.task_id)
+                .filter(|t| t.status == "open")
+                .map(|t| entry_minutes(e, Some(t), 0))
+        })
+        .sum();
+    (free, planned)
+}
+
+async fn load_plan(
+    conn: &mut sqlx::SqliteConnection,
+    user_id: &str,
+    date: &str,
+) -> sqlx::Result<Option<DayPlan>> {
+    sqlx::query_as("SELECT * FROM day_plans WHERE user_id = ? AND date = ? AND deleted_at IS NULL")
+        .bind(user_id)
+        .bind(date)
+        .fetch_optional(conn)
+        .await
 }
 
 /// Aggregate for one day, so API clients can render a day in one request.
@@ -60,6 +114,8 @@ pub async fn get_day(
     .bind(&date)
     .fetch_all(db)
     .await?;
+    let plan = load_plan(&mut *state.db.read.acquire().await?, user.id(), &date).await?;
+    let (free_min, planned_min) = day_load(&user.user, &entries, &tasks);
     Ok(Json(DayView {
         date,
         today: rollover::today_for(&user.user)
@@ -67,7 +123,91 @@ pub async fn get_day(
             .to_string(),
         entries,
         tasks,
+        plan,
+        free_min,
+        planned_min,
     }))
+}
+
+#[derive(Deserialize, utoipa::ToSchema)]
+pub struct PutPlan {
+    /// `draft` (wizard in progress) or `planned` (confirmed).
+    status: String,
+    /// Wizard step to resume at.
+    #[serde(default)]
+    step: i32,
+}
+
+/// Start, update or confirm planning of a day.
+#[utoipa::path(put, path = "/days/{date}/plan", tag = "days", summary = "Set a day's planning state (draft with wizard step, or planned)", params(("date" = String, Path, description = "YYYY-MM-DD")), request_body = PutPlan, responses((status = 200, body = DayPlan), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
+pub async fn put_plan(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(date): Path<String>,
+    Json(c): Json<PutPlan>,
+) -> ApiResult<Json<DayPlan>> {
+    parse_date(&date)?;
+    if c.status != "draft" && c.status != "planned" {
+        return Err(crate::error::bad("status must be draft or planned"));
+    }
+    check_range("step", Some(c.step), 0, 10)?;
+    let mut tx = state.db.write.begin().await?;
+    let ts = now();
+    let rev = next_rev(&mut tx).await?;
+    let p = match load_plan(&mut tx, user.id(), &date).await? {
+        Some(mut p) => {
+            // Going back into the wizard doesn't un-plan a planned day.
+            if c.status == "planned" || p.status != "planned" {
+                p.status = c.status.clone();
+            }
+            p.step = c.step;
+            p
+        }
+        None => DayPlan {
+            id: crate::util::new_id(),
+            user_id: user.id().into(),
+            date: date.clone(),
+            status: c.status.clone(),
+            step: c.step,
+            planned_at: None,
+            created_at: ts.clone(),
+            updated_at: ts.clone(),
+            deleted_at: None,
+            rev,
+        },
+    };
+    let mut p = p;
+    if p.status == "planned" && p.planned_at.is_none() {
+        p.planned_at = Some(ts.clone());
+    }
+    p.updated_at = ts;
+    p.rev = rev;
+    upsert_day_plan(&mut tx, &p).await?;
+    tx.commit().await?;
+    state.bus.publish([Change::day_plan(&p)]);
+    Ok(Json(p))
+}
+
+/// Mark a day as unplanned again.
+#[utoipa::path(delete, path = "/days/{date}/plan", tag = "days", summary = "Mark a day as unplanned", params(("date" = String, Path, description = "YYYY-MM-DD")), responses((status = 204, description = "Done"), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
+pub async fn delete_plan(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(date): Path<String>,
+) -> ApiResult<StatusCode> {
+    parse_date(&date)?;
+    let mut tx = state.db.write.begin().await?;
+    let mut p = load_plan(&mut tx, user.id(), &date)
+        .await?
+        .ok_or(AppError::NotFound)?;
+    let ts = now();
+    p.deleted_at = Some(ts.clone());
+    p.updated_at = ts;
+    p.rev = next_rev(&mut tx).await?;
+    upsert_day_plan(&mut tx, &p).await?;
+    tx.commit().await?;
+    state.bus.publish([Change::day_plan(&p)]);
+    Ok(StatusCode::NO_CONTENT)
 }
 
 #[derive(Deserialize, utoipa::ToSchema)]

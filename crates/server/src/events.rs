@@ -7,7 +7,7 @@ use serde::Serialize;
 use tokio::sync::broadcast;
 
 use crate::{
-    models::{DayEntry, Project, Task},
+    models::{DayEntry, DayPlan, Project, Task},
     visibility,
 };
 
@@ -43,6 +43,23 @@ impl Change {
             kind: "day_entry",
             data: serde_json::to_value(e).unwrap(),
             audience: vec![e.user_id.clone()],
+        }
+    }
+    pub fn day_plan(p: &DayPlan) -> Self {
+        Self {
+            rev: p.rev,
+            kind: "day_plan",
+            data: serde_json::to_value(p).unwrap(),
+            audience: vec![p.user_id.clone()],
+        }
+    }
+    /// Something to show the user now (e.g. a planning reminder). Not part of the change feed.
+    pub fn notification(user_id: &str, data: serde_json::Value) -> Self {
+        Self {
+            rev: 0,
+            kind: "notification",
+            data,
+            audience: vec![user_id.to_string()],
         }
     }
     /// Tell a user's other sessions that their profile/settings changed.

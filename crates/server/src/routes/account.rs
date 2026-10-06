@@ -137,6 +137,11 @@ pub struct PatchMe {
     day_end: Option<String>,
     locale: Option<String>,
     week_start: Option<i32>,
+    plan_mode: Option<String>,
+    plan_time_evening: Option<String>,
+    plan_time_morning: Option<String>,
+    day_window_start: Option<String>,
+    day_window_end: Option<String>,
 }
 
 #[utoipa::path(patch, path = "/me", tag = "account", summary = "Update profile and preferences", request_body = PatchMe, responses((status = 200, body = Me), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
@@ -182,16 +187,40 @@ pub async fn patch_me(
         }
         u.week_start = w;
     }
+    if let Some(m) = p.plan_mode {
+        streamline_domain::planning::PlanMode::parse(&m)
+            .ok_or_else(|| bad("plan_mode must be evening, morning or both"))?;
+        u.plan_mode = m;
+    }
+    for (value, field) in [
+        (p.plan_time_evening, &mut u.plan_time_evening),
+        (p.plan_time_morning, &mut u.plan_time_morning),
+        (p.day_window_start, &mut u.day_window_start),
+        (p.day_window_end, &mut u.day_window_end),
+    ] {
+        if let Some(v) = value {
+            crate::util::check_hhmm(&v)?;
+            *field = v;
+        }
+    }
+    if u.day_window_start == u.day_window_end {
+        return Err(bad("the available part of the day can't be empty"));
+    }
     let mut tx = state.db.write.begin().await?;
     let rev = crate::db::next_rev(&mut tx).await?;
     sqlx::query(
-        "UPDATE users SET display_name = ?, timezone = ?, day_end = ?, locale = ?, week_start = ?, updated_at = ?, rev = ? WHERE id = ?",
+        "UPDATE users SET display_name = ?, timezone = ?, day_end = ?, locale = ?, week_start = ?, plan_mode = ?, plan_time_evening = ?, plan_time_morning = ?, day_window_start = ?, day_window_end = ?, updated_at = ?, rev = ? WHERE id = ?",
     )
         .bind(&u.display_name)
         .bind(&u.timezone)
         .bind(&u.day_end)
         .bind(&u.locale)
         .bind(u.week_start)
+    .bind(&u.plan_mode)
+    .bind(&u.plan_time_evening)
+    .bind(&u.plan_time_morning)
+    .bind(&u.day_window_start)
+    .bind(&u.day_window_end)
         .bind(now())
         .bind(rev)
         .bind(&u.id)

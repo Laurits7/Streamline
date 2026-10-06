@@ -13,6 +13,9 @@ pub fn spawn(state: AppState) {
             if let Err(e) = crate::rollover::run_all(&state).await {
                 tracing::warn!("rollover job failed: {e:#}");
             }
+            if let Err(e) = crate::reminders::run_all(&state).await {
+                tracing::warn!("reminder job failed: {e:#}");
+            }
             // Drop expired sessions.
             let _ = sqlx::query("DELETE FROM sessions WHERE expires_at < ?")
                 .bind(crate::util::now())

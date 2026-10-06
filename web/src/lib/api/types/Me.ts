@@ -11,4 +11,12 @@ locale: string,
 /**
  * First day of the week, ISO weekday (1 = Monday ... 7 = Sunday).
  */
-week_start: number, };
+week_start: number, 
+/**
+ * When the user plans: `evening` (plan tomorrow), `morning` (plan today) or `both`.
+ */
+plan_mode: 'evening' | 'morning' | 'both', plan_time_evening: string, plan_time_morning: string, 
+/**
+ * The part of the day counted as available time (`HH:MM`).
+ */
+day_window_start: string, day_window_end: string, };

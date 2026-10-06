@@ -8,6 +8,8 @@ pub mod error;
 pub mod events;
 pub mod jobs;
 pub mod models;
+pub mod notify;
+pub mod reminders;
 pub mod rollover;
 pub mod routes;
 pub mod static_files;

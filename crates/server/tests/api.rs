@@ -613,3 +613,202 @@ async fn openapi_document_covers_the_api() {
     }
     assert!(v["components"]["securitySchemes"]["bearer"].is_object());
 }
+
+#[tokio::test]
+async fn planning_state_and_free_time() {
+    let t = setup().await;
+    let admin = t.admin().await;
+    let (_, me, _) = t.req("GET", "/api/v1/me", Some(&admin), None).await;
+    assert_eq!(me["plan_mode"], "evening");
+    assert_eq!(
+        (
+            me["day_window_start"].as_str(),
+            me["day_window_end"].as_str()
+        ),
+        (Some("08:00"), Some("22:00"))
+    );
+    for bad in [
+        json!({"plan_mode": "noon"}),
+        json!({"plan_time_evening": "9pm"}),
+        json!({"day_window_start": "22:00"}),
+    ] {
+        let (s, _, _) = t
+            .req("PATCH", "/api/v1/me", Some(&admin), Some(bad.clone()))
+            .await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "{bad}");
+    }
+    let (_, v, _) = t.req("GET", "/api/v1/today", Some(&admin), None).await;
+    let day = v["date"].as_str().unwrap().to_string();
+
+    // Unplanned day: no plan, the whole 14 h window is free.
+    let (_, dv, _) = t
+        .req("GET", &format!("/api/v1/days/{day}"), Some(&admin), None)
+        .await;
+    assert!(dv["plan"].is_null());
+    assert_eq!(dv["free_min"], 840);
+
+    // A 90-min scheduled task takes free time; a 30-min unscheduled one counts as planned.
+    let (_, a, _) = t
+        .req(
+            "POST",
+            "/api/v1/tasks",
+            Some(&admin),
+            Some(json!({"title": "Meeting", "estimate_min": 90, "day": day})),
+        )
+        .await;
+    t.req(
+        "POST",
+        "/api/v1/tasks",
+        Some(&admin),
+        Some(json!({"title": "Email", "estimate_min": 30, "day": day})),
+    )
+    .await;
+    let (_, dv, _) = t
+        .req("GET", &format!("/api/v1/days/{day}"), Some(&admin), None)
+        .await;
+    let entry = dv["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["task_id"] == a["id"])
+        .unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    t.req(
+        "PATCH",
+        &format!("/api/v1/day-entries/{entry}"),
+        Some(&admin),
+        Some(json!({"start_time": "10:00"})),
+    )
+    .await;
+    let (_, dv, _) = t
+        .req("GET", &format!("/api/v1/days/{day}"), Some(&admin), None)
+        .await;
+    assert_eq!(
+        (dv["free_min"].as_i64(), dv["planned_min"].as_i64()),
+        (Some(750), Some(30))
+    );
+
+    // Draft (wizard step 2) -> planned; going back into the wizard keeps it planned.
+    let (s, p, _) = t
+        .req(
+            "PUT",
+            &format!("/api/v1/days/{day}/plan"),
+            Some(&admin),
+            Some(json!({"status": "draft", "step": 2})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(
+        (p["status"].as_str(), p["step"].as_i64()),
+        (Some("draft"), Some(2))
+    );
+    let (_, p, _) = t
+        .req(
+            "PUT",
+            &format!("/api/v1/days/{day}/plan"),
+            Some(&admin),
+            Some(json!({"status": "planned", "step": 4})),
+        )
+        .await;
+    assert_eq!(p["status"], "planned");
+    assert!(p["planned_at"].is_string());
+    let (_, p, _) = t
+        .req(
+            "PUT",
+            &format!("/api/v1/days/{day}/plan"),
+            Some(&admin),
+            Some(json!({"status": "draft", "step": 1})),
+        )
+        .await;
+    assert_eq!(
+        (p["status"].as_str(), p["step"].as_i64()),
+        (Some("planned"), Some(1))
+    );
+    let (s, _, _) = t
+        .req(
+            "PUT",
+            &format!("/api/v1/days/{day}/plan"),
+            Some(&admin),
+            Some(json!({"status": "done"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    let (_, sync, _) = t.req("GET", "/api/v1/sync", Some(&admin), None).await;
+    assert_eq!(sync["day_plans"][0]["status"], "planned");
+
+    // Unplanning.
+    let (s, _, _) = t
+        .req(
+            "DELETE",
+            &format!("/api/v1/days/{day}/plan"),
+            Some(&admin),
+            None,
+        )
+        .await;
+    assert_eq!(s, StatusCode::NO_CONTENT);
+    let (_, dv, _) = t
+        .req("GET", &format!("/api/v1/days/{day}"), Some(&admin), None)
+        .await;
+    assert!(dv["plan"].is_null());
+}
+
+#[tokio::test]
+async fn planning_reminders_fire_once_and_skip_planned_days() {
+    let t = setup().await;
+    let admin = t.admin().await;
+    // Planning times equal to the day end are always in the past for the current logical day.
+    let (_, me, _) = t
+        .req("PATCH", "/api/v1/me", Some(&admin), Some(json!({"timezone": "UTC", "day_end": "04:00", "plan_mode": "both", "plan_time_morning": "04:00", "plan_time_evening": "04:00"})))
+        .await;
+    let user = streamline::auth::load_user(&t.state, me["id"].as_str().unwrap())
+        .await
+        .unwrap()
+        .unwrap();
+    let (_, v, _) = t.req("GET", "/api/v1/today", Some(&admin), None).await;
+    let today = v["date"].as_str().unwrap().to_string();
+
+    // Today is already planned: only the evening reminder (for tomorrow) goes out.
+    t.req(
+        "PUT",
+        &format!("/api/v1/days/{today}/plan"),
+        Some(&admin),
+        Some(json!({"status": "planned"})),
+    )
+    .await;
+    let mut events = t.state.bus.subscribe();
+    let sent = streamline::reminders::run_for_user(&t.state, &user)
+        .await
+        .unwrap();
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0].kind, "plan_evening");
+    assert!(sent[0].url.starts_with("/plan/") && !sent[0].url.ends_with(&today));
+    let ev = events.try_recv().unwrap();
+    assert_eq!(ev.kind, "notification");
+    assert_eq!(ev.audience, [user.id.clone()]);
+
+    // Never twice.
+    assert!(
+        streamline::reminders::run_for_user(&t.state, &user)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+
+    // An unplanned today gets its morning reminder.
+    t.req(
+        "DELETE",
+        &format!("/api/v1/days/{today}/plan"),
+        Some(&admin),
+        None,
+    )
+    .await;
+    let sent = streamline::reminders::run_for_user(&t.state, &user)
+        .await
+        .unwrap();
+    assert_eq!(
+        sent.iter().map(|n| n.kind.as_str()).collect::<Vec<_>>(),
+        ["plan_morning"]
+    );
+}

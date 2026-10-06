@@ -17,6 +17,11 @@ pub struct User {
     pub last_rollover_date: Option<String>,
     pub locale: String,
     pub week_start: i32,
+    pub plan_mode: String,
+    pub plan_time_evening: String,
+    pub plan_time_morning: String,
+    pub day_window_start: String,
+    pub day_window_end: String,
 }
 
 /// The signed-in user as seen by themselves (and by admins in the user list).
@@ -33,6 +38,14 @@ pub struct Me {
     pub locale: String,
     /// First day of the week, ISO weekday (1 = Monday ... 7 = Sunday).
     pub week_start: i32,
+    /// When the user plans: `evening` (plan tomorrow), `morning` (plan today) or `both`.
+    #[ts(type = "'evening' | 'morning' | 'both'")]
+    pub plan_mode: String,
+    pub plan_time_evening: String,
+    pub plan_time_morning: String,
+    /// The part of the day counted as available time (`HH:MM`).
+    pub day_window_start: String,
+    pub day_window_end: String,
 }
 
 impl From<&User> for Me {
@@ -46,6 +59,11 @@ impl From<&User> for Me {
             day_end: u.day_end.clone(),
             locale: u.locale.clone(),
             week_start: u.week_start,
+            plan_mode: u.plan_mode.clone(),
+            plan_time_evening: u.plan_time_evening.clone(),
+            plan_time_morning: u.plan_time_morning.clone(),
+            day_window_start: u.day_window_start.clone(),
+            day_window_end: u.day_window_end.clone(),
         }
     }
 }
@@ -150,6 +168,26 @@ pub struct DayEntry {
     pub rev: i64,
 }
 
+/// Planning state of one day. No record (or a deleted one) means the day is unplanned.
+#[derive(Debug, Clone, Serialize, FromRow, TS, utoipa::ToSchema)]
+#[ts(export)]
+pub struct DayPlan {
+    pub id: String,
+    pub user_id: String,
+    pub date: String,
+    /// `draft` while the planning wizard is in progress, `planned` once confirmed.
+    #[ts(type = "'draft' | 'planned'")]
+    pub status: String,
+    /// The wizard step to resume at.
+    pub step: i32,
+    pub planned_at: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+    pub deleted_at: Option<String>,
+    #[ts(type = "number")]
+    pub rev: i64,
+}
+
 #[derive(Debug, Clone, Serialize, FromRow, TS, utoipa::ToSchema)]
 #[ts(export)]
 pub struct ApiToken {
@@ -210,6 +248,20 @@ pub async fn upsert_entry(conn: &mut SqliteConnection, e: &DayEntry) -> sqlx::Re
     )
     .bind(&e.id).bind(&e.user_id).bind(&e.date).bind(&e.task_id).bind(&e.position).bind(&e.start_time)
     .bind(e.duration_min).bind(&e.created_at).bind(&e.updated_at).bind(&e.deleted_at).bind(e.rev)
+    .execute(conn)
+    .await
+    .map(|_| ())
+}
+
+pub async fn upsert_day_plan(conn: &mut SqliteConnection, p: &DayPlan) -> sqlx::Result<()> {
+    sqlx::query(
+        "INSERT INTO day_plans (id, user_id, date, status, step, planned_at, created_at, updated_at, deleted_at, rev)
+         VALUES (?,?,?,?,?,?,?,?,?,?)
+         ON CONFLICT(id) DO UPDATE SET status=excluded.status, step=excluded.step, planned_at=excluded.planned_at,
+           updated_at=excluded.updated_at, deleted_at=excluded.deleted_at, rev=excluded.rev",
+    )
+    .bind(&p.id).bind(&p.user_id).bind(&p.date).bind(&p.status).bind(p.step).bind(&p.planned_at)
+    .bind(&p.created_at).bind(&p.updated_at).bind(&p.deleted_at).bind(p.rev)
     .execute(conn)
     .await
     .map(|_| ())
