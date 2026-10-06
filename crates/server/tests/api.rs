@@ -3758,3 +3758,326 @@ async fn day_templates_blocks_conflicts_and_suggestions() {
         2
     );
 }
+
+#[tokio::test]
+async fn tracking_summary_export_and_privacy() {
+    let t = setup().await;
+    let admin = t.admin().await;
+    let anna = t.user(&admin, "anna").await;
+    let ben = t.user(&admin, "ben").await;
+    let (_, me_anna, _) = t.req("GET", "/api/v1/me", Some(&anna), None).await;
+    let (_, me_ben, _) = t.req("GET", "/api/v1/me", Some(&ben), None).await;
+    // Anna and Ben share a group: tracking must still stay private.
+    let (_, fam, _) = t
+        .req(
+            "POST",
+            "/api/v1/groups",
+            Some(&anna),
+            Some(json!({"name": "Family"})),
+        )
+        .await;
+    t.req(
+        "POST",
+        &format!("/api/v1/groups/{}/members", fam["id"].as_str().unwrap()),
+        Some(&anna),
+        Some(json!({"user_id": me_ben["id"]})),
+    )
+    .await;
+    let mut rx = t.state.bus.subscribe();
+
+    let (_, full, _) = t.req("GET", "/api/v1/sync", Some(&anna), None).await;
+    let metrics = full["metrics"].as_array().unwrap().clone();
+    let id_of = |key: &str| {
+        metrics.iter().find(|m| m["key"] == key).unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    };
+    let (mood, weight) = (id_of("mood"), id_of("weight"));
+    let today = full["today"].as_str().unwrap().to_string();
+
+    // Several moods a day average; weight keeps the latest.
+    for v in [4, 2] {
+        let (s, _, _) = t
+            .req(
+                "POST",
+                &format!("/api/v1/metrics/{mood}/entries"),
+                Some(&anna),
+                Some(json!({"value": v})),
+            )
+            .await;
+        assert_eq!(s, StatusCode::OK);
+    }
+    let (s, _, _) = t
+        .req(
+            "POST",
+            &format!("/api/v1/metrics/{mood}/entries"),
+            Some(&anna),
+            Some(json!({"value": 9})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST, "outside the 1-5 scale");
+    t.req(
+        "POST",
+        &format!("/api/v1/metrics/{weight}/entries"),
+        Some(&anna),
+        Some(json!({"value": 73.0})),
+    )
+    .await;
+    t.req(
+        "POST",
+        &format!("/api/v1/metrics/{weight}/entries"),
+        Some(&anna),
+        Some(json!({"value": 72.5})),
+    )
+    .await;
+
+    // Custom metrics.
+    let (s, _, _) = t
+        .req(
+            "POST",
+            "/api/v1/metrics",
+            Some(&anna),
+            Some(json!({"name": "Energy", "kind": "scale", "scale_min": 5, "scale_max": 1})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    let (s, gym, _) = t
+        .req(
+            "POST",
+            "/api/v1/metrics",
+            Some(&anna),
+            Some(json!({"name": "Went to the gym", "kind": "yes_no"})),
+        )
+        .await;
+    assert_eq!(
+        (s, gym["aggregate"].as_str()),
+        (StatusCode::OK, Some("max"))
+    );
+    let (s, _, _) = t
+        .req(
+            "POST",
+            &format!("/api/v1/metrics/{}/entries", gym["id"].as_str().unwrap()),
+            Some(&anna),
+            Some(json!({"value": 2})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    let (s, _, _) = t
+        .req(
+            "DELETE",
+            &format!("/api/v1/metrics/{mood}"),
+            Some(&anna),
+            None,
+        )
+        .await;
+    assert_eq!(
+        s,
+        StatusCode::BAD_REQUEST,
+        "built-ins are archived, not deleted"
+    );
+
+    // Reflection: partial saves keep the other fields.
+    t.req(
+        "PUT",
+        &format!("/api/v1/days/{today}/record"),
+        Some(&anna),
+        Some(json!({"journal": "Long day.", "went_well": "Finished the report"})),
+    )
+    .await;
+    let (_, rec, _) = t
+        .req(
+            "PUT",
+            &format!("/api/v1/days/{today}/record"),
+            Some(&anna),
+            Some(json!({"tomorrow": "Rest"})),
+        )
+        .await;
+    assert_eq!(
+        (
+            rec["journal"].as_str(),
+            rec["went_well"].as_str(),
+            rec["tomorrow"].as_str()
+        ),
+        (Some("Long day."), Some("Finished the report"), Some("Rest"))
+    );
+
+    // Summary: planned vs done.
+    let (_, a, _) = t
+        .req(
+            "POST",
+            "/api/v1/tasks",
+            Some(&anna),
+            Some(json!({"title": "A", "estimate_min": 30})),
+        )
+        .await;
+    let (_, b, _) = t
+        .req(
+            "POST",
+            "/api/v1/tasks",
+            Some(&anna),
+            Some(json!({"title": "B"})),
+        )
+        .await;
+    for x in [&a, &b] {
+        t.req(
+            "POST",
+            &format!("/api/v1/days/{today}/entries"),
+            Some(&anna),
+            Some(json!({"task_id": x["id"]})),
+        )
+        .await;
+    }
+    t.req(
+        "PATCH",
+        &format!("/api/v1/tasks/{}", a["id"].as_str().unwrap()),
+        Some(&anna),
+        Some(json!({"status": "done"})),
+    )
+    .await;
+    let (s, sum, _) = t
+        .req(
+            "GET",
+            &format!("/api/v1/days/{today}/summary"),
+            Some(&anna),
+            None,
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{sum}");
+    assert_eq!(
+        (
+            sum["planned"].as_i64(),
+            sum["done"].as_i64(),
+            sum["open"].as_i64()
+        ),
+        (Some(2), Some(1), Some(1))
+    );
+    assert_eq!(sum["completion_rate"], 0.5);
+    assert_eq!(sum["completed_total"], 1);
+    assert_eq!(sum["estimated_min"], 30);
+    assert_eq!(sum["record"]["tomorrow"], "Rest");
+    let mv = |id: &str| {
+        sum["metrics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|m| m["metric_id"] == id)
+            .unwrap()["value"]
+            .as_f64()
+            .unwrap()
+    };
+    assert_eq!(mv(&mood), 3.0);
+    assert_eq!(mv(&weight), 72.5);
+    let (_, days, _) = t
+        .req(
+            "GET",
+            &format!("/api/v1/summaries?from={today}&to={today}"),
+            Some(&anna),
+            None,
+        )
+        .await;
+    assert_eq!(
+        days[0],
+        json!({"date": today, "planned": 2, "done": 1, "mood": 3.0, "journal": true})
+    );
+
+    // CSV in and out.
+    let (s, imp, _) = t
+        .req(
+            "POST",
+            &format!("/api/v1/metrics/{weight}/import"),
+            Some(&anna),
+            Some(json!({"text": "Kuupäev;Kaal\n01.01.2026;80,5\n2026-01-08;79.9"})),
+        )
+        .await;
+    assert_eq!((s, imp["imported"].as_i64()), (StatusCode::OK, Some(2)));
+    let req = Request::builder()
+        .uri(format!("/api/v1/metrics/{weight}/csv"))
+        .header(header::COOKIE, format!("sl_session={anna}"))
+        .extension(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 9999))))
+        .body(Body::empty())
+        .unwrap();
+    let res = t.app.clone().oneshot(req).await.unwrap();
+    let csv =
+        String::from_utf8(res.into_body().collect().await.unwrap().to_bytes().to_vec()).unwrap();
+    assert!(
+        csv.starts_with("date,value,note,logged_at\n2026-01-01,80.5,"),
+        "{csv}"
+    );
+    assert_eq!(csv.lines().count(), 5);
+
+    // Export: all of Anna's data, none of Ben's.
+    t.req(
+        "POST",
+        "/api/v1/tasks",
+        Some(&ben),
+        Some(json!({"title": "Ben's secret"})),
+    )
+    .await;
+    let (s, ex, _) = t.req("GET", "/api/v1/export", Some(&anna), None).await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(ex["day_records"][0]["journal"], "Long day.");
+    assert_eq!(ex["metric_entries"].as_array().unwrap().len(), 6);
+    assert!(!ex.to_string().contains("Ben's secret"));
+
+    // Privacy: Ben (a co-member) sees nothing of it, anywhere.
+    let (_, bs, _) = t.req("GET", "/api/v1/sync", Some(&ben), None).await;
+    assert!(bs["metric_entries"].as_array().unwrap().is_empty());
+    assert!(bs["day_records"].as_array().unwrap().is_empty());
+    assert!(
+        bs["metrics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|m| m["owner_user_id"] == me_ben["id"])
+    );
+    let (_, bsum, _) = t
+        .req(
+            "GET",
+            &format!("/api/v1/days/{today}/summary"),
+            Some(&ben),
+            None,
+        )
+        .await;
+    assert_eq!(
+        (bsum["record"].clone(), bsum["metrics"].clone()),
+        (Value::Null, json!([]))
+    );
+    let (s, _, _) = t
+        .req(
+            "PATCH",
+            &format!("/api/v1/metrics/{mood}"),
+            Some(&ben),
+            Some(json!({"name": "x"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+    let (s, _, _) = t
+        .req(
+            "POST",
+            &format!("/api/v1/metrics/{mood}/entries"),
+            Some(&ben),
+            Some(json!({"value": 1})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+    let mut seen = 0;
+    while let Ok(c) = rx.try_recv() {
+        if ["day_record", "metric", "metric_entry"].contains(&c.kind)
+            && c.data["user_id"]
+                .as_str()
+                .or(c.data["owner_user_id"].as_str())
+                == me_anna["id"].as_str()
+        {
+            assert_eq!(
+                c.audience,
+                vec![me_anna["id"].as_str().unwrap().to_string()],
+                "{} went to {:?}",
+                c.kind,
+                c.audience
+            );
+            seen += 1;
+        }
+    }
+    assert!(seen >= 8, "saw {seen} tracking events");
+}

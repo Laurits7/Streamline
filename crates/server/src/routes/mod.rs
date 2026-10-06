@@ -11,6 +11,7 @@ mod projects;
 mod series;
 mod sync;
 mod tasks;
+mod tracking;
 pub mod workflows;
 
 use axum::{
@@ -44,6 +45,7 @@ use crate::AppState;
         calendar::get_account, calendar::put_account, calendar::delete_account, calendar::test, calendar::sync_now, calendar::patch_calendar,
         occasions::calendar, occasions::search, occasions::load, occasions::create_person, occasions::patch_person, occasions::delete_person, occasions::put_template,
         blocks::create_template, blocks::patch_template, blocks::delete_template, blocks::apply_template, blocks::create_block, blocks::patch_block, blocks::delete_block, blocks::suggest,
+        tracking::put_record, tracking::summary, tracking::glance, tracking::create_metric, tracking::patch_metric, tracking::delete_metric, tracking::create_entry, tracking::patch_entry, tracking::delete_entry, tracking::metric_csv, tracking::import_csv, tracking::export,
         sync::sync, sync::events, sync::today, sync::task_types,
         projects::list, projects::create, projects::patch, projects::delete,
         tasks::list, tasks::create, tasks::get_one, tasks::patch, tasks::delete,
@@ -63,6 +65,7 @@ use crate::AppState;
         (name = "groups", description = "Groups and shared ownership"),
         (name = "calendar", description = "Calendar account (CalDAV) and calendars"),
         (name = "occasions", description = "Nameday calendar, people, birthdays and namedays"),
+        (name = "tracking", description = "Reflection, metrics, day summary and export (personal)"),
     )
 )]
 pub struct ApiDoc;
@@ -176,6 +179,25 @@ pub fn router(state: AppState) -> Router {
             "/time-blocks/{id}",
             patch(blocks::patch_block).delete(blocks::delete_block),
         )
+        .route(
+            "/days/{date}/record",
+            axum::routing::put(tracking::put_record),
+        )
+        .route("/days/{date}/summary", get(tracking::summary))
+        .route("/summaries", get(tracking::glance))
+        .route("/metrics", post(tracking::create_metric))
+        .route(
+            "/metrics/{id}",
+            patch(tracking::patch_metric).delete(tracking::delete_metric),
+        )
+        .route("/metrics/{id}/entries", post(tracking::create_entry))
+        .route("/metrics/{id}/csv", get(tracking::metric_csv))
+        .route("/metrics/{id}/import", post(tracking::import_csv))
+        .route(
+            "/metric-entries/{id}",
+            patch(tracking::patch_entry).delete(tracking::delete_entry),
+        )
+        .route("/export", get(tracking::export))
         .route("/sync", get(sync::sync))
         .route("/events", get(sync::events))
         .route("/today", get(sync::today))

@@ -21,6 +21,7 @@
     ['places', 'Places'],
     ['calendar', 'Your calendar and the agenda'],
     ['occasions', 'Namedays and birthdays'],
+    ['tracking', 'Summary, journal and tracking'],
     ['account', 'Account, users and API tokens'],
     ['soon', 'Coming later'],
   ]
@@ -341,6 +342,22 @@
     </ul>
   </section>
 
+  <section id="tracking">
+    <h2><Icon name="book" size={18} /> Summary, journal and tracking</h2>
+    <p>
+      The <em>Track</em> card on the Today view logs your mood (tap a face), weight, and anything you add yourself in
+      <a href="/settings">Settings</a> (sleep, water, steps, “took vitamins”…). Log as often as you like; each metric
+      decides how a day's values combine (latest, average, sum or highest).
+    </p>
+    <ul>
+      <li><a href="/summary">Summary &amp; journal</a> shows a day at a glance: planned vs. done, what was carried over or missed, routines and streaks, events, focus time and what you tracked. Write your reflection there (or in the planner's first step); it saves as you type. The month calendar lets you browse past days.</li>
+      <li><a href="/trends">Trends</a> charts each metric over a week, month or year, and your mood next to how many routines you did.</li>
+      <li>Weight is shown in kg or lb (Settings → Tracking → Units). A reminder time per metric nudges you if you haven't logged it by then.</li>
+      <li>Export: CSV per metric, or all your data as JSON. Import past values from a CSV of <code>date,value</code>.</li>
+      <li>Your journal and tracking are private: nobody else sees them, not even people in your groups.</li>
+    </ul>
+  </section>
+
   <section id="occasions">
     <h2><Icon name="gift" size={18} /> Namedays and birthdays</h2>
     <p>
@@ -360,7 +377,7 @@
     <h2>Coming later</h2>
     <p class="muted">Planned, roughly in this order:</p>
     <ul>
-      <li>Daily reflection, mood and other trackers, and long-term goals.</li>
+      <li>Long-term goals with milestones and reviews.</li>
     </ul>
   </section>
 </article>

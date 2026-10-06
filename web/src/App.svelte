@@ -141,6 +141,8 @@
         <a href="/inbox" class="drop-zone" draggable="false" aria-current={active('inbox')} use:droppable={toProject(null)}><Icon name="inbox" /> Inbox</a>
         <a href="/tasks" draggable="false" aria-current={active('tasks')}><Icon name="list" /> All tasks</a>
         <a href="/routines" draggable="false" aria-current={active('routines')}><Icon name="repeat" /> Routines</a>
+        <a href="/summary" draggable="false" aria-current={active('summary')}><Icon name="book" /> Summary & journal</a>
+        <a href="/trends" draggable="false" aria-current={active('trends')}><Icon name="chart" /> Trends</a>
         <a href="/occasions" draggable="false" aria-current={active('occasions')}><Icon name="gift" /> Namedays & birthdays</a>
         <a href="/focus" draggable="false"><Icon name="target" /> Focus</a>
         <a href="/projects" draggable="false" aria-current={active('projects')}><Icon name="folder" /> Projects</a>
@@ -176,6 +178,10 @@
         <Day date={route.date} />
       {:else if route.name === 'plan'}
         {#await import('./views/Plan.svelte') then m}{#key route.date}<m.default date={route.date} />{/key}{/await}
+      {:else if route.name === 'summary'}
+        {#await import('./views/Summary.svelte') then m}<m.default date={route.date} />{/await}
+      {:else if route.name === 'trends'}
+        {#await import('./views/Trends.svelte') then m}<m.default />{/await}
       {:else if route.name === 'occasions'}
         {#await import('./views/Occasions.svelte') then m}<m.default />{/await}
       {:else if route.name === 'agenda'}

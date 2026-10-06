@@ -18,6 +18,9 @@ What works today:
 - **Your calendar**: connect any CalDAV calendar (Nextcloud, Fastmail, iCloud, Radicale, …;
   read-only). Events appear on the day's timeline and in a week **agenda**, and busy time is
   subtracted from the day's free time. Recurring events, exceptions and time zones are handled.
+- **Summary, journal and tracking**: a day summary (planned vs. done, routines, events, focus),
+  a private journal with prompts, mood/weight/custom metrics with reminders, trend charts,
+  CSV import/export and a full JSON export.
 - **Time blocks and suggestions**: day templates with themed blocks (deep work, admin…) per
   weekday; overlap warnings with quick fixes; an explainable "suggest times" in the planner.
 - **Namedays and birthdays**: a shared nameday calendar (the official Estonian list is downloaded

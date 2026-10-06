@@ -17,6 +17,9 @@ pub fn spawn(state: AppState) {
             if let Err(e) = crate::blocks::materialize_all(&state).await {
                 tracing::warn!("day templates job failed: {e:#}");
             }
+            if let Err(e) = crate::tracking::remind_all(&state).await {
+                tracing::warn!("metric reminders failed: {e:#}");
+            }
             if let Err(e) = crate::occasions::materialize_all(&state).await {
                 tracing::warn!("occasions job failed: {e:#}");
             }

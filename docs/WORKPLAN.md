@@ -5,7 +5,7 @@
 > and 3 are complete**, plus the owner's follow-ups (orange unplanned banner, Done → To do on the board,
 > tasks in several projects, daily activity log; D-48), routine versions (D-49) and 2b.6a Places (D-50).
 > Phases 3b (prerequisites, multi-step chores) and 4 (groups) are complete too. Phase 5 (calendar)
-> and 3b.6a Occasions (D-57) are complete. Phase 5a (conflicts, blocks, planner) too. Next: 5b, 5c.
+> and 3b.6a Occasions (D-57) are complete. Phase 5a (conflicts, blocks, planner) and 5b (summary, tracking) too. Next: 5c.
 > Legend: `[x]` done · `[~]` partly done (the remaining work is noted) · `[ ]` not started.
 
 ## MVP status (2026-10-06)
@@ -472,23 +472,23 @@ Legend: **Deliverables** = what exists afterwards · **Tests** = what must be co
 
 ### Phase 5b: Daily summary and tracking (§6.2b)
 
-- [ ] **5b.1 Day records and reflection**  *(needs Q-16)*: lazily created `day_records`;
+- [x] **5b.1 Day records and reflection**  *(needs Q-16)*: lazily created `day_records`;
       free text + optional prompt layout (went well / didn't / tomorrow) with autosave;
       the evening flow chains reflection → plan tomorrow.
-- [ ] **5b.2 Metrics**  *(needs Q-23)*: `metric_definitions` (built-in mood and weight, plus
+- [x] **5b.2 Metrics**  *(needs Q-23)*: `metric_definitions` (built-in mood and weight, plus
       custom number/scale/yes-no with unit and reminder), `metric_entries` (several per day);
       quick-log widgets on the Today view (mood emoji row, weight input); unit preference
       with conversion.
-- [ ] **5b.3 Day summary**: planned vs. done, missed vs. carried (shown separately), events,
+- [x] **5b.3 Day summary**: planned vs. done, missed vs. carried (shown separately), events,
       focus time, estimate vs. actual, routine streaks; browse past days in a month calendar.
-- [ ] **5b.4 Trends**: small SVG chart components (line, bar, heat-strip); week/month/year
+- [x] **5b.4 Trends**: small SVG chart components (line, bar, heat-strip); week/month/year
       ranges per metric; mood vs. routine-completion overlay. No chart library.
-- [ ] **5b.5 Export/import and metric reminders**  *(needs Q-17)*: JSON export of all of a
+- [x] **5b.5 Export/import and metric reminders**  *(needs Q-17)*: JSON export of all of a
       user's data; CSV per metric; CSV import for metrics if Q-17 says yes; metric reminders
       through the `Notifier`.
-- [ ] Privacy test: no 5b endpoint or SSE event ever reaches another user, including group
+- [x] Privacy test: no 5b endpoint or SSE event ever reaches another user, including group
       co-members.
-- [ ] **5b.6 Phase gate**
+- [x] **5b.6 Phase gate** (D-59)
 
 ---
 

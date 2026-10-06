@@ -27,6 +27,7 @@ pub struct User {
     pub focus_short_break_min: i32,
     pub focus_long_break_min: i32,
     pub focus_long_every: i32,
+    pub unit_system: String,
 }
 
 impl User {
@@ -72,6 +73,9 @@ pub struct Me {
     pub focus_short_break_min: i32,
     pub focus_long_break_min: i32,
     pub focus_long_every: i32,
+    /// `metric` (kg) or `imperial` (lb) for displaying weight; values are stored metric.
+    #[ts(type = "'metric' | 'imperial'")]
+    pub unit_system: String,
 }
 
 impl From<&User> for Me {
@@ -95,6 +99,7 @@ impl From<&User> for Me {
             focus_short_break_min: u.focus_short_break_min,
             focus_long_break_min: u.focus_long_break_min,
             focus_long_every: u.focus_long_every,
+            unit_system: u.unit_system.clone(),
         }
     }
 }
@@ -896,6 +901,121 @@ pub async fn upsert_time_block(conn: &mut SqliteConnection, b: &TimeBlock) -> sq
     )
     .bind(&b.id).bind(&b.user_id).bind(&b.date).bind(&b.title).bind(&b.start_time).bind(&b.end_time).bind(&b.energy)
     .bind(&b.template_id).bind(&b.created_at).bind(&b.updated_at).bind(&b.deleted_at).bind(b.rev)
+    .execute(conn)
+    .await
+    .map(|_| ())
+}
+
+/// A day's reflection (SPEC §6.2b). Personal.
+#[derive(Debug, Clone, Serialize, FromRow, TS, utoipa::ToSchema)]
+#[ts(export)]
+pub struct DayRecord {
+    pub id: String,
+    pub user_id: String,
+    pub date: String,
+    /// Free text.
+    pub journal: String,
+    pub went_well: String,
+    pub went_badly: String,
+    pub tomorrow: String,
+    pub created_at: String,
+    pub updated_at: String,
+    pub deleted_at: Option<String>,
+    #[ts(type = "number")]
+    pub rev: i64,
+}
+
+pub async fn upsert_day_record(conn: &mut SqliteConnection, r: &DayRecord) -> sqlx::Result<()> {
+    sqlx::query(
+        "INSERT INTO day_records (id, user_id, date, journal, went_well, went_badly, tomorrow, created_at, updated_at, deleted_at, rev)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?)
+         ON CONFLICT(id) DO UPDATE SET journal=excluded.journal, went_well=excluded.went_well, went_badly=excluded.went_badly,
+           tomorrow=excluded.tomorrow, updated_at=excluded.updated_at, deleted_at=excluded.deleted_at, rev=excluded.rev",
+    )
+    .bind(&r.id).bind(&r.user_id).bind(&r.date).bind(&r.journal).bind(&r.went_well).bind(&r.went_badly).bind(&r.tomorrow)
+    .bind(&r.created_at).bind(&r.updated_at).bind(&r.deleted_at).bind(r.rev)
+    .execute(conn)
+    .await
+    .map(|_| ())
+}
+
+/// Something a user tracks: mood, weight, or their own (sleep, water, steps…).
+#[derive(Debug, Clone, Serialize, FromRow, TS, utoipa::ToSchema)]
+#[ts(export)]
+pub struct MetricDefinition {
+    pub id: String,
+    pub owner_user_id: String,
+    /// `mood` or `weight` for the built-ins.
+    pub key: Option<String>,
+    pub name: String,
+    #[ts(type = "'number' | 'scale' | 'yes_no'")]
+    pub kind: String,
+    /// Weight is stored in kg.
+    pub unit: String,
+    pub scale_min: Option<i32>,
+    pub scale_max: Option<i32>,
+    /// How several entries of a day combine.
+    #[ts(type = "'latest' | 'average' | 'sum' | 'max'")]
+    pub aggregate: String,
+    /// `HH:MM`: a reminder if nothing is logged by then.
+    pub reminder_time: Option<String>,
+    #[serde(skip)]
+    #[ts(skip)]
+    pub last_reminded: Option<String>,
+    pub archived: bool,
+    pub position: String,
+    pub created_at: String,
+    pub updated_at: String,
+    pub deleted_at: Option<String>,
+    #[ts(type = "number")]
+    pub rev: i64,
+}
+
+pub async fn upsert_metric(conn: &mut SqliteConnection, m: &MetricDefinition) -> sqlx::Result<()> {
+    sqlx::query(
+        "INSERT INTO metric_definitions (id, owner_user_id, key, name, kind, unit, scale_min, scale_max, aggregate, reminder_time, last_reminded,
+           archived, position, created_at, updated_at, deleted_at, rev)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+         ON CONFLICT(id) DO UPDATE SET name=excluded.name, unit=excluded.unit, scale_min=excluded.scale_min, scale_max=excluded.scale_max,
+           aggregate=excluded.aggregate, reminder_time=excluded.reminder_time, last_reminded=excluded.last_reminded,
+           archived=excluded.archived, position=excluded.position, updated_at=excluded.updated_at, deleted_at=excluded.deleted_at, rev=excluded.rev",
+    )
+    .bind(&m.id).bind(&m.owner_user_id).bind(&m.key).bind(&m.name).bind(&m.kind).bind(&m.unit).bind(m.scale_min).bind(m.scale_max)
+    .bind(&m.aggregate).bind(&m.reminder_time).bind(&m.last_reminded).bind(m.archived).bind(&m.position)
+    .bind(&m.created_at).bind(&m.updated_at).bind(&m.deleted_at).bind(m.rev)
+    .execute(conn)
+    .await
+    .map(|_| ())
+}
+
+#[derive(Debug, Clone, Serialize, FromRow, TS, utoipa::ToSchema)]
+#[ts(export)]
+pub struct MetricEntry {
+    pub id: String,
+    pub user_id: String,
+    pub metric_id: String,
+    /// The logical day it counts for.
+    pub date: String,
+    /// When it was logged.
+    pub at: String,
+    pub value: f64,
+    pub note: String,
+    pub created_at: String,
+    pub updated_at: String,
+    pub deleted_at: Option<String>,
+    #[ts(type = "number")]
+    pub rev: i64,
+}
+
+pub async fn upsert_metric_entry(conn: &mut SqliteConnection, e: &MetricEntry) -> sqlx::Result<()> {
+    sqlx::query(
+        "INSERT INTO metric_entries (id, user_id, metric_id, date, at, value, note, created_at, updated_at, deleted_at, rev)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?)
+         ON CONFLICT(id) DO UPDATE SET date=excluded.date, at=excluded.at, value=excluded.value, note=excluded.note,
+           updated_at=excluded.updated_at, deleted_at=excluded.deleted_at, rev=excluded.rev",
+    )
+    .bind(&e.id).bind(&e.user_id).bind(&e.metric_id).bind(&e.date).bind(&e.at).bind(e.value).bind(&e.note)
+    .bind(&e.created_at).bind(&e.updated_at).bind(&e.deleted_at).bind(e.rev)
     .execute(conn)
     .await
     .map(|_| ())

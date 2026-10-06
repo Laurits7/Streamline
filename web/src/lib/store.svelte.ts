@@ -8,6 +8,9 @@ import type { Calendar } from './api/types/Calendar'
 import type { CalendarAccountView } from './api/types/CalendarAccountView'
 import type { CalendarEvent } from './api/types/CalendarEvent'
 import type { DayEntry } from './api/types/DayEntry'
+import type { DayRecord } from './api/types/DayRecord'
+import type { MetricDefinition } from './api/types/MetricDefinition'
+import type { MetricEntry } from './api/types/MetricEntry'
 import type { DayTemplate } from './api/types/DayTemplate'
 import type { SuggestedPlan } from './api/types/SuggestedPlan'
 import type { TemplateBlock } from './api/types/TemplateBlock'
@@ -33,6 +36,7 @@ import type { SyncResponse } from './api/types/SyncResponse'
 import type { Task } from './api/types/Task'
 import type { TaskType } from './api/types/TaskType'
 import { busyIntervals, eventsOn } from './calendar'
+import { daily } from './tracking'
 import { findConflicts, nextFreeSlot, type Conflict, type Item } from './conflicts'
 import { isBlocked } from './deps'
 import { keyAt, keyBetween } from './order'
@@ -54,6 +58,9 @@ type Kind =
   | 'person'
   | 'day_template'
   | 'time_block'
+  | 'day_record'
+  | 'metric'
+  | 'metric_entry'
 type Entity =
   | Task
   | Project
@@ -69,6 +76,9 @@ type Entity =
   | Person
   | DayTemplate
   | TimeBlock
+  | DayRecord
+  | MetricDefinition
+  | MetricEntry
 
 export type TaskPatch = Partial<
   Pick<
@@ -148,6 +158,9 @@ class Store {
   calendarAccount = $state<CalendarAccountView | null>(null)
   people = new SvelteMap<string, Person>()
   dayTemplates = new SvelteMap<string, DayTemplate>()
+  dayRecords = new SvelteMap<string, DayRecord>()
+  metrics = new SvelteMap<string, MetricDefinition>()
+  metricEntries = new SvelteMap<string, MetricEntry>()
   timeBlocks = new SvelteMap<string, TimeBlock>()
   occasionTemplates = new SvelteMap<string, OccasionTemplate>()
   /** The shared nameday calendar, loaded on first use: `MM-DD` → names. */
@@ -210,6 +223,9 @@ class Store {
     this.people.clear()
     this.dayTemplates.clear()
     this.timeBlocks.clear()
+    this.dayRecords.clear()
+    this.metrics.clear()
+    this.metricEntries.clear()
     this.occasionTemplates.clear()
     this.namedays = null
     this.focusTimer = IDLE_TIMER
@@ -279,6 +295,9 @@ class Store {
       this.people.clear()
       this.dayTemplates.clear()
       this.timeBlocks.clear()
+      this.dayRecords.clear()
+      this.metrics.clear()
+      this.metricEntries.clear()
     }
     this.occasionTemplates.clear()
     for (const x of r.occasion_templates) this.occasionTemplates.set(x.kind, x)
@@ -307,6 +326,9 @@ class Store {
     for (const x of r.people) this.applyRemote('person', x)
     for (const x of r.day_templates) this.applyRemote('day_template', x)
     for (const x of r.time_blocks) this.applyRemote('time_block', x)
+    for (const x of r.day_records) this.applyRemote('day_record', x)
+    for (const x of r.metrics) this.applyRemote('metric', x)
+    for (const x of r.metric_entries) this.applyRemote('metric_entry', x)
     this.rev = Math.max(this.rev, r.rev)
     this.ready = true
   }
@@ -352,7 +374,10 @@ class Store {
         c.kind === 'event' ||
         c.kind === 'person' ||
         c.kind === 'day_template' ||
-        c.kind === 'time_block'
+        c.kind === 'time_block' ||
+        c.kind === 'day_record' ||
+        c.kind === 'metric' ||
+        c.kind === 'metric_entry'
       )
         this.applyRemote(c.kind, c.data as Entity)
       else if (c.kind === 'task' || c.kind === 'project' || c.kind === 'day_entry' || c.kind === 'day_plan')
@@ -390,6 +415,9 @@ class Store {
       person: this.people,
       day_template: this.dayTemplates,
       time_block: this.timeBlocks,
+      day_record: this.dayRecords,
+      metric: this.metrics,
+      metric_entry: this.metricEntries,
     }
     return maps[kind] as SvelteMap<string, Entity>
   }
@@ -1407,6 +1435,85 @@ class Store {
     )
   }
 
+  // ---- tracking ---------------------------------------------------------------
+
+  recordFor(date: string): DayRecord | undefined {
+    for (const r of this.dayRecords.values()) if (r.date === date) return r
+  }
+
+  /** Save reflection fields (the server keeps fields left out). */
+  async saveRecord(date: string, patch: Partial<Pick<DayRecord, 'journal' | 'went_well' | 'went_badly' | 'tomorrow'>>) {
+    const r = await api.put<DayRecord>(`/days/${date}/record`, patch)
+    this.applyRemote('day_record', r)
+    return r
+  }
+
+  metricList(includeArchived = false): MetricDefinition[] {
+    return [...this.metrics.values()].filter((m) => includeArchived || !m.archived).sort(byPosition)
+  }
+
+  metricByKey(key: string): MetricDefinition | undefined {
+    for (const m of this.metrics.values()) if (m.key === key) return m
+  }
+
+  entriesOf(metricId: string): MetricEntry[] {
+    return [...this.metricEntries.values()].filter((e) => e.metric_id === metricId)
+  }
+
+  /** A metric's value per day, its entries combined. */
+  metricDaily(metricId: string): Map<string, number> {
+    const m = this.metrics.get(metricId)
+    return daily(this.entriesOf(metricId), (m?.aggregate ?? 'latest') as 'latest')
+  }
+
+  logMetric(metricId: string, value: number, date = this.today) {
+    const id = ulid()
+    const ts = now()
+    const e: MetricEntry = { id, user_id: this.me?.id ?? '', metric_id: metricId, date, at: ts, value, note: '', created_at: ts, updated_at: ts, deleted_at: null, rev: 0 }
+    return this.optimistic(
+      [['metric_entry', id]],
+      () => this.metricEntries.set(id, e),
+      async () => [['metric_entry', await api.post<MetricEntry>(`/metrics/${metricId}/entries`, { id, date, value })]],
+    )
+  }
+
+  deleteMetricEntry(id: string) {
+    if (!this.metricEntries.has(id)) return
+    return this.optimistic(
+      [['metric_entry', id]],
+      () => this.metricEntries.delete(id),
+      () => api.del(`/metric-entries/${id}`),
+    )
+  }
+
+  async createMetric(input: { name: string; kind: string; unit?: string; scale_min?: number; scale_max?: number; aggregate?: string; reminder_time?: string | null }) {
+    try {
+      const m = await api.post<MetricDefinition>('/metrics', input)
+      this.applyRemote('metric', m)
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : 'Could not reach the server', 'error')
+    }
+  }
+
+  updateMetric(id: string, patch: Partial<Pick<MetricDefinition, 'name' | 'unit' | 'aggregate' | 'reminder_time' | 'archived'>>) {
+    const cur = this.metrics.get(id)
+    if (!cur) return
+    return this.optimistic(
+      [['metric', id]],
+      () => this.metrics.set(id, { ...cur, ...patch }),
+      async () => [['metric', await api.patch<MetricDefinition>(`/metrics/${id}`, patch)]],
+    )
+  }
+
+  deleteMetric(id: string) {
+    if (!this.metrics.has(id)) return
+    return this.optimistic(
+      [['metric', id]],
+      () => this.metrics.delete(id),
+      () => api.del(`/metrics/${id}`),
+    )
+  }
+
   // ---- occasions -------------------------------------------------------------
 
   /** Load the shared nameday calendar (once; `force` reloads it). */
@@ -1681,6 +1788,7 @@ class Store {
         | 'focus_short_break_min'
         | 'focus_long_break_min'
         | 'focus_long_every'
+        | 'unit_system'
       >
     >,
   ) {

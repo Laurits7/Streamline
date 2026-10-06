@@ -44,6 +44,26 @@
       { enableHighAccuracy: true, timeout: 20_000 },
     )
   }
+  // Tracking
+  let nm = $state({ name: '', kind: 'number', unit: '' })
+  function addMetric(e: Event) {
+    e.preventDefault()
+    if (!nm.name.trim()) return
+    store.createMetric({ name: nm.name.trim(), kind: nm.kind, unit: nm.unit.trim() })
+    nm = { name: '', kind: 'number', unit: '' }
+  }
+  async function importCsv(metricId: string, file: File | undefined) {
+    if (!file) return
+    try {
+      const text = await file.text()
+      const r = await api.post<{ imported: number }>(`/metrics/${metricId}/import`, { text })
+      toast(`Imported ${r.imported} values`)
+      await store.sync()
+    } catch (e) {
+      err(e)
+    }
+  }
+
   // Day templates
   const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
   function newTemplate() {
@@ -291,6 +311,55 @@
   </p>
 </section>
 
+<section class="card" id="tracking">
+  <h2>Tracking</h2>
+  <p class="help muted">
+    What you log on the Today view. Mood and weight are built in; add your own (sleep hours, water, steps, “took
+    vitamins”…). A reminder time sends a notice if nothing is logged by then. Only you can see your tracking and journal.
+  </p>
+  <label class="inline">
+    <span>Units</span>
+    <select value={me.unit_system} onchange={(e) => store.updateMe({ unit_system: (e.currentTarget as HTMLSelectElement).value as 'metric' | 'imperial' })}>
+      <option value="metric">Metric (kg)</option>
+      <option value="imperial">Imperial (lb)</option>
+    </select>
+  </label>
+  {#each store.metricList(true) as m (m.id)}
+    <div class="line metric-row" class:archived={m.archived}>
+      <div class="mname">
+        <input class="place-name" type="text" value={m.name} aria-label="Name" onchange={(e) => store.updateMetric(m.id, { name: (e.currentTarget as HTMLInputElement).value })} />
+        <span class="muted small">{m.kind === 'yes_no' ? 'yes/no' : m.kind}{m.key === 'weight' ? (me.unit_system === 'imperial' ? ' · lb' : ' · kg') : m.unit ? ` · ${m.unit}` : ''}</span>
+      </div>
+      <div class="row">
+        <select class="small-select" value={m.aggregate} aria-label="Several a day" title="When logged several times a day" onchange={(e) => store.updateMetric(m.id, { aggregate: (e.currentTarget as HTMLSelectElement).value as 'latest' })}>
+          <option value="latest">latest</option>
+          <option value="average">average</option>
+          <option value="sum">sum</option>
+          <option value="max">highest</option>
+        </select>
+        <input class="small-time" type="time" value={m.reminder_time ?? ''} aria-label="Reminder" title="Remind me if not logged by" onchange={(e) => store.updateMetric(m.id, { reminder_time: (e.currentTarget as HTMLInputElement).value || null })} />
+        <a class="btn small" href="/api/v1/metrics/{m.id}/csv" download>CSV</a>
+        <label class="btn small file">Import<input type="file" accept=".csv,text/csv,text/plain" onchange={(e) => importCsv(m.id, (e.currentTarget as HTMLInputElement).files?.[0])} /></label>
+        <button class="btn small" onclick={() => store.updateMetric(m.id, { archived: !m.archived })}>{m.archived ? 'Show' : 'Hide'}</button>
+        {#if !m.key}<button class="btn small danger" onclick={() => confirm(`Delete “${m.name}” and everything logged for it?`) && store.deleteMetric(m.id)}>Delete</button>{/if}
+      </div>
+    </div>
+  {/each}
+  <form class="row" onsubmit={addMetric}>
+    <input type="text" bind:value={nm.name} placeholder="New metric, e.g. Sleep" aria-label="New metric name" />
+    <select bind:value={nm.kind} aria-label="Kind">
+      <option value="number">Number</option>
+      <option value="scale">Scale 1–5</option>
+      <option value="yes_no">Yes / no</option>
+    </select>
+    {#if nm.kind === 'number'}<input class="unit" type="text" bind:value={nm.unit} placeholder="unit, e.g. h" aria-label="Unit" />{/if}
+    <button class="btn" type="submit">Add</button>
+  </form>
+  <p class="help muted export">
+    Import takes CSV rows of <code>date,value</code> (weight in kg). <a href="/api/v1/export" download>Download all your data (JSON)</a>
+  </p>
+</section>
+
 <section class="card" id="templates">
   <h2>Day templates</h2>
   <p class="help muted">
@@ -424,6 +493,8 @@
   </p>
 </section>
 
+<a class="card help-link" href="/summary"><Icon name="book" /><span>Summary &amp; journal</span><Icon name="right" size={16} /></a>
+<a class="card help-link" href="/trends"><Icon name="chart" /><span>Trends</span><Icon name="right" size={16} /></a>
 <a class="card help-link" href="/occasions"><Icon name="gift" /><span>Namedays & birthdays</span><Icon name="right" size={16} /></a>
 
 <section class="card" id="calendar">
@@ -702,6 +773,50 @@
   }
   .small {
     font-size: 12px;
+  }
+  .inline {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .inline span {
+    margin: 0;
+  }
+  .inline select {
+    width: auto;
+  }
+  .metric-row {
+    flex-wrap: wrap;
+  }
+  .metric-row.archived {
+    opacity: 0.55;
+  }
+  .mname {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .small-select,
+  .small-time {
+    width: auto !important;
+    padding: 2px 6px !important;
+    font-size: 12px;
+  }
+  .file {
+    position: relative;
+    overflow: hidden;
+  }
+  .file input {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    cursor: pointer;
+  }
+  .unit {
+    max-width: 120px;
+  }
+  .export {
+    margin-top: 12px;
   }
   .days {
     display: flex;

@@ -12,5 +12,6 @@ pub mod planning;
 pub mod recurrence;
 pub mod rollover;
 pub mod time;
+pub mod tracking;
 pub mod tree;
 pub mod workflow;

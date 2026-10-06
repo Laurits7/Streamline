@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use tokio_stream::wrappers::{BroadcastStream, errors::BroadcastStreamRecvError};
 use ts_rs::TS;
 
+use crate::models::{DayRecord, MetricDefinition, MetricEntry};
 use crate::{
     AppState,
     auth::AuthUser,
@@ -62,6 +63,11 @@ pub struct SyncResponse {
     pub day_templates: Vec<DayTemplate>,
     /// Time blocks (a full sync covers the last 30 days onwards).
     pub time_blocks: Vec<TimeBlock>,
+    /// Reflections (a full sync covers the last 30 days onwards).
+    pub day_records: Vec<DayRecord>,
+    pub metrics: Vec<MetricDefinition>,
+    /// Logged values (a full sync covers the last 400 days).
+    pub metric_entries: Vec<MetricEntry>,
     /// People whose namedays and birthdays matter to you.
     pub people: Vec<Person>,
     /// What each kind of occasion creates (always complete).
@@ -213,6 +219,38 @@ pub async fn sync(
     .bind(&cutoff_date)
     .fetch_all(db)
     .await?;
+    {
+        let mut tx = state.db.write.begin().await?;
+        let mut changes = vec![];
+        crate::tracking::ensure_builtins(&mut tx, user.id(), &mut changes).await?;
+        tx.commit().await?;
+    }
+    let day_records = sqlx::query_as(
+        "SELECT * FROM day_records WHERE user_id = ?1 AND (?2 = 0 AND deleted_at IS NULL AND date >= ?3 OR ?2 > 0 AND rev > ?2)",
+    )
+    .bind(user.id())
+    .bind(since)
+    .bind(&cutoff_date)
+    .fetch_all(db)
+    .await?;
+    let metrics = sqlx::query_as(
+        "SELECT * FROM metric_definitions WHERE owner_user_id = ?1 AND (?2 = 0 AND deleted_at IS NULL OR ?2 > 0 AND rev > ?2) ORDER BY position",
+    )
+    .bind(user.id())
+    .bind(since)
+    .fetch_all(db)
+    .await?;
+    let year_ago = (today - chrono::Duration::days(400))
+        .format("%Y-%m-%d")
+        .to_string();
+    let metric_entries = sqlx::query_as(
+        "SELECT * FROM metric_entries WHERE user_id = ?1 AND (?2 = 0 AND deleted_at IS NULL AND date >= ?3 OR ?2 > 0 AND rev > ?2)",
+    )
+    .bind(user.id())
+    .bind(since)
+    .bind(&year_ago)
+    .fetch_all(db)
+    .await?;
     let people = sqlx::query_as(
         "SELECT * FROM people WHERE owner_user_id = ?1 AND (?2 = 0 AND deleted_at IS NULL OR ?2 > 0 AND rev > ?2)",
     )
@@ -248,6 +286,9 @@ pub async fn sync(
         events,
         day_templates,
         time_blocks,
+        day_records,
+        metrics,
+        metric_entries,
         people,
         occasion_templates,
         groups,

@@ -21,6 +21,7 @@ pub mod routes;
 pub mod routines;
 pub mod secrets;
 pub mod static_files;
+pub mod tracking;
 pub mod util;
 pub mod visibility;
 pub mod workflows;

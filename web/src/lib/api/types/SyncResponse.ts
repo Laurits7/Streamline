@@ -4,11 +4,14 @@ import type { CalendarAccountView } from "./CalendarAccountView";
 import type { CalendarEvent } from "./CalendarEvent";
 import type { DayEntry } from "./DayEntry";
 import type { DayPlan } from "./DayPlan";
+import type { DayRecord } from "./DayRecord";
 import type { DayTemplate } from "./DayTemplate";
 import type { FocusSession } from "./FocusSession";
 import type { FocusTimer } from "./FocusTimer";
 import type { Group } from "./Group";
 import type { Me } from "./Me";
+import type { MetricDefinition } from "./MetricDefinition";
+import type { MetricEntry } from "./MetricEntry";
 import type { OccasionTemplate } from "./OccasionTemplate";
 import type { Person } from "./Person";
 import type { Place } from "./Place";
@@ -32,6 +35,14 @@ events: Array<CalendarEvent>, day_templates: Array<DayTemplate>,
  * Time blocks (a full sync covers the last 30 days onwards).
  */
 time_blocks: Array<TimeBlock>, 
+/**
+ * Reflections (a full sync covers the last 30 days onwards).
+ */
+day_records: Array<DayRecord>, metrics: Array<MetricDefinition>, 
+/**
+ * Logged values (a full sync covers the last 400 days).
+ */
+metric_entries: Array<MetricEntry>, 
 /**
  * People whose namedays and birthdays matter to you.
  */

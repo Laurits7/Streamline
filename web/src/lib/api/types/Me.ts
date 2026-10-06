@@ -27,4 +27,8 @@ prefs: Record<string, unknown>,
 /**
  * Pomodoro lengths in minutes, and how many work intervals until a long break.
  */
-focus_work_min: number, focus_short_break_min: number, focus_long_break_min: number, focus_long_every: number, };
+focus_work_min: number, focus_short_break_min: number, focus_long_break_min: number, focus_long_every: number, 
+/**
+ * `metric` (kg) or `imperial` (lb) for displaying weight; values are stored metric.
+ */
+unit_system: 'metric' | 'imperial', };

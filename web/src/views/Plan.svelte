@@ -9,6 +9,7 @@
   import LoadBar from '../lib/components/LoadBar.svelte'
   import DayLog from '../lib/components/DayLog.svelte'
   import QuickAdd from '../lib/components/QuickAdd.svelte'
+  import Reflection from '../lib/components/Reflection.svelte'
   import TaskRow from '../lib/components/TaskRow.svelte'
   import Timeline from '../lib/components/Timeline.svelte'
   import { addDays, dayLabel, fmtMinutes, longDate, nowHHMM } from '../lib/dates'
@@ -238,6 +239,10 @@
           <ul class="done-list">{#each done as i (i.entry.id)}<li><Icon name="check" size={14} /> {i.task.title}</li>{/each}</ul>
         {/if}
       {/if}
+      <h3>Reflect on {reviewLabel}</h3>
+      <div class="card reflect">
+        {#key reviewDate}<Reflection date={reviewDate} compact />{/key}
+      </div>
     </section>
   {:else if step === 1}
     <section>
@@ -407,6 +412,9 @@
 </div>
 
 <style>
+  .reflect {
+    padding: 12px 14px;
+  }
   .suggest {
     display: flex;
     flex-wrap: wrap;
