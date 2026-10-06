@@ -34,6 +34,7 @@ export type Route =
   | { name: 'projects' }
   | { name: 'project'; id: string }
   | { name: 'settings' }
+  | { name: 'help' }
   | { name: 'notfound' }
 
 export function match(path: string): Route {
@@ -45,5 +46,6 @@ export function match(path: string): Route {
   if (p === '/projects') return { name: 'projects' }
   if ((m = p.match(/^\/projects\/([0-9A-Za-z]+)$/))) return { name: 'project', id: m[1] }
   if (p === '/settings') return { name: 'settings' }
+  if (p === '/help') return { name: 'help' }
   return { name: 'notfound' }
 }

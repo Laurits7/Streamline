@@ -23,6 +23,7 @@
     flag: 'M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1zM4 22v-7',
     bolt: 'M13 2 3 14h9l-1 8 10-12h-9l1-8Z',
     zap: 'M13 2 3 14h9l-1 8 10-12h-9l1-8Z',
+    help: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20ZM9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17h.01',
     list: 'M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01',
   }
   let { name, size = 18, label }: { name: string; size?: number; label?: string } = $props()

@@ -108,7 +108,8 @@
           {/each}
         </div>
       </nav>
-      <a class="settings" href="/settings" aria-current={active('settings')}><Icon name="settings" /> {store.me?.display_name}</a>
+      <a class="settings" href="/help" aria-current={active('help')}><Icon name="help" /> Help</a>
+      <a href="/settings" aria-current={active('settings')}><Icon name="settings" /> {store.me?.display_name}</a>
     </aside>
 
     <main class="content" class:wide={isDayRoute}>
@@ -122,6 +123,8 @@
         <Projects />
       {:else if route.name === 'project'}
         {#key route.id}<TaskList projectId={route.id} />{/key}
+      {:else if route.name === 'help'}
+        {#await import('./views/Help.svelte') then m}<m.default />{/await}
       {:else if route.name === 'settings'}
         <Settings onlogout={logout} />
       {:else}
@@ -133,7 +136,7 @@
       <a href="/" class="drop-zone" draggable="false" aria-current={todayActive} use:droppable={toToday}><Icon name="sun" size={22} /><span>Today</span></a>
       <a href="/inbox" class="drop-zone" draggable="false" aria-current={active('inbox')} use:droppable={toProject(null)}><Icon name="inbox" size={22} /><span>Inbox</span></a>
       <a href="/projects" aria-current={projectsActive}><Icon name="folder" size={22} /><span>Projects</span></a>
-      <a href="/settings" aria-current={active('settings')}><Icon name="settings" size={22} /><span>Settings</span></a>
+      <a href="/settings" aria-current={route.name === 'settings' || route.name === 'help' ? 'page' : undefined}><Icon name="settings" size={22} /><span>Settings</span></a>
     </nav>
   </div>
 

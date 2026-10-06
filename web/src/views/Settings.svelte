@@ -110,6 +110,8 @@
 
 <h1>Settings</h1>
 
+<a class="card help-link" href="/help"><Icon name="help" /> <span>Help: what you can do and how</span><Icon name="right" size={16} /></a>
+
 <section class="card">
   <h2>Profile</h2>
   <label>
@@ -211,6 +213,18 @@
     font-weight: 750;
     letter-spacing: -0.02em;
     margin-bottom: 16px;
+  }
+  .help-link {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 18px;
+    margin-bottom: 14px;
+    color: var(--accent);
+    font-weight: 600;
+  }
+  .help-link span {
+    flex: 1;
   }
   section {
     padding: 18px;
