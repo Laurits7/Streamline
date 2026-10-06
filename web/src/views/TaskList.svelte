@@ -90,6 +90,9 @@
                 <button class="swatch" style:background={c} aria-label="Color {c}" onclick={() => { store.updateProject(projectId!, { color: c }); menu = false }}></button>
               {/each}
             </div>
+            {#if project.parent_id}
+              <button role="menuitem" onclick={() => moveUnder(null)}><Icon name="folder" size={16} /> Make top-level project</button>
+            {/if}
             <label class="move">
               <span>Move under</span>
               <select

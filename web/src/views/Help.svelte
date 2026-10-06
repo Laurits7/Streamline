@@ -119,6 +119,11 @@
       a project's top or bottom edge reorders instead.
     </p>
     <p>
+      To turn a subproject into a full project of its own, choose <strong>Make top-level project</strong> in its
+      <Icon name="more" size={14} /> menu, or drag it between the top-level projects on the Projects page. Its tasks
+      and subprojects come with it.
+    </p>
+    <p>
       A project's page shows its own tasks and a section for each subproject; drag tasks between the sections. Counts
       on the Projects page include subprojects. Archiving or deleting a project also archives or deletes its
       subprojects.
