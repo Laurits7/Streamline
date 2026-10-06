@@ -30,7 +30,7 @@ pub async fn load_visible(
         .await?
         .ok_or(AppError::NotFound)?;
     if !visibility::can_see(
-        &user.user,
+        user,
         t.owner_user_id.as_deref(),
         t.owner_group_id.as_deref(),
     ) {
@@ -116,7 +116,7 @@ pub async fn list(
            AND (?3 = 0 OR project_id IS NULL)
            AND (?4 IS NULL OR status = ?4)
          ORDER BY position",
-        visibility::OWNED_VISIBLE_SQL.replace('?', "?1")
+        visibility::OWNED_VISIBLE_SQL
     ))
     .bind(user.id())
     .bind(&q.project_id)
@@ -157,6 +157,8 @@ pub struct CreateTask {
     day: Option<String>,
     /// Client-chosen id for that day entry.
     day_entry_id: Option<String>,
+    /// Share a task without a project with a group (tasks in a project follow the project).
+    owner_group_id: Option<String>,
 }
 
 #[utoipa::path(post, path = "/tasks", tag = "tasks", summary = "Create a task (optionally planned into a day)", request_body = CreateTask, responses((status = 200, body = Task), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
@@ -193,6 +195,12 @@ pub async fn create(
         return Err(AppError::Conflict("id already in use".into()));
     }
     check_project(&mut tx, &user, &c.project_id).await?;
+    let owner = match &c.project_id {
+        Some(p) => crate::ownership::project_owner(&mut tx, p)
+            .await?
+            .unwrap_or_else(|| crate::ownership::Owner::me(&user)),
+        None => crate::ownership::chosen(&user, c.owner_group_id.as_deref())?,
+    };
     check_task_type(&mut tx, &user, &task_type_id).await?;
     crate::routes::places::check_place(&mut tx, &user, &c.place_id).await?;
     let place_id = match (&c.place_id, &c.project_id) {
@@ -209,10 +217,10 @@ pub async fn create(
         Some(p) => p,
         None => {
             let last: Option<String> = sqlx::query_scalar(
-                "SELECT MAX(position) FROM tasks WHERE owner_user_id = ? AND project_id IS ? AND deleted_at IS NULL",
+                "SELECT MAX(position) FROM tasks WHERE project_id IS ?1 AND (?1 IS NOT NULL OR owner_user_id = ?2) AND deleted_at IS NULL",
             )
-            .bind(user.id())
             .bind(&c.project_id)
+            .bind(user.id())
             .fetch_one(&mut *tx)
             .await?;
             key_after(last.as_deref())
@@ -222,8 +230,8 @@ pub async fn create(
     let rev = next_rev(&mut tx).await?;
     let t = Task {
         id,
-        owner_user_id: Some(user.id().into()),
-        owner_group_id: None,
+        owner_user_id: owner.user.clone(),
+        owner_group_id: owner.group.clone(),
         assignee_user_id: None,
         project_id: c.project_id,
         title,
@@ -323,6 +331,9 @@ pub struct PatchTask {
     /// Minutes to wait after the last prerequisite is done before this becomes ready.
     #[serde(default, deserialize_with = "double_option")]
     wait_min: Option<Option<i32>>,
+    /// For a task without a project: share it with a group (`null` = just you).
+    #[serde(default, deserialize_with = "double_option")]
+    owner_group_id: Option<Option<String>>,
 }
 
 /// Validate prerequisites: visible, not the task itself, no cycles, at most 20.
@@ -402,12 +413,31 @@ pub async fn patch(
         check_notes(&v)?;
         t.notes = v;
     }
+    let old_audience =
+        visibility::audience(t.owner_user_id.as_deref(), t.owner_group_id.as_deref());
     if let Some(v) = c.project_id {
         check_project(&mut tx, &user, &v).await?;
         t.project_id = v;
+        // A task in a project belongs to whoever owns the project.
+        if let Some(p) = &t.project_id
+            && let Some(o) = crate::ownership::project_owner(&mut tx, p).await?
+        {
+            t.owner_user_id = o.user;
+            t.owner_group_id = o.group;
+        }
         // Becoming the main project replaces an "also in" link to it.
         let main = t.project_id.clone();
         t.also_project_ids.0.retain(|p| Some(p) != main.as_ref());
+    }
+    if let Some(g) = c.owner_group_id {
+        if t.project_id.is_some() {
+            return Err(bad(
+                "this task is shared through its project; move it out of the project to share it separately",
+            ));
+        }
+        let o = crate::ownership::chosen(&user, g.as_deref())?;
+        t.owner_user_id = o.user;
+        t.owner_group_id = o.group;
     }
     if let Some(v) = c.wait_min {
         check_range("wait_min", v, 0, 24 * 60)?;
@@ -492,6 +522,12 @@ pub async fn patch(
     t.rev = next_rev(&mut tx).await?;
     upsert_task(&mut tx, &t).await?;
     let mut changes = vec![Change::task(&t)];
+    // People who could see it before but not any more (e.g. unshared) drop it.
+    changes.extend(crate::ownership::gone_for(
+        &changes[0],
+        &old_audience,
+        &t.updated_at,
+    ));
     if t.status != old_status {
         // Finishing (or reopening) a prerequisite unblocks (or re-blocks) what waits for it.
         crate::deps::refresh_dependents(&mut tx, &t.id, &mut changes).await?;

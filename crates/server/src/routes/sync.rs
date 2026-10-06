@@ -20,8 +20,8 @@ use crate::{
     db::current_rev,
     error::ApiResult,
     models::{
-        DayEntry, DayPlan, FocusSession, FocusTimer, Me, Place, Project, Series, Task, TaskType,
-        WorkflowTemplate,
+        DayEntry, DayPlan, FocusSession, FocusTimer, Group, Me, Place, Project, Series, Task,
+        TaskType, WorkflowTemplate,
     },
     rollover,
 };
@@ -53,6 +53,8 @@ pub struct SyncResponse {
     pub series: Vec<Series>,
     pub places: Vec<Place>,
     pub workflows: Vec<WorkflowTemplate>,
+    /// Your groups with their members (always complete).
+    pub groups: Vec<Group>,
     /// The server's clock (Unix ms), so clients can correct for clock differences.
     #[ts(type = "number")]
     pub server_now: i64,
@@ -85,14 +87,14 @@ pub async fn sync(
     .fetch_all(db)
     .await?;
     let projects = sqlx::query_as(
-        "SELECT * FROM projects WHERE owner_user_id = ?1 AND (?2 = 0 AND deleted_at IS NULL OR ?2 > 0 AND rev > ?2)",
+        "SELECT * FROM projects WHERE (owner_user_id = ?1 OR owner_group_id IN (SELECT group_id FROM group_members WHERE user_id = ?1)) AND (?2 = 0 AND deleted_at IS NULL OR ?2 > 0 AND rev > ?2)",
     )
     .bind(user.id())
     .bind(since)
     .fetch_all(db)
     .await?;
     let tasks = sqlx::query_as(
-        "SELECT * FROM tasks WHERE owner_user_id = ?1 AND (
+        "SELECT * FROM tasks WHERE (owner_user_id = ?1 OR owner_group_id IN (SELECT group_id FROM group_members WHERE user_id = ?1)) AND (
             ?2 = 0 AND deleted_at IS NULL AND (status = 'open' OR updated_at >= ?3)
             OR ?2 > 0 AND rev > ?2)",
     )
@@ -134,6 +136,8 @@ pub async fn sync(
     .fetch_all(db)
     .await?;
     let focus_timer = crate::routes::focus::current(&state, user.id()).await?;
+    let groups =
+        crate::routes::groups::visible_groups(&mut *state.db.read.acquire().await?, &user).await?;
     let workflows = sqlx::query_as(
         "SELECT * FROM workflow_templates WHERE owner_user_id = ?1 AND (?2 = 0 AND deleted_at IS NULL OR ?2 > 0 AND rev > ?2)",
     )
@@ -149,7 +153,7 @@ pub async fn sync(
     .fetch_all(db)
     .await?;
     let series = sqlx::query_as(
-        "SELECT * FROM series WHERE owner_user_id = ?1 AND (?2 = 0 AND deleted_at IS NULL OR ?2 > 0 AND rev > ?2)",
+        "SELECT * FROM series WHERE (owner_user_id = ?1 OR owner_group_id IN (SELECT group_id FROM group_members WHERE user_id = ?1)) AND (?2 = 0 AND deleted_at IS NULL OR ?2 > 0 AND rev > ?2)",
     )
     .bind(user.id())
     .bind(since)
@@ -171,6 +175,7 @@ pub async fn sync(
         series,
         places,
         workflows,
+        groups,
         server_now: chrono::Utc::now().timestamp_millis(),
     }))
 }
@@ -211,10 +216,17 @@ pub async fn events(
     State(state): State<AppState>,
     user: AuthUser,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
-    let uid = user.user.id.clone();
+    // Who this subscriber is for audience matching: the user, and each of their groups.
+    // (When memberships change, clients get a `membership` event and reconnect.)
+    let mut keys: std::collections::HashSet<String> = user
+        .groups
+        .iter()
+        .map(|g| crate::visibility::group_key(g))
+        .collect();
+    keys.insert(user.user.id.clone());
     let stream = BroadcastStream::new(state.bus.subscribe()).filter_map(move |msg| {
         let out = match msg {
-            Ok(c) if c.audience.contains(&uid) => Some(
+            Ok(c) if c.audience.iter().any(|a| keys.contains(a)) => Some(
                 Event::default()
                     .event("change")
                     .id(c.rev.to_string())

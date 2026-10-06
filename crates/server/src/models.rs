@@ -231,6 +231,41 @@ pub struct DayEntry {
     pub rev: i64,
 }
 
+/// A group of users (e.g. "Family") with its members (SPEC §6.4).
+#[derive(Debug, Clone, Serialize, TS, utoipa::ToSchema)]
+#[ts(export)]
+pub struct Group {
+    pub id: String,
+    pub name: String,
+    pub created_by: Option<String>,
+    pub members: Vec<GroupMember>,
+    pub created_at: String,
+    pub updated_at: String,
+    pub deleted_at: Option<String>,
+    #[ts(type = "number")]
+    pub rev: i64,
+}
+
+#[derive(Debug, Clone, Serialize, FromRow, TS, utoipa::ToSchema)]
+#[ts(export)]
+pub struct GroupMember {
+    pub user_id: String,
+    pub display_name: String,
+    pub username: String,
+    /// `owner` (can manage the group) or `member`.
+    #[ts(type = "'owner' | 'member'")]
+    pub role: String,
+}
+
+/// Someone you can add to a group (every user of this install).
+#[derive(Debug, Clone, Serialize, FromRow, TS, utoipa::ToSchema)]
+#[ts(export)]
+pub struct UserSummary {
+    pub id: String,
+    pub display_name: String,
+    pub username: String,
+}
+
 /// One step of a workflow template.
 #[derive(Debug, Clone, Serialize, serde::Deserialize, TS, utoipa::ToSchema)]
 #[ts(export)]

@@ -7,3 +7,5 @@ Self-hosted household todo & day planner (Rust/Axum + SQLite backend, Svelte SPA
 - Decisions: `docs/DECISIONS.md` (record confirmed answers to open questions Q-x and any deviations from the spec).
 - Don't start a chunk marked `needs Q-x` until that question is confirmed in DECISIONS.md.
 - Pure, risky logic (recurrence, rollover, deps, conflicts, planner) goes in `crates/domain` with tests.
+- SQL using `visibility::OWNED_VISIBLE_SQL` binds the user as `?1`: number every other parameter explicitly (`?2`, `?3`…). sqlx mis-binds a plain `?` after `?1`.
+- Gate commits on the real exit code (`cargo test --workspace -q && …`), never on piped/grepped output.

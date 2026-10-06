@@ -125,7 +125,7 @@ pub async fn get_day(
             id IN (SELECT task_id FROM day_entries WHERE user_id = ?1 AND date = ?2 AND deleted_at IS NULL)
             OR (status = 'open' AND due_date IS NOT NULL AND due_date <= ?2))
          ORDER BY position",
-        visibility::OWNED_VISIBLE_SQL.replace('?', "?1")
+        visibility::OWNED_VISIBLE_SQL
     ))
     .bind(user.id())
     .bind(&date)
@@ -283,11 +283,13 @@ pub async fn add_entry(
     };
     let ts = now();
     let rev = next_rev(&mut tx).await?;
-    let existing: Option<DayEntry> =
-        sqlx::query_as("SELECT * FROM day_entries WHERE task_id = ? AND deleted_at IS NULL")
-            .bind(&task.id)
-            .fetch_optional(&mut *tx)
-            .await?;
+    let existing: Option<DayEntry> = sqlx::query_as(
+        "SELECT * FROM day_entries WHERE task_id = ? AND user_id = ? AND deleted_at IS NULL",
+    )
+    .bind(&task.id)
+    .bind(user.id())
+    .fetch_optional(&mut *tx)
+    .await?;
     let e = match existing {
         Some(mut e) => {
             if e.date != date {

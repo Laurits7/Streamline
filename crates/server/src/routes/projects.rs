@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use serde::Deserialize;
 use streamline_domain::{order::key_after, tree};
 
+use crate::ownership::Owner;
 use crate::{
     AppState,
     auth::AuthUser,
@@ -45,7 +46,7 @@ pub async fn load_visible(
         .await?
         .ok_or(AppError::NotFound)?;
     if !visibility::can_see(
-        &user.user,
+        user,
         p.owner_user_id.as_deref(),
         p.owner_group_id.as_deref(),
     ) {
@@ -104,14 +105,16 @@ async fn check_parent(
 
 async fn last_sibling_position(
     conn: &mut sqlx::SqliteConnection,
-    user: &AuthUser,
+    owner: &Owner,
     parent_id: &Option<String>,
 ) -> ApiResult<String> {
     let last: Option<String> = sqlx::query_scalar(
-        "SELECT MAX(position) FROM projects WHERE owner_user_id = ? AND parent_id IS ? AND deleted_at IS NULL",
+        "SELECT MAX(position) FROM projects WHERE parent_id IS ?1
+           AND (?1 IS NOT NULL OR (owner_user_id IS ?2 AND owner_group_id IS ?3)) AND deleted_at IS NULL",
     )
-    .bind(user.id())
     .bind(parent_id)
+    .bind(&owner.user)
+    .bind(&owner.group)
     .fetch_one(conn)
     .await?;
     Ok(key_after(last.as_deref()))
@@ -125,6 +128,8 @@ pub struct CreateProject {
     position: Option<String>,
     parent_id: Option<String>,
     default_place_id: Option<String>,
+    /// Share a top-level project with a group (subprojects follow their parent).
+    owner_group_id: Option<String>,
 }
 
 #[utoipa::path(post, path = "/projects", tag = "projects", summary = "Create a project (optionally inside another)", request_body = CreateProject, responses((status = 200, body = Project), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
@@ -152,21 +157,23 @@ pub async fn create(
         return Err(AppError::Conflict("id already in use".into()));
     }
     let mut color = c.color;
+    let mut owner = crate::ownership::chosen(&user, c.owner_group_id.as_deref())?;
     if let Some(parent_id) = &c.parent_id {
         let parent = check_parent(&mut tx, &user, None, parent_id).await?;
-        // Subprojects take their parent's colour unless one is given.
-        color = color.or(parent.color);
+        // Subprojects take their parent's colour unless one is given, and its owner.
+        color = color.or(parent.color.clone());
+        owner = Owner::of_project(&parent);
     }
     let position = match c.position {
         Some(p) => p,
-        None => last_sibling_position(&mut tx, &user, &c.parent_id).await?,
+        None => last_sibling_position(&mut tx, &owner, &c.parent_id).await?,
     };
     crate::routes::places::check_place(&mut tx, &user, &c.default_place_id).await?;
     let ts = now();
     let p = Project {
         id,
-        owner_user_id: Some(user.id().to_string()),
-        owner_group_id: None,
+        owner_user_id: owner.user.clone(),
+        owner_group_id: owner.group.clone(),
         parent_id: c.parent_id,
         name,
         color,
@@ -198,6 +205,9 @@ pub struct PatchProject {
     /// Place given to new tasks in this project.
     #[serde(default, deserialize_with = "double_option")]
     default_place_id: Option<Option<String>>,
+    /// Share a top-level project (and everything in it) with a group; `null` = just you.
+    #[serde(default, deserialize_with = "double_option")]
+    owner_group_id: Option<Option<String>>,
 }
 
 #[utoipa::path(patch, path = "/projects/{id}", tag = "projects", summary = "Rename, recolour, reorder, archive or move a project", params(("id" = String, Path, description = "ULID")), request_body = PatchProject, responses((status = 200, body = Project), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
@@ -224,7 +234,8 @@ pub async fn patch(
         }
         p.parent_id = parent_id;
         if c.position.is_none() {
-            p.position = last_sibling_position(&mut tx, &user, &p.parent_id).await?;
+            p.position =
+                last_sibling_position(&mut tx, &Owner::of_project(&p), &p.parent_id).await?;
         }
     }
     if let Some(pos) = c.position {
@@ -235,7 +246,26 @@ pub async fn patch(
         crate::routes::places::check_place(&mut tx, &user, &v).await?;
         p.default_place_id = v;
     }
+    // New owner: chosen for a top-level project, or inherited from a new parent.
+    let mut new_owner = None;
+    if let Some(g) = c.owner_group_id {
+        if p.parent_id.is_some() {
+            return Err(bad(
+                "subprojects are shared together with their top-level project",
+            ));
+        }
+        new_owner = Some(crate::ownership::chosen(&user, g.as_deref())?);
+    } else if let Some(parent) = &p.parent_id {
+        let o = crate::ownership::project_owner(&mut tx, parent).await?;
+        new_owner = o.filter(|o| *o != Owner::of_project(&p));
+    }
     let rev = next_rev(&mut tx).await?;
+    let mut owner_changes = vec![];
+    if let Some(o) = new_owner.filter(|o| *o != Owner::of_project(&p)) {
+        p.owner_user_id = o.user.clone();
+        p.owner_group_id = o.group.clone();
+        crate::ownership::reown_subtree(&mut tx, &id, &o, rev, &now(), &mut owner_changes).await?;
+    }
     let ts = now();
     let mut changes = vec![];
     if let Some(a) = c.archived {
@@ -263,6 +293,7 @@ pub async fn patch(
     p.updated_at = ts;
     p.rev = rev;
     upsert_project(&mut tx, &p).await?;
+    changes.extend(owner_changes);
     changes.push(Change::project(&p));
     tx.commit().await?;
     state.bus.publish(changes);

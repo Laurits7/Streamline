@@ -261,6 +261,15 @@ pub async fn clear_failures(state: &AppState, keys: &[String]) {
 pub struct AuthUser {
     pub user: User,
     pub session_hash: Option<String>,
+    /// Groups the user belongs to (for visibility checks).
+    pub groups: Vec<String>,
+}
+
+async fn groups_of(state: &AppState, user_id: &str) -> sqlx::Result<Vec<String>> {
+    sqlx::query_scalar("SELECT group_id FROM group_members WHERE user_id = ?")
+        .bind(user_id)
+        .fetch_all(&state.db.read)
+        .await
 }
 
 impl AuthUser {
@@ -298,9 +307,11 @@ impl FromRequestParts<AppState> for AuthUser {
                 .bind(&hash)
                 .execute(&state.db.write)
                 .await;
+            let groups = groups_of(state, &user.id).await?;
             return Ok(AuthUser {
                 user,
                 session_hash: None,
+                groups,
             });
         }
 
@@ -321,9 +332,11 @@ impl FromRequestParts<AppState> for AuthUser {
         if !matches!(parts.method, Method::GET | Method::HEAD | Method::OPTIONS) {
             check_origin(state, headers)?;
         }
+        let groups = groups_of(state, &user.id).await?;
         Ok(AuthUser {
             user,
             session_hash: Some(hash),
+            groups,
         })
     }
 }

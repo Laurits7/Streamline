@@ -33,7 +33,7 @@ async fn load_visible(
         .await?
         .ok_or(AppError::NotFound)?;
     if !visibility::can_see(
-        &user.user,
+        user,
         s.owner_user_id.as_deref(),
         s.owner_group_id.as_deref(),
     ) {
@@ -193,6 +193,8 @@ pub struct CreateSeries {
     workflow_template_id: Option<String>,
     /// Which of its variants to run each time (all, if empty).
     workflow_variant_ids: Option<Vec<String>>,
+    /// Share a routine without a project with a group (routines in a project follow it).
+    owner_group_id: Option<String>,
 }
 
 #[utoipa::path(post, path = "/series", tag = "routines", summary = "Create a routine (its occurrences appear up to tomorrow)", request_body = CreateSeries, responses((status = 200, body = Series), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
@@ -203,10 +205,17 @@ pub async fn create(
 ) -> ApiResult<Json<Series>> {
     let today = today_for(&user.user).format("%Y-%m-%d").to_string();
     let ts = now();
+    let mut owner = crate::ownership::chosen(&user, c.owner_group_id.as_deref())?;
+    if let Some(p) = &c.project_id
+        && let Some(o) =
+            crate::ownership::project_owner(&mut *state.db.read.acquire().await?, p).await?
+    {
+        owner = o;
+    }
     let mut s = Series {
         id: id_or_new(c.id)?,
-        owner_user_id: Some(user.id().into()),
-        owner_group_id: None,
+        owner_user_id: owner.user.clone(),
+        owner_group_id: owner.group.clone(),
         project_id: c.project_id,
         title: c.title.trim().to_string(),
         notes: c.notes,

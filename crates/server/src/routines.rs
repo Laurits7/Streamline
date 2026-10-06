@@ -281,7 +281,7 @@ pub async fn materialize_user(state: &AppState, user: &User) -> anyhow::Result<(
     let today = today_for(user);
     let to = today + Duration::days(1);
     let series: Vec<Series> = sqlx::query_as(
-        "SELECT * FROM series WHERE owner_user_id = ? AND deleted_at IS NULL AND (materialized_through IS NULL OR materialized_through < ?)",
+        "SELECT * FROM series WHERE (owner_user_id = ?1 OR owner_group_id IN (SELECT group_id FROM group_members WHERE user_id = ?1)) AND deleted_at IS NULL AND (materialized_through IS NULL OR materialized_through < ?2)",
     )
     .bind(&user.id)
     .bind(fmt(to))
@@ -318,7 +318,7 @@ pub async fn materialize_user(state: &AppState, user: &User) -> anyhow::Result<(
 /// Create occurrences for one specific (usually future) day being viewed or planned.
 pub async fn materialize_day(state: &AppState, user: &User, day: NaiveDate) -> anyhow::Result<()> {
     let series: Vec<Series> =
-        sqlx::query_as("SELECT * FROM series WHERE owner_user_id = ? AND deleted_at IS NULL")
+        sqlx::query_as("SELECT * FROM series WHERE (owner_user_id = ?1 OR owner_group_id IN (SELECT group_id FROM group_members WHERE user_id = ?1)) AND deleted_at IS NULL")
             .bind(&user.id)
             .fetch_all(&state.db.read)
             .await?;
@@ -344,7 +344,8 @@ pub async fn materialize_day(state: &AppState, user: &User, day: NaiveDate) -> a
 
 pub async fn materialize_all(state: &AppState) -> anyhow::Result<()> {
     let users: Vec<User> = sqlx::query_as(
-        "SELECT * FROM users WHERE deleted_at IS NULL AND id IN (SELECT owner_user_id FROM series WHERE deleted_at IS NULL)",
+        "SELECT * FROM users WHERE deleted_at IS NULL AND (id IN (SELECT owner_user_id FROM series WHERE deleted_at IS NULL)
+           OR id IN (SELECT m.user_id FROM group_members m JOIN series s ON s.owner_group_id = m.group_id AND s.deleted_at IS NULL))",
     )
     .fetch_all(&state.db.read)
     .await?;

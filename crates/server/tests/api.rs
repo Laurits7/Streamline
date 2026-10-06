@@ -2439,3 +2439,403 @@ async fn routines_start_workflow_runs() {
         .clone();
     assert_eq!(st["streak"], 1, "{st}");
 }
+
+/// Phase 4 gate: who sees what. Anna owns the Family group, Ben is a member, Cid isn't,
+/// and the admin isn't a member either (admins manage accounts, not other people's tasks).
+#[tokio::test]
+async fn group_visibility_matrix() {
+    let t = setup().await;
+    let admin = t.admin().await;
+    let anna = t.user(&admin, "anna").await;
+    let ben = t.user(&admin, "ben").await;
+    let cid = t.user(&admin, "cid").await;
+    let id_of = |v: &Value| v["id"].as_str().unwrap().to_string();
+    let (_, me_ben, _) = t.req("GET", "/api/v1/me", Some(&ben), None).await;
+    let ben_id = id_of(&me_ben);
+
+    // Group + members.
+    let (_, fam, _) = t
+        .req(
+            "POST",
+            "/api/v1/groups",
+            Some(&anna),
+            Some(json!({"name": "Family"})),
+        )
+        .await;
+    let gid = id_of(&fam);
+    let (s, _, _) = t
+        .req(
+            "POST",
+            &format!("/api/v1/groups/{gid}/members"),
+            Some(&ben),
+            Some(json!({"user_id": ben_id})),
+        )
+        .await;
+    assert_eq!(
+        s,
+        StatusCode::NOT_FOUND,
+        "non-members can't manage the group"
+    );
+    let (s, g, _) = t
+        .req(
+            "POST",
+            &format!("/api/v1/groups/{gid}/members"),
+            Some(&anna),
+            Some(json!({"user_id": ben_id})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(g["members"].as_array().unwrap().len(), 2);
+    let (_, me_cid, _) = t.req("GET", "/api/v1/me", Some(&cid), None).await;
+    let (s, _, _) = t
+        .req(
+            "POST",
+            &format!("/api/v1/groups/{gid}/members"),
+            Some(&ben),
+            Some(json!({"user_id": id_of(&me_cid)})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::FORBIDDEN, "members can't add people");
+
+    // Shared and personal things.
+    let (_, house, _) = t
+        .req(
+            "POST",
+            "/api/v1/projects",
+            Some(&anna),
+            Some(json!({"name": "House", "owner_group_id": gid})),
+        )
+        .await;
+    assert_eq!(house["owner_group_id"], gid);
+    let (_, sub, _) = t
+        .req(
+            "POST",
+            "/api/v1/projects",
+            Some(&anna),
+            Some(json!({"name": "Kitchen", "parent_id": house["id"]})),
+        )
+        .await;
+    assert_eq!(
+        sub["owner_group_id"], gid,
+        "subprojects follow their parent"
+    );
+    let (_, chore, _) = t
+        .req(
+            "POST",
+            "/api/v1/tasks",
+            Some(&anna),
+            Some(json!({"title": "Take out garbage", "project_id": sub["id"]})),
+        )
+        .await;
+    assert_eq!(chore["owner_group_id"], gid);
+    let (_, diary, _) = t
+        .req(
+            "POST",
+            "/api/v1/projects",
+            Some(&anna),
+            Some(json!({"name": "Diary"})),
+        )
+        .await;
+    let (_, private, _) = t
+        .req(
+            "POST",
+            "/api/v1/tasks",
+            Some(&anna),
+            Some(json!({"title": "Write diary", "project_id": diary["id"]})),
+        )
+        .await;
+    let (_, loose, _) = t
+        .req(
+            "POST",
+            "/api/v1/tasks",
+            Some(&anna),
+            Some(json!({"title": "Buy milk", "owner_group_id": gid})),
+        )
+        .await;
+    assert_eq!(loose["owner_group_id"], gid);
+    let (s, _, _) = t
+        .req(
+            "POST",
+            "/api/v1/tasks",
+            Some(&cid),
+            Some(json!({"title": "x", "owner_group_id": gid})),
+        )
+        .await;
+    assert_eq!(
+        s,
+        StatusCode::BAD_REQUEST,
+        "only members can share with a group"
+    );
+    let (_, bins, _) = t.req("POST", "/api/v1/series", Some(&anna), Some(json!({"title": "Bins out", "mode": "repeat", "rrule": "FREQ=DAILY", "project_id": house["id"]}))).await;
+    assert_eq!(bins["owner_group_id"], gid);
+
+    let titles = |v: &Value, key: &str| -> Vec<String> {
+        let mut out: Vec<String> = v[key]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|x| {
+                x[if key == "projects" { "name" } else { "title" }]
+                    .as_str()
+                    .unwrap()
+                    .to_string()
+            })
+            .collect();
+        out.sort();
+        out
+    };
+    let (_, a, _) = t.req("GET", "/api/v1/sync", Some(&anna), None).await;
+    let (_, b, _) = t.req("GET", "/api/v1/sync", Some(&ben), None).await;
+    let (_, c, _) = t.req("GET", "/api/v1/sync", Some(&cid), None).await;
+    let (_, adm, _) = t.req("GET", "/api/v1/sync", Some(&admin), None).await;
+    assert_eq!(titles(&a, "projects"), ["Diary", "House", "Kitchen"]);
+    assert_eq!(
+        titles(&b, "projects"),
+        ["House", "Kitchen"],
+        "member sees group projects only"
+    );
+    assert!(titles(&c, "projects").is_empty() && titles(&adm, "projects").is_empty());
+    assert!(
+        titles(&b, "tasks").contains(&"Take out garbage".to_string())
+            && titles(&b, "tasks").contains(&"Buy milk".to_string())
+    );
+    assert!(!titles(&b, "tasks").contains(&"Write diary".to_string()));
+    assert!(titles(&c, "tasks").is_empty() && titles(&adm, "tasks").is_empty());
+    assert_eq!(b["series"].as_array().unwrap().len(), 1);
+    assert_eq!(b["groups"][0]["name"], "Family");
+    assert!(c["groups"].as_array().unwrap().is_empty());
+    assert_eq!(
+        adm["groups"].as_array().unwrap().len(),
+        1,
+        "admins see groups to manage them"
+    );
+
+    // The recurring group chore has one occurrence per day for everyone.
+    let bins_today = |v: &Value| {
+        v["tasks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|x| x["series_id"] == bins["id"])
+            .count()
+    };
+    assert_eq!(bins_today(&a), bins_today(&b));
+    assert!(bins_today(&a) >= 1);
+
+    // Direct access by non-members fails.
+    for (who, path) in [
+        (&cid, format!("/api/v1/tasks/{}", id_of(&chore))),
+        (&admin, format!("/api/v1/tasks/{}", id_of(&chore))),
+        (&ben, format!("/api/v1/tasks/{}", id_of(&private))),
+    ] {
+        let (s, _, _) = t.req("GET", &path, Some(who), None).await;
+        assert_eq!(s, StatusCode::NOT_FOUND, "{path}");
+    }
+    let (s, _, _) = t
+        .req(
+            "PATCH",
+            &format!("/api/v1/tasks/{}", id_of(&chore)),
+            Some(&cid),
+            Some(json!({"status": "done"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+
+    // Both members can put the group task on their own day plan; plans stay private.
+    let day = a["today"].as_str().unwrap().to_string();
+    for who in [&anna, &ben] {
+        let (s, _, _) = t
+            .req(
+                "POST",
+                &format!("/api/v1/days/{day}/entries"),
+                Some(who),
+                Some(json!({"task_id": id_of(&chore)})),
+            )
+            .await;
+        assert_eq!(s, StatusCode::OK);
+    }
+    let (_, b2, _) = t.req("GET", "/api/v1/sync", Some(&ben), None).await;
+    assert_eq!(
+        b2["day_entries"].as_array().unwrap().len(),
+        1,
+        "only Ben's own entry"
+    );
+
+    // Any member completes it, and who did is recorded.
+    let (s, done, _) = t
+        .req(
+            "PATCH",
+            &format!("/api/v1/tasks/{}", id_of(&chore)),
+            Some(&ben),
+            Some(json!({"status": "done"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(done["completed_by"], ben_id);
+    let (_, seen, _) = t
+        .req(
+            "GET",
+            &format!("/api/v1/tasks/{}", id_of(&chore)),
+            Some(&anna),
+            None,
+        )
+        .await;
+    assert_eq!(
+        (seen["status"].as_str(), seen["completed_by"].as_str()),
+        (Some("done"), Some(ben_id.as_str()))
+    );
+
+    // Personal data stays personal: Ben's log has his completion, Anna's doesn't show it as hers.
+    let (_, blog, _) = t
+        .req("GET", &format!("/api/v1/days/{day}/log"), Some(&ben), None)
+        .await;
+    assert!(
+        blog.as_array()
+            .unwrap()
+            .iter()
+            .any(|x| x["kind"] == "completed")
+    );
+    assert!(
+        !blog
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|x| x["title"] == "Write diary")
+    );
+    let (_, focus_b, _) = t.req("GET", "/api/v1/focus", Some(&ben), None).await;
+    assert_eq!(focus_b["timer"]["phase"], "idle");
+
+    // Unsharing takes it away from Ben; a group with content can't be deleted.
+    let (s, _, _) = t
+        .req(
+            "DELETE",
+            &format!("/api/v1/groups/{gid}"),
+            Some(&anna),
+            None,
+        )
+        .await;
+    assert_eq!(s, StatusCode::CONFLICT);
+    let (s, _, _) = t
+        .req(
+            "PATCH",
+            &format!("/api/v1/projects/{}", id_of(&sub)),
+            Some(&anna),
+            Some(json!({"owner_group_id": null})),
+        )
+        .await;
+    assert_eq!(
+        s,
+        StatusCode::BAD_REQUEST,
+        "subprojects are shared with their top-level project"
+    );
+    t.req(
+        "PATCH",
+        &format!("/api/v1/projects/{}", id_of(&house)),
+        Some(&anna),
+        Some(json!({"owner_group_id": null})),
+    )
+    .await;
+    let (_, b3, _) = t.req("GET", "/api/v1/sync", Some(&ben), None).await;
+    assert!(titles(&b3, "projects").is_empty());
+    assert_eq!(titles(&b3, "tasks"), ["Buy milk"]);
+    let (_, a3, _) = t.req("GET", "/api/v1/sync", Some(&anna), None).await;
+    assert!(
+        a3["tasks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|x| x["project_id"] == sub["id"])
+            .all(|x| x["owner_user_id"].is_string())
+    );
+
+    // Leaving the group: Ben no longer sees the shared inbox task.
+    let (s, _, _) = t
+        .req(
+            "DELETE",
+            &format!("/api/v1/groups/{gid}/members/{ben_id}"),
+            Some(&ben),
+            None,
+        )
+        .await;
+    assert_eq!(s, StatusCode::NO_CONTENT);
+    let (_, b4, _) = t.req("GET", "/api/v1/sync", Some(&ben), None).await;
+    assert!(titles(&b4, "tasks").is_empty());
+    assert!(b4["groups"].as_array().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn group_changes_stream_to_members_only() {
+    use http_body_util::BodyExt;
+    let t = setup().await;
+    let admin = t.admin().await;
+    let anna = t.user(&admin, "anna").await;
+    let ben = t.user(&admin, "ben").await;
+    let cid = t.user(&admin, "cid").await;
+    let (_, me_ben, _) = t.req("GET", "/api/v1/me", Some(&ben), None).await;
+    let (_, fam, _) = t
+        .req(
+            "POST",
+            "/api/v1/groups",
+            Some(&anna),
+            Some(json!({"name": "Family"})),
+        )
+        .await;
+    let gid = fam["id"].as_str().unwrap().to_string();
+    t.req(
+        "POST",
+        &format!("/api/v1/groups/{gid}/members"),
+        Some(&anna),
+        Some(json!({"user_id": me_ben["id"]})),
+    )
+    .await;
+
+    // Open event streams for Ben (member) and Cid (not).
+    let open = |who: String| {
+        let app = t.app.clone();
+        async move {
+            let mut req = Request::builder()
+                .uri("/api/v1/events")
+                .header(header::HOST, "localhost:3000")
+                .header(header::COOKIE, format!("sl_session={who}"))
+                .body(Body::empty())
+                .unwrap();
+            req.extensions_mut()
+                .insert(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 1))));
+            app.oneshot(req).await.unwrap().into_body()
+        }
+    };
+    let mut ben_stream = open(ben.clone()).await;
+    let mut cid_stream = open(cid.clone()).await;
+    // Anna adds a group chore.
+    let (_, chore, _) = t
+        .req(
+            "POST",
+            "/api/v1/tasks",
+            Some(&anna),
+            Some(json!({"title": "Take out garbage", "owner_group_id": gid})),
+        )
+        .await;
+    let id = chore["id"].as_str().unwrap().to_string();
+
+    async fn read_until(body: &mut Body, needle: &str) -> bool {
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_millis(800);
+        let mut seen = String::new();
+        while let Ok(Some(Ok(frame))) = tokio::time::timeout_at(deadline, body.frame()).await {
+            if let Some(data) = frame.data_ref() {
+                seen.push_str(&String::from_utf8_lossy(data));
+                if seen.contains(needle) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+    assert!(
+        read_until(&mut ben_stream, &id).await,
+        "the member hears about it live"
+    );
+    assert!(
+        !read_until(&mut cid_stream, &id).await,
+        "a non-member doesn't"
+    );
+}

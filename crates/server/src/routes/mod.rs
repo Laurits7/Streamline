@@ -1,6 +1,7 @@
 mod account;
 mod days;
 pub mod focus;
+pub mod groups;
 mod log;
 pub mod places;
 mod projects;
@@ -33,6 +34,7 @@ use crate::AppState;
         account::revoke_token, account::list_users, account::create_user, account::patch_user,
         account::delete_user,
         account::patch_prefs, focus::get_focus, focus::post_focus,
+        groups::list, groups::directory, groups::create, groups::patch, groups::delete, groups::add_member, groups::remove_member,
         workflows::list, workflows::create, workflows::patch, workflows::delete, workflows::start,
         places::list, places::create, places::patch, places::delete,
         series::list, series::all_stats, series::create, series::patch, series::delete,
@@ -52,6 +54,7 @@ use crate::AppState;
         (name = "routines", description = "Recurring tasks and routines"),
         (name = "places", description = "Places where tasks are done"),
         (name = "workflows", description = "Multi-step workflow templates"),
+        (name = "groups", description = "Groups and shared ownership"),
     )
 )]
 pub struct ApiDoc;
@@ -114,6 +117,14 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/me/prefs", patch(account::patch_prefs))
         .route("/focus", get(focus::get_focus).post(focus::post_focus))
+        .route("/groups", get(groups::list).post(groups::create))
+        .route("/groups/{id}", patch(groups::patch).delete(groups::delete))
+        .route("/groups/{id}/members", post(groups::add_member))
+        .route(
+            "/groups/{id}/members/{user_id}",
+            axum::routing::delete(groups::remove_member),
+        )
+        .route("/users/directory", get(groups::directory))
         .route("/workflows", get(workflows::list).post(workflows::create))
         .route(
             "/workflows/{id}",

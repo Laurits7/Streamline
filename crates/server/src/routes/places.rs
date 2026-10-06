@@ -33,7 +33,7 @@ pub async fn load_visible(
         .await?
         .ok_or(AppError::NotFound)?;
     if !visibility::can_see(
-        &user.user,
+        user,
         p.owner_user_id.as_deref(),
         p.owner_group_id.as_deref(),
     ) {

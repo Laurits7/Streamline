@@ -8,7 +8,8 @@ use tokio::sync::broadcast;
 
 use crate::{
     models::{
-        DayEntry, DayPlan, FocusSession, FocusTimer, Place, Project, Series, Task, WorkflowTemplate,
+        DayEntry, DayPlan, FocusSession, FocusTimer, Group, Place, Project, Series, Task,
+        WorkflowTemplate,
     },
     visibility,
 };
@@ -53,6 +54,26 @@ impl Change {
             kind: "day_plan",
             data: serde_json::to_value(p).unwrap(),
             audience: vec![p.user_id.clone()],
+        }
+    }
+    /// A group changed: its members (and `extra`, e.g. someone just removed) hear about it.
+    pub fn group(g: &Group, extra: &[String]) -> Self {
+        let mut audience: Vec<String> = g.members.iter().map(|m| m.user_id.clone()).collect();
+        audience.extend(extra.iter().cloned());
+        Self {
+            rev: g.rev,
+            kind: "group",
+            data: serde_json::to_value(g).unwrap(),
+            audience,
+        }
+    }
+    /// The user's group memberships changed: their clients resync (what they can see changed).
+    pub fn membership(user_id: &str) -> Self {
+        Self {
+            rev: 0,
+            kind: "membership",
+            data: serde_json::Value::Null,
+            audience: vec![user_id.to_string()],
         }
     }
     pub fn workflow(w: &WorkflowTemplate) -> Self {

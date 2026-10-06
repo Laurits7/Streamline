@@ -59,6 +59,15 @@ pub async fn start(
             .collect()
     };
     let project_id = opts.project_id.clone().or(tpl.project_id.clone());
+    // Steps belong to whoever owns their project (a group's laundry is the group's).
+    let owner = match &project_id {
+        Some(p) => crate::ownership::project_owner(conn, p).await?,
+        None => None,
+    }
+    .unwrap_or(crate::ownership::Owner {
+        user: Some(owner_user_id.into()),
+        group: None,
+    });
     let mut tasks = vec![];
     let mut changes = vec![];
     for (run_index, (variant, skip)) in runs.iter().enumerate() {
@@ -69,17 +78,17 @@ pub async fn start(
             let rev = next_rev(conn).await?;
             let ts = now();
             let last: Option<String> = sqlx::query_scalar(
-                "SELECT MAX(position) FROM tasks WHERE owner_user_id = ? AND project_id IS ? AND deleted_at IS NULL",
+                "SELECT MAX(position) FROM tasks WHERE project_id IS ?1 AND (?1 IS NOT NULL OR owner_user_id = ?2) AND deleted_at IS NULL",
             )
-            .bind(owner_user_id)
             .bind(&project_id)
+            .bind(owner_user_id)
             .fetch_one(&mut *conn)
             .await?;
             let first = c.number == 1;
             let t = Task {
                 id: new_id(),
-                owner_user_id: Some(owner_user_id.into()),
-                owner_group_id: None,
+                owner_user_id: owner.user.clone(),
+                owner_group_id: owner.group.clone(),
                 assignee_user_id: None,
                 project_id: project_id.clone(),
                 title: match variant {

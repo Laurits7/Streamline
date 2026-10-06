@@ -84,7 +84,7 @@ pub async fn get_log(
     let sql = format!(
         "SELECT e.at AS at, e.kind AS kind, t.id AS task_id, t.title AS title, {PROJECT} AS project, NULL AS minutes, NULL AS extra
            FROM task_events e JOIN tasks t ON t.id = e.task_id
-          WHERE t.owner_user_id = ?1 AND t.deleted_at IS NULL AND e.at >= ?2 AND e.at < ?3
+          WHERE (t.owner_user_id = ?1 OR e.user_id = ?1) AND t.deleted_at IS NULL AND e.at >= ?2 AND e.at < ?3
             AND e.kind IN ('completed', 'skipped', 'wont_do')
             AND NOT EXISTS (SELECT 1 FROM task_events r WHERE r.task_id = e.task_id AND r.kind = 'reopened' AND r.at > e.at)
          UNION ALL
