@@ -67,6 +67,7 @@ Any of them can be revisited when the chunk that implements it starts.
   - **Matrix:** `views.ts` (quadrantOf/matrixPatch) implements D-22 and is tested over every score combination.
   - **Focus timer:** one per user, server-side (`domain::focus`). Work rolls into a break automatically; after a break the next work interval waits. Intervals abandoned within a minute aren't logged. Completed or partial work minutes are added to `tasks.actual_min`. Clients correct for clock differences with `server_now`, chime and buzz at zero (sound can be switched off), then ask the server to advance. A background job advances timers nobody is watching and sends an in-app notification; a device's own timer already signals, so those notifications only matter for other devices.
   - **Bundles:** Focus and Plan load on demand. Vite's shared chunk counts as initial in `measure.sh`, which now reads the initial set from `index.html`.
+- **D-45 · 2026-10-06 · Places: manual or GPS** (owner, answers Q-25): Places act as a filter. The user picks the current place from a list. If "Use GPS" is enabled in Settings *and* the browser grants location permission, the current place is detected automatically from each place's coordinates and radius; otherwise the list is used. Note: browsers expose geolocation only in secure contexts (HTTPS or localhost), so on plain-HTTP LAN installs it is always manual.
 
 ## Resource log
 

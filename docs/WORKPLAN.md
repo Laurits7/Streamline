@@ -306,9 +306,11 @@ Legend: **Deliverables** = what exists afterwards · **Tests** = what must be co
 - [x] **2b.6 Focus view UI**: distraction-free page (title, notes, step context), large timer,
       start/pause/skip, sound + `navigator.vibrate` cue, a mini-timer pill visible on all
       pages, and done / snooze / next-planned-task actions.
-- [ ] **2b.6a Places** (SPEC §6.16)  *(needs Q-25)*: `places` per user/household; optional
-      `place_id` on tasks with a per-project default for new tasks; place chip on rows; a
-      "where am I" filter on the ready stack, pull-in sheet and views.
+- [ ] **2b.6a Places** (SPEC §6.16, D-45): `places` per user/household (name, optional
+      coordinates + radius); optional `place_id` on tasks with a per-project default for new
+      tasks; place chip on rows; a "where am I" filter on the ready stack, pull-in sheet and
+      views, picked manually, or detected by GPS when enabled in Settings and permitted by the
+      browser (secure contexts only; falls back to manual).
 - [x] **2b.7 Phase gate** (2026-10-06: tests green, measurements logged, browser run of views and focus on desktop and phone)
 
 ---
@@ -576,7 +578,7 @@ column says when it must be settled.
 | Q-21 | Goal progress | **Mixed**: derived by default, manual override per goal. | 5c.1 |
 | Q-22 | Eisenhower: flags or scores | Store **0–3 scores**; quadrant threshold ≥ 2. Dragging into a quadrant sets the value to 2 or 0 only if it crosses the threshold, so finer values are kept. | 2.2 |
 | Q-24 | Occasions: which nameday calendar, and where do names of interest come from? | Estonian nameday calendar first (others addable as data files). Names of interest are entered by the user as *people* (name + optional birthday), and only their namedays and birthdays create tasks. Default template per kind: buy present −2 d (*deadline*) → greet 0 d (*expires*). | 3b.6a |
-| Q-25 | Places: just a filter, or more? | A filter only: tasks have an optional place, and you pick "I'm at X" to narrow lists (tasks without a place always show). No GPS. | 2b.6a |
+| Q-25 | Places: just a filter, or more? | **Answered (D-45):** a filter; pick "I'm at X" from a list, or opt in to GPS in Settings, which then detects the place automatically when the browser grants location access (HTTPS only). | 2b.6a |
 | Q-23 | Units and locale | Per-user locale (date/number format) and unit system (metric default, kg). Values stored in canonical units (kg) and converted for display. | 5b.2 |
 
 ---
