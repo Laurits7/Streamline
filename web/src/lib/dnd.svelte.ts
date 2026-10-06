@@ -15,7 +15,8 @@ export type DragItem =
 export type DropAt = { x: number; y: number; el: HTMLElement }
 
 export type DropTarget = {
-  accepts: (item: DragItem) => boolean
+  /** `at` lets a target accept only part of its area (e.g. the middle of a row). */
+  accepts: (item: DragItem, at: DropAt) => boolean
   over?: (item: DragItem, at: DropAt) => void
   leave?: () => void
   drop: (item: DragItem, at: DropAt) => void
@@ -46,7 +47,7 @@ function targetAt(x: number, y: number, item: DragItem): [HTMLElement, DropTarge
     const d = el.closest<HTMLElement>('[data-drop]')
     if (!d) return null
     const t = targets.get(d)
-    if (t?.accepts(item)) return [d, t]
+    if (t?.accepts(item, { x, y, el: d })) return [d, t]
     el = d.parentElement
   }
   return null

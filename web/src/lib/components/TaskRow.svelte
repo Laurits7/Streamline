@@ -68,7 +68,7 @@
     </span>
     <span class="meta">
       {#if statusLabel[task.status]}<span class="tag danger">{statusLabel[task.status]}</span>{/if}
-      {#if showProject && project}<span class="project"><i style:background={project.color ?? 'var(--faint)'}></i>{project.name}</span>{/if}
+      {#if showProject && project}<span class="project" title={store.projectPath(project.id)}><i style:background={project.color ?? 'var(--faint)'}></i>{project.name}</span>{/if}
       {#if task.due_date}<span class:overdue><Icon name="calendar" size={12} />{shortDate(task.due_date, store.today)}</span>{/if}
       {#if task.estimate_min}<span><Icon name="clock" size={12} />{fmtMinutes(task.estimate_min)}</span>{/if}
       {#if task.difficulty}<span class="diff" title="Difficulty">{'●'.repeat(task.difficulty)}{'○'.repeat(3 - task.difficulty)}</span>{/if}

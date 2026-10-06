@@ -4,7 +4,7 @@
   import QuickAdd from '../lib/components/QuickAdd.svelte'
   import TaskRow from '../lib/components/TaskRow.svelte'
   import { router } from '../lib/router.svelte'
-  import { dropList, type DragItem } from '../lib/dnd.svelte'
+  import { droppable, dropList, type DragItem } from '../lib/dnd.svelte'
   import { keyAt } from '../lib/order'
   import { store } from '../lib/store.svelte'
 
@@ -13,6 +13,12 @@
   const project = $derived(projectId ? store.projects.get(projectId) : null)
   const open = $derived(store.tasksIn(projectId))
   const closed = $derived(store.tasksIn(projectId, 'closed'))
+  const crumbs = $derived(projectId ? store.ancestors(projectId) : [])
+  const children = $derived(projectId ? store.childProjects(projectId) : [])
+  // Valid new parents for "Move under…": anything outside this project's own subtree.
+  const parentChoices = $derived(
+    projectId ? store.projectTree().filter(({ project: p }) => store.canMoveProject(projectId, p.id)) : [],
+  )
   let showDone = $state(false)
   let menu = $state(false)
 
@@ -26,18 +32,26 @@
     store.updateProject(projectId, { archived: !project.archived_at })
     menu = false
   }
+  function moveUnder(parentId: string | null) {
+    if (projectId) store.moveProject(projectId, parentId)
+    menu = false
+  }
   function remove() {
     if (!projectId || !project) return
-    if (confirm(`Delete “${project.name}” and all its ${open.length + closed.length} tasks?`)) {
+    const ids = new Set(store.subtree(projectId))
+    const tasks = [...store.tasks.values()].filter((t) => t.project_id && ids.has(t.project_id)).length
+    const subs = ids.size - 1
+    const what = `${tasks} task${tasks === 1 ? '' : 's'}${subs ? ` and ${subs} subproject${subs === 1 ? '' : 's'}` : ''}`
+    if (confirm(`Delete “${project.name}” with its ${what}?`)) {
       store.deleteProject(projectId)
       router.go('/projects', true)
     }
   }
-  /** Drop a task into this list: reorder, or move it here from another project/inbox. */
-  function dropTask(item: DragItem, index: number) {
+  /** Drop a task into a project's list: reorder, or move it there from elsewhere. */
+  function dropInto(target: string | null, list: { id: string; position: string }[], item: DragItem, index: number) {
     if (item.kind !== 'task') return
-    const others = open.filter((t) => t.id !== item.taskId).map((t) => t.position)
-    store.moveToProject(item.taskId, projectId, keyAt(others, index))
+    const others = list.filter((t) => t.id !== item.taskId).map((t) => t.position)
+    store.moveToProject(item.taskId, target, keyAt(others, index))
   }
   const colors = ['#4f46e5', '#0891b2', '#16a34a', '#ca8a04', '#ea580c', '#dc2626', '#db2777', '#7c3aed', '#64748b']
 </script>
@@ -47,11 +61,22 @@
 {:else}
   <header class="head">
     <div>
+      {#if crumbs.length}
+        <nav class="crumbs" aria-label="Parent projects">
+          {#each crumbs as c (c.id)}<a href="/projects/{c.id}">{c.name}</a><span aria-hidden="true">›</span>{/each}
+        </nav>
+      {/if}
       <h1>
         {#if project}<i class="dot" style:background={project.color ?? 'var(--faint)'}></i>{project.name}{:else}Inbox{/if}
       </h1>
       <p class="muted">
-        {open.length} open{#if project?.archived_at} · archived{/if}
+        {[
+          `${open.length} open`,
+          children.length ? `${children.length} subproject${children.length === 1 ? '' : 's'}` : '',
+          project?.archived_at ? 'archived' : '',
+        ]
+          .filter(Boolean)
+          .join(' · ')}
       </p>
     </div>
     {#if project}
@@ -65,6 +90,17 @@
                 <button class="swatch" style:background={c} aria-label="Color {c}" onclick={() => { store.updateProject(projectId!, { color: c }); menu = false }}></button>
               {/each}
             </div>
+            <label class="move">
+              <span>Move under</span>
+              <select
+                value={project.parent_id ?? ''}
+                onchange={(e) => moveUnder((e.currentTarget as HTMLSelectElement).value || null)}>
+                <option value="">— Top level —</option>
+                {#each parentChoices as { project: p, depth } (p.id)}
+                  <option value={p.id}>{'\u00a0\u00a0'.repeat(depth)}{p.name}</option>
+                {/each}
+              </select>
+            </label>
             <button role="menuitem" onclick={archive}><Icon name="archive" size={16} /> {project.archived_at ? 'Unarchive' : 'Archive'}</button>
             <button role="menuitem" class="danger" onclick={remove}><Icon name="trash" size={16} /> Delete</button>
           </div>
@@ -77,13 +113,52 @@
 
   <div
     class="card list"
-    use:dropList={{ accepts: (it) => it.kind === 'task', drop: dropTask, keyMove: (id, index) => store.reorderTask(open, id, index) }}>
+    use:dropList={{
+      accepts: (it) => it.kind === 'task',
+      drop: (it, i) => dropInto(projectId, open, it, i),
+      keyMove: (id, index) => store.reorderTask(open, id, index),
+    }}>
     {#each open as t (t.id)}
       <TaskRow task={t} handle planButton />
     {:else}
       <p class="empty">{project ? 'No open tasks in this project.' : 'Inbox zero. Capture anything above.'}</p>
     {/each}
   </div>
+
+  {#if project}
+    <h2 class="section-title"><Icon name="folder" size={14} /> Subprojects</h2>
+    {#each children as c (c.id)}
+      {@const tasks = store.tasksIn(c.id)}
+      {@const subs = store.childProjects(c.id).length}
+      <div class="card sub">
+        <a
+          class="sub-head drop-zone"
+          href="/projects/{c.id}"
+          draggable="false"
+          use:droppable={{ accepts: (it) => it.kind === 'task', drop: (it) => it.kind === 'task' && store.moveToProject(it.taskId, c.id) }}>
+          <i class="dot small" style:background={c.color ?? 'var(--faint)'}></i>
+          <span class="sub-name">{c.name}</span>
+          {#if subs}<span class="muted small">{subs} sub</span>{/if}
+          <span class="muted small">{store.openCountDeep(c.id)} open</span>
+          <Icon name="right" size={16} />
+        </a>
+        <div
+          class="list"
+          use:dropList={{
+            accepts: (it) => it.kind === 'task',
+            drop: (it, i) => dropInto(c.id, tasks, it, i),
+            keyMove: (id, index) => store.reorderTask(tasks, id, index),
+          }}>
+          {#each tasks as t (t.id)}
+            <TaskRow task={t} handle planButton />
+          {:else}
+            <p class="empty small">No open tasks here. Drop tasks to move them in.</p>
+          {/each}
+        </div>
+      </div>
+    {/each}
+    <QuickAdd placeholder="Add a subproject…" onadd={(name) => store.createProject(name, projectId)} />
+  {/if}
 
   {#if closed.length}
     <button class="section-title toggle" onclick={() => (showDone = !showDone)} aria-expanded={showDone}>
@@ -113,6 +188,64 @@
     display: flex;
     align-items: center;
     gap: 10px;
+  }
+  .crumbs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    font-size: 13px;
+    color: var(--muted);
+    margin-bottom: 4px;
+  }
+  .crumbs a:hover {
+    color: var(--accent);
+  }
+  .sub {
+    overflow: hidden;
+    margin-bottom: 12px;
+  }
+  .sub .list {
+    margin-top: 0;
+    border-top: 1px solid var(--border);
+    border-radius: 0;
+  }
+  .sub-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 14px;
+    font-weight: 600;
+  }
+  .sub-head:hover {
+    background: var(--surface-2);
+  }
+  .sub-name {
+    flex: 1;
+  }
+  .small {
+    font-size: 12px;
+    font-weight: 500;
+  }
+  .empty.small {
+    padding: 14px;
+    margin: 0;
+  }
+  .dot.small {
+    width: 10px;
+    height: 10px;
+  }
+  .move {
+    display: block;
+    padding: 6px 10px;
+  }
+  .move span {
+    display: block;
+    font-size: 12px;
+    color: var(--muted);
+    margin-bottom: 4px;
+  }
+  .move select {
+    padding: 6px 8px;
   }
   .dot {
     width: 12px;

@@ -10,7 +10,7 @@
 
   const task = $derived(store.tasks.get(id))
   const entry = $derived(store.entryForTask(id))
-  const projects = $derived(store.projectList())
+  const projects = $derived(store.projectTree())
   const types = $derived([...store.taskTypes.values()])
 
   let title = $state('')
@@ -117,7 +117,7 @@
         value={task.project_id ?? ''}
         onchange={(e) => store.moveToProject(id, (e.currentTarget as HTMLSelectElement).value || null)}>
         <option value="">Inbox</option>
-        {#each projects as p (p.id)}<option value={p.id}>{p.name}</option>{/each}
+        {#each projects as { project: p, depth } (p.id)}<option value={p.id}>{'\u00a0\u00a0\u00a0'.repeat(depth)}{p.name}</option>{/each}
       </select>
     </section>
 

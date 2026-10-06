@@ -3,8 +3,10 @@ use axum::{
     extract::{Path, State},
     http::StatusCode,
 };
+use std::collections::HashMap;
+
 use serde::Deserialize;
-use streamline_domain::order::key_after;
+use streamline_domain::{order::key_after, tree};
 
 use crate::{
     AppState,
@@ -63,12 +65,64 @@ pub async fn list(State(state): State<AppState>, user: AuthUser) -> ApiResult<Js
     Ok(Json(rows))
 }
 
+/// Parent links of all of the user's live projects, for tree checks.
+async fn parent_map(
+    conn: &mut sqlx::SqliteConnection,
+    user: &AuthUser,
+) -> ApiResult<HashMap<String, Option<String>>> {
+    let rows: Vec<(String, Option<String>)> = sqlx::query_as(&format!(
+        "SELECT id, parent_id FROM projects WHERE {} AND deleted_at IS NULL",
+        visibility::OWNED_VISIBLE_SQL
+    ))
+    .bind(user.id())
+    .fetch_all(conn)
+    .await?;
+    Ok(rows.into_iter().collect())
+}
+
+/// Validate a new parent for project `id` (`None` when creating): it must be visible,
+/// have the same owner, and not be the project itself or one of its descendants.
+async fn check_parent(
+    conn: &mut sqlx::SqliteConnection,
+    user: &AuthUser,
+    id: Option<&str>,
+    parent_id: &str,
+) -> ApiResult<Project> {
+    let parent = load_visible(conn, user, parent_id)
+        .await
+        .map_err(|_| bad("unknown parent project"))?;
+    if let Some(id) = id
+        && tree::would_cycle(id, parent_id, &parent_map(conn, user).await?)
+    {
+        return Err(bad(
+            "a project can't be moved inside itself or one of its subprojects",
+        ));
+    }
+    Ok(parent)
+}
+
+async fn last_sibling_position(
+    conn: &mut sqlx::SqliteConnection,
+    user: &AuthUser,
+    parent_id: &Option<String>,
+) -> ApiResult<String> {
+    let last: Option<String> = sqlx::query_scalar(
+        "SELECT MAX(position) FROM projects WHERE owner_user_id = ? AND parent_id IS ? AND deleted_at IS NULL",
+    )
+    .bind(user.id())
+    .bind(parent_id)
+    .fetch_one(conn)
+    .await?;
+    Ok(key_after(last.as_deref()))
+}
+
 #[derive(Deserialize)]
 pub struct CreateProject {
     id: Option<String>,
     name: String,
     color: Option<String>,
     position: Option<String>,
+    parent_id: Option<String>,
 }
 
 pub async fn create(
@@ -94,25 +148,24 @@ pub async fn create(
         }
         return Err(AppError::Conflict("id already in use".into()));
     }
+    let mut color = c.color;
+    if let Some(parent_id) = &c.parent_id {
+        let parent = check_parent(&mut tx, &user, None, parent_id).await?;
+        // Subprojects take their parent's colour unless one is given.
+        color = color.or(parent.color);
+    }
     let position = match c.position {
         Some(p) => p,
-        None => {
-            let last: Option<String> = sqlx::query_scalar(
-                "SELECT MAX(position) FROM projects WHERE owner_user_id = ? AND deleted_at IS NULL",
-            )
-            .bind(user.id())
-            .fetch_one(&mut *tx)
-            .await?;
-            key_after(last.as_deref())
-        }
+        None => last_sibling_position(&mut tx, &user, &c.parent_id).await?,
     };
     let ts = now();
     let p = Project {
         id,
         owner_user_id: Some(user.id().to_string()),
         owner_group_id: None,
+        parent_id: c.parent_id,
         name,
-        color: c.color,
+        color,
         position,
         archived_at: None,
         created_at: ts.clone(),
@@ -132,7 +185,11 @@ pub struct PatchProject {
     #[serde(default, deserialize_with = "double_option")]
     color: Option<Option<String>>,
     position: Option<String>,
+    /// Archiving (or unarchiving) applies to the whole subtree.
     archived: Option<bool>,
+    /// Move under another project (`null` = top level).
+    #[serde(default, deserialize_with = "double_option")]
+    parent_id: Option<Option<String>>,
 }
 
 pub async fn patch(
@@ -150,65 +207,100 @@ pub async fn patch(
         check_color(&color)?;
         p.color = color;
     }
+    if let Some(parent_id) = c.parent_id
+        && parent_id != p.parent_id
+    {
+        if let Some(pid) = &parent_id {
+            check_parent(&mut tx, &user, Some(&id), pid).await?;
+        }
+        p.parent_id = parent_id;
+        if c.position.is_none() {
+            p.position = last_sibling_position(&mut tx, &user, &p.parent_id).await?;
+        }
+    }
     if let Some(pos) = c.position {
         check_position(&pos)?;
         p.position = pos;
     }
+    let rev = next_rev(&mut tx).await?;
+    let ts = now();
+    let mut changes = vec![];
     if let Some(a) = c.archived {
-        p.archived_at = if a {
-            Some(p.archived_at.clone().unwrap_or_else(now))
+        let archived_at = if a {
+            Some(p.archived_at.clone().unwrap_or_else(|| ts.clone()))
         } else {
             None
         };
+        p.archived_at = archived_at.clone();
+        // Apply to every subproject as well.
+        for sub_id in tree::subtree(&id, &parent_map(&mut tx, &user).await?)
+            .into_iter()
+            .skip(1)
+        {
+            let mut sub = load_visible(&mut tx, &user, &sub_id).await?;
+            if sub.archived_at.is_some() != a {
+                sub.archived_at = archived_at.clone();
+                sub.updated_at = ts.clone();
+                sub.rev = rev;
+                upsert_project(&mut tx, &sub).await?;
+                changes.push(Change::project(&sub));
+            }
+        }
     }
-    p.updated_at = now();
-    p.rev = next_rev(&mut tx).await?;
+    p.updated_at = ts;
+    p.rev = rev;
     upsert_project(&mut tx, &p).await?;
+    changes.push(Change::project(&p));
     tx.commit().await?;
-    state.bus.publish([Change::project(&p)]);
+    state.bus.publish(changes);
     Ok(Json(p))
 }
 
-/// Soft-deletes the project together with its tasks and their day-plan entries.
+/// Soft-deletes the project and all its subprojects, with their tasks and the
+/// tasks' day-plan entries.
 pub async fn delete(
     State(state): State<AppState>,
     user: AuthUser,
     Path(id): Path<String>,
 ) -> ApiResult<StatusCode> {
     let mut tx = state.db.write.begin().await?;
-    let mut p = load_visible(&mut tx, &user, &id).await?;
+    load_visible(&mut tx, &user, &id).await?;
     let rev = next_rev(&mut tx).await?;
     let ts = now();
     let mut changes = vec![];
-    let tasks: Vec<Task> =
-        sqlx::query_as("SELECT * FROM tasks WHERE project_id = ? AND deleted_at IS NULL")
-            .bind(&id)
-            .fetch_all(&mut *tx)
-            .await?;
-    for mut t in tasks {
-        let entries: Vec<DayEntry> =
-            sqlx::query_as("SELECT * FROM day_entries WHERE task_id = ? AND deleted_at IS NULL")
-                .bind(&t.id)
+    for pid in tree::subtree(&id, &parent_map(&mut tx, &user).await?) {
+        let mut p = load_visible(&mut tx, &user, &pid).await?;
+        let tasks: Vec<Task> =
+            sqlx::query_as("SELECT * FROM tasks WHERE project_id = ? AND deleted_at IS NULL")
+                .bind(&pid)
                 .fetch_all(&mut *tx)
                 .await?;
-        for mut e in entries {
-            e.deleted_at = Some(ts.clone());
-            e.updated_at = ts.clone();
-            e.rev = rev;
-            upsert_entry(&mut tx, &e).await?;
-            changes.push(Change::entry(&e));
+        for mut t in tasks {
+            let entries: Vec<DayEntry> = sqlx::query_as(
+                "SELECT * FROM day_entries WHERE task_id = ? AND deleted_at IS NULL",
+            )
+            .bind(&t.id)
+            .fetch_all(&mut *tx)
+            .await?;
+            for mut e in entries {
+                e.deleted_at = Some(ts.clone());
+                e.updated_at = ts.clone();
+                e.rev = rev;
+                upsert_entry(&mut tx, &e).await?;
+                changes.push(Change::entry(&e));
+            }
+            t.deleted_at = Some(ts.clone());
+            t.updated_at = ts.clone();
+            t.rev = rev;
+            upsert_task(&mut tx, &t).await?;
+            changes.push(Change::task(&t));
         }
-        t.deleted_at = Some(ts.clone());
-        t.updated_at = ts.clone();
-        t.rev = rev;
-        upsert_task(&mut tx, &t).await?;
-        changes.push(Change::task(&t));
+        p.deleted_at = Some(ts.clone());
+        p.updated_at = ts.clone();
+        p.rev = rev;
+        upsert_project(&mut tx, &p).await?;
+        changes.push(Change::project(&p));
     }
-    p.deleted_at = Some(ts.clone());
-    p.updated_at = ts;
-    p.rev = rev;
-    upsert_project(&mut tx, &p).await?;
-    changes.push(Change::project(&p));
     tx.commit().await?;
     state.bus.publish(changes);
     Ok(StatusCode::NO_CONTENT)

@@ -15,9 +15,9 @@
     const out: { name: string; color: string | null; tasks: typeof tasks }[] = []
     const inbox = tasks.filter((t) => !t.project_id)
     if (inbox.length) out.push({ name: 'Inbox', color: null, tasks: inbox })
-    for (const p of store.projectList()) {
+    for (const { project: p } of store.projectTree()) {
       const ts = tasks.filter((t) => t.project_id === p.id)
-      if (ts.length) out.push({ name: p.name, color: p.color, tasks: ts })
+      if (ts.length) out.push({ name: store.projectPath(p.id), color: p.color, tasks: ts })
     }
     return out
   })

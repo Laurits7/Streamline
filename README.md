@@ -15,7 +15,8 @@ What works today:
   - drop a task on a project, Inbox or Today in the sidebar (or the Today/Inbox tabs on a phone);
   - drop tasks onto the timeline to schedule them, drag blocks to move them in time, drag a
     block's bottom edge to change its duration, and drag a block back into the plan to unschedule it.
-- **Projects and inbox**: quick-add, complete with undo, archive.
+- **Projects, subprojects (any depth) and inbox**: quick-add, complete with undo, archive.
+- **Built-in help** at `/help` (sidebar, or Settings on a phone).
 - **Pull tasks into a day** from the ready stack, give them a time and duration, or move them to
   another day.
 - **Task details**: notes, due date, estimate, difficulty, importance and urgency, and task type.

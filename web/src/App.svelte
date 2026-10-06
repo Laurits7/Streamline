@@ -7,7 +7,7 @@
   import { droppable, type DragItem } from './lib/dnd.svelte'
   import { match, router } from './lib/router.svelte'
   import { store } from './lib/store.svelte'
-  import { ui } from './lib/ui.svelte'
+  import { isCollapsed, toggleCollapsed, ui } from './lib/ui.svelte'
   import Day from './views/Day.svelte'
   import Login from './views/Login.svelte'
   import Projects from './views/Projects.svelte'
@@ -58,7 +58,7 @@
   })
 
   const route = $derived(match(router.path))
-  const projects = $derived(store.projectList())
+  const projects = $derived(store.projectTree(isCollapsed))
   const active = (name: string, id?: string) =>
     route.name === name && (!id || (route.name === 'project' && route.id === id)) ? 'page' : undefined
   const todayActive = $derived(route.name === 'today' || route.name === 'day' ? 'page' : undefined)
@@ -98,13 +98,23 @@
         <a href="/inbox" class="drop-zone" draggable="false" aria-current={active('inbox')} use:droppable={toProject(null)}><Icon name="inbox" /> Inbox</a>
         <a href="/projects" draggable="false" aria-current={active('projects')}><Icon name="folder" /> Projects</a>
         <div class="projects">
-          {#each projects as p (p.id)}
-            <a
-              href="/projects/{p.id}"
-              class="drop-zone"
-              draggable="false"
-              aria-current={active('project', p.id)}
-              use:droppable={toProject(p.id)}><i style:background={p.color ?? 'var(--faint)'}></i>{p.name}</a>
+          {#each projects as { project: p, depth } (p.id)}
+            {@const kids = store.childProjects(p.id).length > 0}
+            <div class="tree-row" style:padding-left="{depth * 14}px">
+              {#if kids}
+                <button
+                  class="twisty"
+                  aria-label="{isCollapsed(p.id) ? 'Expand' : 'Collapse'} {p.name}"
+                  aria-expanded={!isCollapsed(p.id)}
+                  onclick={() => toggleCollapsed(p.id)}><span class:open={!isCollapsed(p.id)}><Icon name="right" size={12} /></span></button>
+              {:else}<span class="twisty"></span>{/if}
+              <a
+                href="/projects/{p.id}"
+                class="drop-zone"
+                draggable="false"
+                aria-current={active('project', p.id)}
+                use:droppable={toProject(p.id)}><i style:background={p.color ?? 'var(--faint)'}></i>{p.name}</a>
+            </div>
           {/each}
         </div>
       </nav>
@@ -263,14 +273,35 @@
     color: var(--accent);
   }
   .projects {
-    margin: 6px 0 0 8px;
+    margin: 6px 0 0 0;
     display: flex;
     flex-direction: column;
     gap: 1px;
   }
   .projects a {
+    flex: 1;
+    min-width: 0;
     font-size: 14px;
-    padding: 6px 10px;
+    padding: 6px 8px;
+  }
+  .tree-row {
+    display: flex;
+    align-items: center;
+  }
+  .twisty {
+    flex: none;
+    width: 16px;
+    height: 24px;
+    display: grid;
+    place-items: center;
+    color: var(--faint);
+  }
+  .twisty span {
+    display: grid;
+    transition: transform 120ms;
+  }
+  .twisty span.open {
+    transform: rotate(90deg);
   }
   .projects i {
     width: 8px;

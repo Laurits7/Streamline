@@ -414,3 +414,132 @@ async fn day_plan_and_rollover() {
         .await;
     assert_eq!(day["entries"].as_array().unwrap().len(), 0);
 }
+
+#[tokio::test]
+async fn subprojects() {
+    let t = setup().await;
+    let admin = t.admin().await;
+    let mk = |name: &'static str, parent: Option<String>| {
+        let admin = admin.clone();
+        let t = &t;
+        async move {
+            let (s, v, _) = t
+                .req("POST", "/api/v1/projects", Some(&admin), Some(json!({"name": name, "parent_id": parent, "color": if parent.is_none() { Some("#16a34a") } else { None }})))
+                .await;
+            assert_eq!(s, StatusCode::OK, "{v}");
+            v
+        }
+    };
+    let paper = mk("Paper", None).await;
+    let pid = paper["id"].as_str().unwrap().to_string();
+    let writing = mk("Writing", Some(pid.clone())).await;
+    let wid = writing["id"].as_str().unwrap().to_string();
+    let draft = mk("Draft", Some(wid.clone())).await;
+    let did = draft["id"].as_str().unwrap().to_string();
+    assert_eq!(writing["parent_id"], pid);
+    assert_eq!(draft["color"], "#16a34a", "subprojects inherit the colour");
+
+    // No cycles: a project can't move under itself or a descendant.
+    let (s, _, _) = t
+        .req(
+            "PATCH",
+            &format!("/api/v1/projects/{pid}"),
+            Some(&admin),
+            Some(json!({"parent_id": did})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    let (s, _, _) = t
+        .req(
+            "PATCH",
+            &format!("/api/v1/projects/{pid}"),
+            Some(&admin),
+            Some(json!({"parent_id": pid})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    // Moving to the top level and back is fine.
+    let (_, v, _) = t
+        .req(
+            "PATCH",
+            &format!("/api/v1/projects/{did}"),
+            Some(&admin),
+            Some(json!({"parent_id": null})),
+        )
+        .await;
+    assert!(v["parent_id"].is_null());
+    let (_, v, _) = t
+        .req(
+            "PATCH",
+            &format!("/api/v1/projects/{did}"),
+            Some(&admin),
+            Some(json!({"parent_id": wid})),
+        )
+        .await;
+    assert_eq!(v["parent_id"], wid);
+
+    // Another user's project can't be used as a parent.
+    let bob = t.user(&admin, "bob").await;
+    let (s, _, _) = t
+        .req(
+            "POST",
+            "/api/v1/projects",
+            Some(&bob),
+            Some(json!({"name": "x", "parent_id": pid})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+
+    // Archiving cascades down the tree.
+    t.req(
+        "PATCH",
+        &format!("/api/v1/projects/{pid}"),
+        Some(&admin),
+        Some(json!({"archived": true})),
+    )
+    .await;
+    let (_, v, _) = t.req("GET", "/api/v1/projects", Some(&admin), None).await;
+    assert!(
+        v.as_array()
+            .unwrap()
+            .iter()
+            .all(|p| p["archived_at"].is_string())
+    );
+    t.req(
+        "PATCH",
+        &format!("/api/v1/projects/{pid}"),
+        Some(&admin),
+        Some(json!({"archived": false})),
+    )
+    .await;
+
+    // Deleting removes the whole subtree and its tasks.
+    let (_, task, _) = t
+        .req(
+            "POST",
+            "/api/v1/tasks",
+            Some(&admin),
+            Some(json!({"title": "Write intro", "project_id": did})),
+        )
+        .await;
+    let (s, _, _) = t
+        .req(
+            "DELETE",
+            &format!("/api/v1/projects/{pid}"),
+            Some(&admin),
+            None,
+        )
+        .await;
+    assert_eq!(s, StatusCode::NO_CONTENT);
+    let (_, v, _) = t.req("GET", "/api/v1/projects", Some(&admin), None).await;
+    assert_eq!(v.as_array().unwrap().len(), 0);
+    let (s, _, _) = t
+        .req(
+            "GET",
+            &format!("/api/v1/tasks/{}", task["id"].as_str().unwrap()),
+            Some(&admin),
+            None,
+        )
+        .await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+}

@@ -229,6 +229,61 @@ class Store {
     return [...this.projects.values()].filter((p) => includeArchived || !p.archived_at).sort(byPosition)
   }
 
+  /** Direct subprojects of `parentId` (`null` = top level), ordered. */
+  childProjects(parentId: string | null, includeArchived = false): Project[] {
+    return [...this.projects.values()]
+      .filter((p) => (p.parent_id ?? null) === parentId && (includeArchived || !p.archived_at))
+      .sort(byPosition)
+  }
+
+  /** All active projects as a depth-first tree, for nested lists and pickers. */
+  projectTree(isCollapsed: (id: string) => boolean = () => false): { project: Project; depth: number }[] {
+    const out: { project: Project; depth: number }[] = []
+    const walk = (parentId: string | null, depth: number) => {
+      for (const p of this.childProjects(parentId)) {
+        out.push({ project: p, depth })
+        if (!isCollapsed(p.id)) walk(p.id, depth + 1)
+      }
+    }
+    walk(null, 0)
+    return out
+  }
+
+  /** Ancestors of a project, from the top-level project down to its parent. */
+  ancestors(id: string): Project[] {
+    const out: Project[] = []
+    let cur = this.projects.get(id)?.parent_id
+    while (cur && out.length < 100) {
+      const p = this.projects.get(cur)
+      if (!p) break
+      out.unshift(p)
+      cur = p.parent_id
+    }
+    return out
+  }
+
+  /** The project and all its subprojects (ids). */
+  subtree(id: string): string[] {
+    const out = [id]
+    for (let i = 0; i < out.length; i++)
+      for (const p of this.projects.values()) if (p.parent_id === out[i] && !out.includes(p.id)) out.push(p.id)
+    return out
+  }
+
+  /** "Paper › Writing" */
+  projectPath(id: string): string {
+    const p = this.projects.get(id)
+    return p ? [...this.ancestors(id), p].map((x) => x.name).join(' › ') : ''
+  }
+
+  /** Open tasks in the project including all its subprojects. */
+  openCountDeep(id: string): number {
+    const ids = new Set(this.subtree(id))
+    let n = 0
+    for (const t of this.tasks.values()) if (t.status === 'open' && t.project_id && ids.has(t.project_id)) n++
+    return n
+  }
+
   /** Tasks in a project (`null` = inbox), ordered. */
   tasksIn(projectId: string | null, status: 'open' | 'closed' = 'open'): Task[] {
     return [...this.tasks.values()]
@@ -378,16 +433,18 @@ class Store {
 
   // ---- projects -------------------------------------------------------------
 
-  createProject(name: string, color: string | null = null): string {
+  createProject(name: string, parentId: string | null = null): string {
     const id = ulid()
     const ts = now()
+    const parent = parentId ? this.projects.get(parentId) : null
     const p: Project = {
       id,
       owner_user_id: this.me?.id ?? null,
       owner_group_id: null,
+      parent_id: parentId,
       name,
-      color,
-      position: keyBetween(this.projectList(true).at(-1)?.position, null),
+      color: parent?.color ?? null,
+      position: keyBetween(this.childProjects(parentId, true).at(-1)?.position, null),
       archived_at: null,
       created_at: ts,
       updated_at: ts,
@@ -397,20 +454,31 @@ class Store {
     this.optimistic(
       [['project', id]],
       () => this.projects.set(id, p),
-      async () => [['project', await api.post<Project>('/projects', { id, name, color, position: p.position })]],
+      async () => [
+        ['project', await api.post<Project>('/projects', { id, name, parent_id: parentId, color: p.color, position: p.position })],
+      ],
     )
     return id
   }
 
-  updateProject(id: string, patch: { name?: string; color?: string | null; position?: string; archived?: boolean }) {
+  updateProject(
+    id: string,
+    patch: { name?: string; color?: string | null; position?: string; archived?: boolean; parent_id?: string | null },
+  ) {
     const cur = this.projects.get(id)
     if (!cur) return
     const { archived, ...rest } = patch
-    const local: Project = { ...cur, ...rest, updated_at: now() }
-    if (archived !== undefined) local.archived_at = archived ? now() : null
+    const ts = now()
+    // Archiving applies to the whole subtree (the server does the same).
+    const touched = archived === undefined ? [id] : this.subtree(id)
+    const updated = touched.map((pid) => {
+      const p = pid === id ? { ...cur, ...rest } : { ...this.projects.get(pid)! }
+      if (archived !== undefined) p.archived_at = archived ? (p.archived_at ?? ts) : null
+      return { ...p, updated_at: ts }
+    })
     this.optimistic(
-      [['project', id]],
-      () => this.projects.set(id, local),
+      touched.map((pid) => ['project', pid] as [Kind, string]),
+      () => updated.forEach((p) => this.projects.set(p.id, p)),
       async () => [['project', await api.patch<Project>(`/projects/${id}`, patch)]],
     )
   }
@@ -420,18 +488,36 @@ class Store {
     this.updateProject(id, { position: keyAt(others, index) })
   }
 
+  /** Can `id` be moved under `parentId`? Not into itself or its own subprojects. */
+  canMoveProject(id: string, parentId: string | null): boolean {
+    return parentId === null || !this.subtree(id).includes(parentId)
+  }
+
+  /** Nest a project under another (`null` = top level), optionally at `index` among its new siblings. */
+  moveProject(id: string, parentId: string | null, index?: number) {
+    if (!this.canMoveProject(id, parentId)) {
+      toast("A project can't go inside itself or one of its subprojects", 'error')
+      return
+    }
+    const siblings = this.childProjects(parentId, true).filter((p) => p.id !== id)
+    const position = index === undefined ? keyBetween(siblings.at(-1)?.position, null) : keyAt(siblings.map((p) => p.position), index)
+    this.updateProject(id, { parent_id: parentId, position })
+  }
+
+  /** Deletes the project and all its subprojects, with their tasks. */
   deleteProject(id: string) {
-    const tasks = [...this.tasks.values()].filter((t) => t.project_id === id)
+    const ids = new Set(this.subtree(id))
+    const tasks = [...this.tasks.values()].filter((t) => t.project_id && ids.has(t.project_id))
     const entries = tasks.map((t) => this.entryForTask(t.id)).filter((e): e is DayEntry => !!e)
     const touched: [Kind, string][] = [
-      ['project', id],
+      ...[...ids].map((pid) => ['project', pid] as [Kind, string]),
       ...tasks.map((t) => ['task', t.id] as [Kind, string]),
       ...entries.map((e) => ['day_entry', e.id] as [Kind, string]),
     ]
     this.optimistic(
       touched,
       () => {
-        this.projects.delete(id)
+        ids.forEach((pid) => this.projects.delete(pid))
         tasks.forEach((t) => this.tasks.delete(t.id))
         entries.forEach((e) => this.entries.delete(e.id))
       },

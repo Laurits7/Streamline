@@ -109,8 +109,19 @@
     </p>
     <p>
       <strong>Projects</strong> group related tasks. From a project's <Icon name="more" size={14} /> menu you can
-      rename it, pick a colour, archive it (hides it but keeps everything) or delete it together with its tasks. The sun
-      button on a task plans it for today.
+      rename it, pick a colour, move it under another project, archive it (hides it but keeps everything) or delete it
+      together with its tasks. The sun button on a task plans it for today.
+    </p>
+    <p>
+      <strong>Subprojects</strong> break bigger things down, as deep as you like. For example, “Paper” can contain
+      “Research”, “Analysis” and “Writing”, and “Writing” can contain “Draft 1”. Add one with “Add a subproject…” at
+      the bottom of a project, or drag a project onto the middle of another project on the Projects page. Dragging near
+      a project's top or bottom edge reorders instead.
+    </p>
+    <p>
+      A project's page shows its own tasks and a section for each subproject; drag tasks between the sections. Counts
+      on the Projects page include subprojects. Archiving or deleting a project also archives or deletes its
+      subprojects.
     </p>
   </section>
 
