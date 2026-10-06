@@ -150,12 +150,13 @@
         <a href="/inbox" class="drop-zone" draggable="false" aria-current={active('inbox')} use:droppable={toProject(null)}><Icon name="inbox" /> Inbox</a>
         <a href="/tasks" draggable="false" aria-current={active('tasks')}><Icon name="list" /> All tasks</a>
         <a href="/routines" draggable="false" aria-current={active('routines')}><Icon name="repeat" /> Routines</a>
+        <a href="/focus" draggable="false"><Icon name="target" /> Focus</a>
+        <h2 class="group">Reflect</h2>
         <a href="/summary" draggable="false" aria-current={active('summary')}><Icon name="book" /> Summary & journal</a>
         <a href="/trends" draggable="false" aria-current={active('trends')}><Icon name="chart" /> Trends</a>
         <a href="/goals" draggable="false" aria-current={active('goals') ?? active('goal-review')}><Icon name="flag" /> Goals</a>
         <a href="/occasions" draggable="false" aria-current={active('occasions')}><Icon name="gift" /> Namedays & birthdays</a>
-        <a href="/focus" draggable="false"><Icon name="target" /> Focus</a>
-        <a href="/projects" draggable="false" aria-current={active('projects')}><Icon name="folder" /> Projects</a>
+        <h2 class="group"><a class="group-link" href="/projects" draggable="false" aria-current={active('projects')}>Projects <Icon name="right" size={12} /></a></h2>
         <div class="projects">
           {#each projects as { project: p, depth } (p.id)}
             {@const kids = store.childProjects(p.id).length > 0}
@@ -318,9 +319,15 @@
       background: var(--surface);
       overflow-y: auto;
     }
+    /* Content starts next to the menu (no centred gap on wide screens). */
     .content {
-      margin-left: calc(var(--sidebar-w) + max(0px, (100vw - var(--sidebar-w) - var(--content-w)) / 2));
-      padding: 36px 32px 48px;
+      --content-w: 980px;
+      margin-left: var(--sidebar-w);
+      max-width: calc(var(--content-w) + 2 * var(--gutter));
+      padding: 32px var(--gutter) 56px;
+    }
+    .content.wide {
+      --content-w: 1320px;
     }
   }
   .brand {
@@ -344,17 +351,40 @@
   .sidebar nav {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 1px;
     flex: 1;
+  }
+  .group {
+    margin: 16px 10px 4px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--faint);
+  }
+  .sidebar .group-link {
+    display: inline-flex;
+    gap: 4px;
+    padding: 0;
+    font-size: inherit;
+    font-weight: inherit;
+    color: inherit;
+    background: none;
+  }
+  .sidebar .group-link:hover,
+  .sidebar .group-link[aria-current='page'] {
+    background: none;
+    color: var(--accent);
   }
   .sidebar a {
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 8px 10px;
+    padding: 7px 10px;
     border-radius: 8px;
     color: var(--muted);
     font-weight: 550;
+    font-size: 14.5px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -368,7 +398,7 @@
     color: var(--accent);
   }
   .projects {
-    margin: 6px 0 0 0;
+    margin: 0;
     display: flex;
     flex-direction: column;
     gap: 1px;

@@ -290,6 +290,7 @@
 
 <h1>Settings</h1>
 
+<div class="settings-grid">
 <a class="card help-link" href="/help"><Icon name="help" /> <span>Help: what you can do and how</span><Icon name="right" size={16} /></a>
 
 <section class="card">
@@ -746,8 +747,19 @@
 <section class="card">
   <button class="btn" onclick={onlogout}><Icon name="logout" size={16} /> Sign out</button>
 </section>
+</div>
 
 <style>
+  /* Wide screens: two columns of sections instead of very long form fields. */
+  @media (min-width: 1280px) {
+    .settings-grid {
+      columns: 2 420px;
+      column-gap: 14px;
+    }
+    .settings-grid > :global(*) {
+      break-inside: avoid;
+    }
+  }
   h1 {
     font-size: 28px;
     font-weight: 750;
@@ -900,6 +912,9 @@
     width: auto;
   }
   .metric-row {
+    flex-wrap: wrap;
+  }
+  .metric-row .row {
     flex-wrap: wrap;
   }
   .metric-row.archived {

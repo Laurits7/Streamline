@@ -22,6 +22,7 @@
   --font: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   --nav-h: 64px;
   --sidebar-w: 248px;
+  --gutter: clamp(24px, 3vw, 48px);
   color-scheme: light;
 }
 

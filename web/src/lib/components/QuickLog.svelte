@@ -73,6 +73,9 @@
           <button class="btn small" type="submit">Log</button>
         </form>
       {/if}
+      <span class="today muted">
+        {#if v !== undefined && m.key === 'mood'}avg {Math.round(v * 10) / 10}/5{:else if v !== undefined}{m.kind === 'yes_no' ? (v ? 'yes' : 'no') : fmt(m, v)}{#if todays(m).length > 1} · {todays(m).length}×{/if}{/if}
+      </span>
       {#if m.key === 'mood' && todays(m).length}
         <div class="moodlog" aria-label="Mood today">
           {#each todays(m) as e (e.id)}
@@ -83,9 +86,6 @@
           {/each}
         </div>
       {/if}
-      <span class="today muted">
-        {#if v !== undefined && m.key === 'mood'}avg {Math.round(v * 10) / 10}/5{:else if v !== undefined}{m.kind === 'yes_no' ? (v ? 'yes' : 'no') : fmt(m, v)}{#if todays(m).length > 1} · {todays(m).length}×{/if}{/if}
-      </span>
     </div>
   {/each}
 </section>
