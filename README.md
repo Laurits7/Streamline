@@ -3,7 +3,7 @@
 A self-hosted todo list and day planner for a household. One small container, one data
 folder, and it works from any phone, tablet or computer on your network.
 
-> **Status: Phases 1–3 done (foundation, day plan, planning ritual, views and focus, routines).** See [`docs/WORKPLAN.md`](docs/WORKPLAN.md)
+> **Status: Phases 1–3b done (foundation, day plan, planning ritual, views and focus, routines, prerequisites and multi-step chores).** See [`docs/WORKPLAN.md`](docs/WORKPLAN.md)
 > for what's built and what's next, and [`docs/SPEC.md`](docs/SPEC.md) for the full vision.
 
 What works today:
@@ -25,6 +25,9 @@ What works today:
   last day, …), at a fixed time (put on the timeline), or N times a week/month. Each occurrence is
   a normal task; skip one, edit just one, or change the routine from a date on with history kept;
   streaks per routine.
+- **Prerequisites and multi-step chores**: tasks can wait for other tasks (and an extra wait,
+  e.g. while the washing machine runs); multi-step chores like laundry (wash → dry → fold) with
+  variants per kind of load; only the current step shows up as ready; routines can start them.
 - **Views**: All tasks, the Inbox and every project as a list, a board (columns by status,
   project, difficulty or task type) or an urgent/important matrix; drag cards between
   columns/quadrants to change them. Each place remembers its view on all your devices.

@@ -95,6 +95,14 @@ Any of them can be revisited when the chunk that implements it starts.
   - **Current place:** stored per device in localStorage, as is the GPS switch, since location and permission are per device and browser. It is never sent to the server.
   - **GPS:** uses `watchPosition`; a place matches if the position is within its radius plus the fix's accuracy (capped at 500 m), closest first. On plain HTTP, or if permission is denied, the GPS switch turns itself off with a message.
   - **Filtering:** the ready stack (pull-in, planner) and All tasks / board / matrix show tasks without a place or at the current place, with a "N at other places hidden · show all" note. Project pages and day plans stay unfiltered.
+- **D-51 · 2026-10-06 · Prerequisites and workflows** (Phase 3b):
+  - **Prerequisites:** stored as `tasks.depends_on` (JSON ids) plus a cached `blocked` flag, kept current whenever a prerequisite changes status or is deleted (task edits, project/routine deletes, rollover). This follows the D-33 single-record sync choice, as D-48 did. Cycles are refused on the server (`domain::deps`) and hidden in the picker on the client.
+  - **What counts as open:** done means resolved. Skipped, won't do, missed and deleted unblock (D-6). Reopening a prerequisite blocks again.
+  - **Blocked tasks** can't be planned (API refuses), are hidden from the ready stack and planner, are dimmed elsewhere, and never miss at day end.
+  - **Wait time:** after the last prerequisite resolves, `ready_at` = now + `wait_min`. A job clears it when the time passes and sends an in-app "… is ready". Waiting tasks can still be planned for later.
+  - **Workflow templates:** steps and variants are JSON on the template. Chains are *linear* in v1 (a variant = the steps minus its skips; a skipped step's wait is dropped). Branching steps are left for later. A run = one chain per chosen variant, titled "Step (Variant)", grouped by `workflow_instance_id`, with step dots in the UI. Editing a template doesn't touch running chains.
+  - **Routines with a workflow:** each occurrence starts a run *on its own day* (not the day before, unlike other routines), so "previous run still open" is judged at the right time (D-7: then the occurrence is recorded as skipped with the reason). Not yet available for "N times a week/month" routines. A per-routine override of D-7 is not built yet. Statistics count an occurrence as done when all its steps are.
+- **D-52 · 2026-10-06 · Moving routine occurrences; weekly score** (owner request): an occurrence can be moved to another day (its due date moves, and a fixed-time one keeps its time on the new day). "Expires" occurrences are missed only after their *due* day, so a moved workout isn't missed on its original day. Scheduled routines show "done of planned this week": the total comes from the schedule, so skipped, deleted or missed occurrences count as not done (e.g. 3 of 4).
 
 ## Resource log
 
@@ -105,3 +113,4 @@ Any of them can be revisited when the chunk that implements it starts.
 | End of Phase 2a | 7.6 MB | 4.0 MiB (fresh container, 20 s) | 51.2 KB initial (+4.5 Help, +5.4 Plan lazy) | not measured | 2026-10-06 |
 | End of Phase 2b | 7.8 MB | 4.2 MiB (fresh container, 20 s) | 59.6 KB initial (+5.3 Help, +5.5 Plan, +2.6 Focus lazy) | not measured | 2026-10-06 |
 | End of Phase 3 | 8.7 MB (+rrule) | 4.6 MiB (fresh container, 20 s) | 66.2 KB initial | not measured | 2026-10-06 |
+| End of Phase 3b | 9.2 MB | 4.5 MiB (fresh container, 20 s) | 76.3 KB initial | not measured | 2026-10-06 |

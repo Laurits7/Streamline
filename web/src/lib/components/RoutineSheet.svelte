@@ -23,6 +23,9 @@
   let window = $state<'week' | 'month'>((existing?.window as 'week' | 'month') ?? 'week')
   let projectId = $state(existing?.project_id ?? '')
   let placeId = $state(existing?.place_id ?? '')
+  let workflowId = $state(existing?.workflow_template_id ?? '')
+  let variantIds = $state<string[]>(existing ? [...existing.workflow_variant_ids] : [])
+  const workflow = $derived(workflowId ? store.workflows.get(workflowId) : null)
   let typeId = $state(existing?.task_type_id ?? '')
   let estimate = $state<number | null>(existing?.estimate_min ?? null)
   let difficulty = $state<number | null>(existing?.difficulty ?? null)
@@ -86,6 +89,8 @@
       window: mode === 'flexible' ? window : null,
       project_id: projectId || null,
       place_id: placeId || null,
+      workflow_template_id: workflowId || null,
+      workflow_variant_ids: workflowId ? variantIds : [],
       task_type_id: effectiveType,
       estimate_min: estimate,
       difficulty,
@@ -204,6 +209,30 @@
     </select>
   </section>
 
+  {#if store.workflows.size && mode !== 'flexible'}
+    <section>
+      <h3>Each time</h3>
+      <select bind:value={workflowId}>
+        <option value="">Just this task</option>
+        {#each [...store.workflows.values()] as w (w.id)}<option value={w.id}>Start the multi-step chore “{w.name}”</option>{/each}
+      </select>
+      {#if workflow?.variants.length}
+        <div class="chips loads">
+          {#each workflow.variants as v (v.id)}
+            <button
+              class="chip"
+              class:on={variantIds.includes(v.id)}
+              aria-pressed={variantIds.includes(v.id)}
+              onclick={() => (variantIds = variantIds.includes(v.id) ? variantIds.filter((x) => x !== v.id) : [...variantIds, v.id])}>{v.name}</button>
+          {/each}
+        </div>
+      {/if}
+      {#if workflowId}
+        <p class="muted help">Each run starts on its day. If the previous run still has open steps, that day is skipped.</p>
+      {/if}
+    </section>
+  {/if}
+
   {#if store.places.size}
     <section>
       <h3>Place</h3>
@@ -305,6 +334,9 @@
   }
   .days {
     margin-top: 10px;
+  }
+  .loads {
+    margin-top: 8px;
   }
   .summary {
     display: flex;

@@ -15,8 +15,9 @@ use crate::{
 #[derive(Default)]
 pub struct RunOptions {
     pub project_id: Option<String>,
-    /// Plan the first step of each chain into this day.
+    /// Plan the first step of each chain into this day (at `start_time`, if given).
     pub day: Option<String>,
+    pub start_time: Option<String>,
     /// For routine occurrences: (series id, occurrence key, occurrence date).
     pub occurrence: Option<(String, String, String)>,
     pub task_type_id: Option<String>,
@@ -146,7 +147,7 @@ pub async fn start(
                     date: day.clone(),
                     task_id: t.id.clone(),
                     position: key_after(last.as_deref()),
-                    start_time: None,
+                    start_time: opts.start_time.clone(),
                     duration_min: None,
                     created_at: ts.clone(),
                     updated_at: ts,

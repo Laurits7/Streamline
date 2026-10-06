@@ -4,7 +4,8 @@
 > Status (2026-10-06): Part A and Part C **confirmed** (see `DECISIONS.md`). **Phases 1, 2, 2a, 2b
 > and 3 are complete**, plus the owner's follow-ups (orange unplanned banner, Done → To do on the board,
 > tasks in several projects, daily activity log; D-48), routine versions (D-49) and 2b.6a Places (D-50).
-> Next: Phase 3b (prerequisites and workflows).
+> Phase 3b (prerequisites, multi-step chores) is complete too. Next: Phase 4 (groups) — or 3b.6a
+> Occasions once Q-24 is answered.
 > Legend: `[x]` done · `[~]` partly done (the remaining work is noted) · `[ ]` not started.
 
 ## MVP status (2026-10-06)
@@ -353,7 +354,7 @@ Legend: **Deliverables** = what exists afterwards · **Tests** = what must be co
 
 ### Phase 3b: Prerequisites and workflows (§6.3b)
 
-- [ ] **3b.1 Dependency graph**  *(needs Q-6)*
+- [x] **3b.1 Dependency graph**  *(needs Q-6)*
   - Deliverables: `task_dependencies(task_id, depends_on_id)`; `domain::deps` with cycle
     detection (DFS over the affected subgraph) and readiness evaluation; a stored
     `tasks.blocked` flag kept up to date transactionally on every change, so the ready stack
@@ -362,10 +363,10 @@ Legend: **Deliverables** = what exists afterwards · **Tests** = what must be co
   - Tests: reject direct and indirect cycles; diamond graphs; dependencies across projects
     and groups; completing the last prerequisite unblocks; reopening a prerequisite blocks
     again; blocked tasks never "miss" at rollover (§6.2c).
-- [ ] **3b.2 Blocked UI**: blocked badge with "waiting on …" links in project lists; hidden
+- [x] **3b.2 Blocked UI**: blocked badge with "waiting on …" links in project lists; hidden
       from the ready stack and the planner; dimmed in the matrix; add/remove prerequisite UI
       (task picker).
-- [ ] **3b.3 Workflow templates**
+- [x] **3b.3 Workflow templates** (steps/variants as JSON on the template; linear chains, D-51)
   - Deliverables: `workflow_templates`, `workflow_steps` (title, type, estimate,
     wait_minutes), `workflow_step_edges`, `workflow_variants` + per-variant step inclusion;
     CRUD API; `instantiate(template, variants[])` creates one chain of tasks per selected
@@ -373,12 +374,12 @@ Legend: **Deliverables** = what exists afterwards · **Tests** = what must be co
     template.
   - Tests: variant inclusion and skipped steps re-linking the chain (wash → fold when dry and
     iron are skipped); everything rolls back if instantiation fails.
-- [ ] **3b.4 Wait time**: `ready_at` on dependent tasks (prerequisite done + wait); the
+- [x] **3b.4 Wait time**: `ready_at` on dependent tasks (prerequisite done + wait); the
       scheduler flips them to ready; "mark ready now" override; countdown shown in the UI.
-- [ ] **3b.5 Workflow UI**: template editor as an ordered step list with "skip in variant"
+- [x] **3b.5 Workflow UI** (JSON export/import of templates (Q-12) still open): template editor as an ordered step list with "skip in variant"
       toggles (no graph editor); "Start Laundry" sheet with variant multi-select; chain
       progress dots on each task.
-- [ ] **3b.6 Routine-attached workflows**  *(needs Q-7)*: a series can reference a template;
+- [x] **3b.6 Routine-attached workflows**  *(needs Q-7)* (runs start on their day; per-routine override of D-7 not yet): a series can reference a template;
       each occurrence spawns an instance; policy for a still-unfinished previous instance
       (Q-7).
 - [ ] **3b.6a Occasions: birthdays and namedays** (SPEC §6.17)  *(needs Q-24)*
@@ -390,7 +391,7 @@ Legend: **Deliverables** = what exists afterwards · **Tests** = what must be co
   - Tests: nameday lookup incl. leap years and names with several days; offsets across month
     and year boundaries; greet stays blocked until the present step is done; no duplicate
     spawns.
-- [ ] **3b.7 Phase gate**
+- [x] **3b.7 Phase gate** (2026-10-06; 3b.6a Occasions still waits for Q-24)
 
 ---
 

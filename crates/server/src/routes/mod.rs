@@ -7,7 +7,7 @@ mod projects;
 mod series;
 mod sync;
 mod tasks;
-mod workflows;
+pub mod workflows;
 
 use axum::{
     Router,

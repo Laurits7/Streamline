@@ -14,9 +14,12 @@ use crate::{
     AppState,
     db::next_rev,
     events::Change,
-    models::{DayEntry, Series, Task, User, upsert_entry, upsert_task},
+    models::{
+        DayEntry, Series, Task, User, WorkflowTemplate, log_task_event, upsert_entry, upsert_task,
+    },
     rollover::today_for,
     util::{new_id, now},
+    workflows::RunOptions,
 };
 
 /// How far back occurrences are created when catching up after downtime.
@@ -48,6 +51,7 @@ pub async fn materialize_series(
     conn: &mut SqliteConnection,
     s: &Series,
     week_start: u32,
+    today: NaiveDate,
     from: NaiveDate,
     to: NaiveDate,
 ) -> anyhow::Result<Vec<Change>> {
@@ -85,6 +89,23 @@ pub async fn materialize_series(
         {
             continue;
         }
+        // Routines that run a multi-step chore start each run on its day (D-51).
+        if s.workflow_template_id.is_some() {
+            if o.date > today {
+                continue;
+            }
+            let exists: Option<String> = sqlx::query_scalar(
+                "SELECT id FROM tasks WHERE series_id = ?1 AND (occurrence_key = ?2 OR occurrence_key LIKE ?2 || '/%') LIMIT 1",
+            )
+            .bind(&s.id)
+            .bind(&o.key)
+            .fetch_optional(&mut *conn)
+            .await?;
+            if exists.is_none() {
+                changes.extend(start_run(conn, s, &o).await?);
+            }
+            continue;
+        }
         let exists: Option<String> =
             sqlx::query_scalar("SELECT id FROM tasks WHERE series_id = ? AND occurrence_key = ?")
                 .bind(&s.id)
@@ -96,55 +117,7 @@ pub async fn materialize_series(
         }
         let rev = next_rev(conn).await?;
         let ts = now();
-        let last: Option<String> = sqlx::query_scalar(
-            "SELECT MAX(position) FROM tasks WHERE owner_user_id IS ? AND project_id IS ? AND deleted_at IS NULL",
-        )
-        .bind(&s.owner_user_id)
-        .bind(&s.project_id)
-        .fetch_one(&mut *conn)
-        .await?;
-        let t = Task {
-            id: new_id(),
-            owner_user_id: s.owner_user_id.clone(),
-            owner_group_id: s.owner_group_id.clone(),
-            assignee_user_id: None,
-            project_id: s.project_id.clone(),
-            title: s.title.clone(),
-            notes: s.notes.clone(),
-            status: "open".into(),
-            position: key_after(last.as_deref()),
-            due_date: Some(fmt(o.window_end.unwrap_or(o.date))),
-            estimate_min: s.estimate_min,
-            difficulty: s.difficulty,
-            importance: s.importance,
-            urgency: s.urgency,
-            actual_min: 0,
-            task_type_id: s.task_type_id.clone(),
-            carry_count: 0,
-            started_at: None,
-            completed_at: None,
-            completed_by: None,
-            ext_source: None,
-            ext_id: None,
-            ext_url: None,
-            place_id: s.place_id.clone(),
-            also_project_ids: sqlx::types::Json(vec![]),
-            depends_on: sqlx::types::Json(vec![]),
-            blocked: false,
-            wait_min: None,
-            ready_at: None,
-            workflow_instance_id: None,
-            workflow_step: None,
-            workflow_steps: None,
-            series_id: Some(s.id.clone()),
-            occurrence_key: Some(o.key.clone()),
-            occurrence_date: Some(fmt(o.date)),
-            window_end: o.window_end.map(fmt),
-            created_at: ts.clone(),
-            updated_at: ts.clone(),
-            deleted_at: None,
-            rev,
-        };
+        let t = occurrence_task(conn, s, &o, "open", rev).await?;
         upsert_task(conn, &t).await?;
         changes.push(Change::task(&t));
         // Fixed-time routines are planned on their day's timeline right away.
@@ -175,6 +148,115 @@ pub async fn materialize_series(
             changes.push(Change::entry(&e));
         }
     }
+    Ok(changes)
+}
+
+/// The task for one occurrence of a routine (not saved).
+async fn occurrence_task(
+    conn: &mut SqliteConnection,
+    s: &Series,
+    o: &streamline_domain::recurrence::Occurrence,
+    status: &str,
+    rev: i64,
+) -> sqlx::Result<Task> {
+    let ts = now();
+    let last: Option<String> = sqlx::query_scalar(
+        "SELECT MAX(position) FROM tasks WHERE owner_user_id IS ? AND project_id IS ? AND deleted_at IS NULL",
+    )
+    .bind(&s.owner_user_id)
+    .bind(&s.project_id)
+    .fetch_one(&mut *conn)
+    .await?;
+    Ok(Task {
+        id: new_id(),
+        owner_user_id: s.owner_user_id.clone(),
+        owner_group_id: s.owner_group_id.clone(),
+        assignee_user_id: None,
+        project_id: s.project_id.clone(),
+        title: s.title.clone(),
+        notes: s.notes.clone(),
+        status: status.into(),
+        position: key_after(last.as_deref()),
+        due_date: Some(fmt(o.window_end.unwrap_or(o.date))),
+        estimate_min: s.estimate_min,
+        difficulty: s.difficulty,
+        importance: s.importance,
+        urgency: s.urgency,
+        actual_min: 0,
+        task_type_id: s.task_type_id.clone(),
+        carry_count: 0,
+        started_at: None,
+        completed_at: None,
+        completed_by: None,
+        ext_source: None,
+        ext_id: None,
+        ext_url: None,
+        place_id: s.place_id.clone(),
+        also_project_ids: sqlx::types::Json(vec![]),
+        depends_on: sqlx::types::Json(vec![]),
+        blocked: false,
+        wait_min: None,
+        ready_at: None,
+        workflow_instance_id: None,
+        workflow_step: None,
+        workflow_steps: None,
+        series_id: Some(s.id.clone()),
+        occurrence_key: Some(o.key.clone()),
+        occurrence_date: Some(fmt(o.date)),
+        window_end: o.window_end.map(fmt),
+        created_at: ts.clone(),
+        updated_at: ts,
+        deleted_at: None,
+        rev,
+    })
+}
+
+/// Start the multi-step chore of a routine occurrence, unless the previous run still has
+/// open steps (D-7): then the occurrence is recorded as skipped, with the reason.
+async fn start_run(
+    conn: &mut SqliteConnection,
+    s: &Series,
+    o: &streamline_domain::recurrence::Occurrence,
+) -> anyhow::Result<Vec<Change>> {
+    let unfinished: Option<String> = sqlx::query_scalar(
+        "SELECT id FROM tasks WHERE series_id = ? AND workflow_instance_id IS NOT NULL AND status = 'open'
+           AND deleted_at IS NULL LIMIT 1",
+    )
+    .bind(&s.id)
+    .fetch_optional(&mut *conn)
+    .await?;
+    let tpl: Option<WorkflowTemplate> =
+        sqlx::query_as("SELECT * FROM workflow_templates WHERE id = ? AND deleted_at IS NULL")
+            .bind(&s.workflow_template_id)
+            .fetch_optional(&mut *conn)
+            .await?;
+    let (Some(tpl), None, Some(owner)) = (tpl, unfinished, s.owner_user_id.as_deref()) else {
+        let rev = next_rev(conn).await?;
+        let mut t = occurrence_task(conn, s, o, "skipped", rev).await?;
+        t.notes = "Skipped: the previous run of this routine wasn't finished yet.".into();
+        upsert_task(conn, &t).await?;
+        log_task_event(
+            conn,
+            &t.id,
+            None,
+            "skipped",
+            Some(serde_json::json!({"reason": "previous run open"})),
+        )
+        .await?;
+        return Ok(vec![Change::task(&t)]);
+    };
+    let day = fmt(o.date);
+    let opts = RunOptions {
+        project_id: s.project_id.clone(),
+        day: (s.mode == "anchored").then(|| day.clone()),
+        start_time: s.start_time.clone().filter(|_| s.mode == "anchored"),
+        occurrence: Some((s.id.clone(), o.key.clone(), day)),
+        task_type_id: Some(s.task_type_id.clone()),
+        place_id: s.place_id.clone(),
+        due_date: Some(fmt(o.window_end.unwrap_or(o.date))),
+    };
+    let (_, changes) =
+        crate::workflows::start(conn, owner, &tpl, &s.workflow_variant_ids.0, &opts).await?;
     Ok(changes)
 }
 
@@ -219,7 +301,9 @@ pub async fn materialize_user(state: &AppState, user: &User) -> anyhow::Result<(
         let from = after
             .unwrap_or(today)
             .max(today - Duration::days(CATCH_UP_DAYS));
-        changes.extend(materialize_series(&mut tx, &s, user.week_start as u32, from, to).await?);
+        changes.extend(
+            materialize_series(&mut tx, &s, user.week_start as u32, today, from, to).await?,
+        );
         sqlx::query("UPDATE series SET materialized_through = ? WHERE id = ?")
             .bind(fmt(to))
             .bind(&s.id)
@@ -241,7 +325,17 @@ pub async fn materialize_day(state: &AppState, user: &User, day: NaiveDate) -> a
     let mut tx = state.db.write.begin().await?;
     let mut changes = vec![];
     for s in series {
-        changes.extend(materialize_series(&mut tx, &s, user.week_start as u32, day, day).await?);
+        changes.extend(
+            materialize_series(
+                &mut tx,
+                &s,
+                user.week_start as u32,
+                today_for(user),
+                day,
+                day,
+            )
+            .await?,
+        );
     }
     tx.commit().await?;
     state.bus.publish(changes);
@@ -279,6 +373,34 @@ pub struct SeriesStats {
     /// (skipped, deleted or missed ones count as not done, e.g. "worked out 3 of 4").
     pub week_done: u32,
     pub week_total: u32,
+}
+
+/// Statuses of the task(s) of each occurrence day, in date order.
+fn per_day(rows: &[(String, String, Option<String>)]) -> Vec<(NaiveDate, Vec<&str>)> {
+    let mut out: Vec<(NaiveDate, Vec<&str>)> = vec![];
+    for (status, d, _) in rows {
+        let Some(d) = date(d) else { continue };
+        match out.last_mut() {
+            Some((last, v)) if *last == d => v.push(status),
+            _ => out.push((d, vec![status])),
+        }
+    }
+    out
+}
+
+/// One occurrence's result: done when all its steps are done (skipped steps aside),
+/// missed if any step was missed, skipped if nothing was done and something was skipped.
+fn day_outcome(statuses: &[&str], pending: bool) -> Outcome {
+    let skipped = |s: &&str| matches!(*s, "skipped" | "wont_do");
+    if statuses.contains(&"missed") {
+        Outcome::Missed
+    } else if statuses.iter().all(skipped) {
+        Outcome::Skipped
+    } else if statuses.iter().all(|s| *s == "done" || skipped(s)) {
+        Outcome::Done
+    } else {
+        outcome("open", pending)
+    }
 }
 
 /// A flexible routine's occurrence: its status and the end of its window.
@@ -340,9 +462,9 @@ pub async fn stats(state: &AppState, user: &User, s: &Series) -> anyhow::Result<
             .map(|o| o.len() as u32)
             .unwrap_or(0);
         }
-        week_done = rows
+        week_done = per_day(&rows)
             .iter()
-            .filter(|(st, d, _)| st == "done" && date(d).is_some_and(|d| d >= ws && d <= we))
+            .filter(|(d, sts)| *d >= ws && *d <= we && day_outcome(sts, false) == Outcome::Done)
             .count() as u32;
     }
     let (mut window_done, mut window_total) = (0, 0);
@@ -380,8 +502,10 @@ pub async fn stats(state: &AppState, user: &User, s: &Series) -> anyhow::Result<
             })
             .collect()
     } else {
-        rows.iter()
-            .map(|(status, d, _)| outcome(status, date(d).is_some_and(|d| d >= today)))
+        // One outcome per occurrence day (a multi-step run has several step tasks).
+        per_day(&rows)
+            .iter()
+            .map(|(d, sts)| day_outcome(sts, *d >= today))
             .collect()
     };
     let next_date = match (schedule(s), date(&s.dtstart)) {

@@ -113,7 +113,25 @@ async fn check(conn: &mut sqlx::SqliteConnection, user: &AuthUser, s: &Series) -
     .fetch_optional(&mut *conn)
     .await?;
     ok.map(|_| ()).ok_or_else(|| bad("unknown task type"))?;
-    crate::routes::places::check_place(conn, user, &s.place_id).await
+    crate::routes::places::check_place(conn, user, &s.place_id).await?;
+    if let Some(w) = &s.workflow_template_id {
+        let tpl = crate::routes::workflows::load_visible(conn, user, w)
+            .await
+            .map_err(|_| bad("unknown workflow"))?;
+        if s.workflow_variant_ids
+            .0
+            .iter()
+            .any(|v| !tpl.variants.0.iter().any(|x| x.id == *v))
+        {
+            return Err(bad("unknown workflow variant"));
+        }
+        if s.mode == "flexible" {
+            return Err(bad(
+                "“N times a week/month” routines can't start a multi-step chore yet",
+            ));
+        }
+    }
+    Ok(())
 }
 
 #[utoipa::path(get, path = "/series", tag = "routines", summary = "List routines", responses((status = 200, body = Vec<Series>), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
@@ -259,6 +277,10 @@ pub struct PatchSeries {
     urgency: Option<Option<i32>>,
     #[serde(default, deserialize_with = "double_option")]
     place_id: Option<Option<String>>,
+    /// Start this multi-step chore on each occurrence (`null` = a single task).
+    #[serde(default, deserialize_with = "double_option")]
+    workflow_template_id: Option<Option<String>>,
+    workflow_variant_ids: Option<Vec<String>>,
     // Schedule: changing any of these splits the routine at `from`.
     mode: Option<String>,
     rrule: Option<String>,
@@ -356,6 +378,12 @@ pub async fn patch(
     }
     if let Some(v) = c.place_id {
         next.place_id = v;
+    }
+    if let Some(v) = c.workflow_template_id {
+        next.workflow_template_id = v;
+    }
+    if let Some(v) = c.workflow_variant_ids {
+        next.workflow_variant_ids = sqlx::types::Json(v);
     }
     let mut schedule_changed = false;
     if let Some(v) = c.mode.filter(|v| *v != old.mode) {

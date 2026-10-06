@@ -2361,3 +2361,81 @@ async fn routine_week_score_and_rescheduling() {
         "moved to tomorrow: not missed yesterday"
     );
 }
+
+#[tokio::test]
+async fn routines_start_workflow_runs() {
+    let t = setup().await;
+    let admin = t.admin().await;
+    let today = today_of(&t, &admin).await;
+    let yesterday = today - chrono::Duration::days(1);
+    let (_, w, _) = t
+        .req("POST", "/api/v1/workflows", Some(&admin), Some(json!({"name": "Laundry", "steps": [{"id": "wash", "title": "Wash", "wait_min": 60}, {"id": "fold", "title": "Fold"}]})))
+        .await;
+    // A daily laundry routine that started yesterday (as if the server had been running).
+    let (s, r, _) = t
+        .req("POST", "/api/v1/series", Some(&admin), Some(json!({"title": "Laundry", "mode": "repeat", "rrule": "FREQ=DAILY", "dtstart": ymd(yesterday), "workflow_template_id": w["id"]})))
+        .await;
+    assert_eq!(s, StatusCode::OK, "{r}");
+    let rid = r["id"].as_str().unwrap().to_string();
+    sqlx::query("UPDATE series SET materialized_through = ? WHERE id = ?")
+        .bind(ymd(yesterday - chrono::Duration::days(1)))
+        .bind(&rid)
+        .execute(&t.state.db.write)
+        .await
+        .unwrap();
+    // Remove what creation made for today, to replay yesterday -> today in order.
+    sqlx::query("DELETE FROM tasks WHERE series_id = ?")
+        .bind(&rid)
+        .execute(&t.state.db.write)
+        .await
+        .unwrap();
+    t.req("GET", "/api/v1/sync", Some(&admin), None).await;
+
+    let occ = occurrences(&t, &admin, &rid).await;
+    let on = |d: chrono::NaiveDate| {
+        occ.iter()
+            .filter(|o| o["occurrence_date"] == ymd(d))
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    let y = on(yesterday);
+    assert_eq!(
+        y.iter()
+            .map(|o| o["title"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        ["Wash", "Fold"],
+        "yesterday's run"
+    );
+    assert_eq!(y[1]["depends_on"], json!([y[0]["id"]]));
+    let td = on(today);
+    assert_eq!(td.len(), 1);
+    assert_eq!(
+        td[0]["status"], "skipped",
+        "previous run unfinished: today's is skipped (D-7)"
+    );
+    assert!(td[0]["notes"].as_str().unwrap().contains("wasn't finished"));
+    // Runs start on their day, not the day before.
+    assert!(on(today + chrono::Duration::days(1)).is_empty());
+
+    // Finishing yesterday's run: that day counts as done.
+    for o in &y {
+        t.req(
+            "PATCH",
+            &format!("/api/v1/tasks/{}", o["id"].as_str().unwrap()),
+            Some(&admin),
+            Some(json!({"status": "done"})),
+        )
+        .await;
+    }
+    let (_, stats, _) = t
+        .req("GET", "/api/v1/series/stats", Some(&admin), None)
+        .await;
+    let st = stats
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["series_id"] == rid)
+        .unwrap()
+        .clone();
+    assert_eq!(st["streak"], 1, "{st}");
+}
