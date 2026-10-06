@@ -8,6 +8,8 @@ import type { Calendar } from './api/types/Calendar'
 import type { CalendarAccountView } from './api/types/CalendarAccountView'
 import type { CalendarEvent } from './api/types/CalendarEvent'
 import type { DayEntry } from './api/types/DayEntry'
+import type { Goal } from './api/types/Goal'
+import type { GoalProgress } from './api/types/GoalProgress'
 import type { DayRecord } from './api/types/DayRecord'
 import type { MetricDefinition } from './api/types/MetricDefinition'
 import type { MetricEntry } from './api/types/MetricEntry'
@@ -37,6 +39,7 @@ import type { Task } from './api/types/Task'
 import type { TaskType } from './api/types/TaskType'
 import { busyIntervals, eventsOn } from './calendar'
 import { daily } from './tracking'
+import { reviewDue, type Cadence } from './goals'
 import { findConflicts, nextFreeSlot, type Conflict, type Item } from './conflicts'
 import { isBlocked } from './deps'
 import { keyAt, keyBetween } from './order'
@@ -61,6 +64,7 @@ type Kind =
   | 'day_record'
   | 'metric'
   | 'metric_entry'
+  | 'goal'
 type Entity =
   | Task
   | Project
@@ -79,6 +83,7 @@ type Entity =
   | DayRecord
   | MetricDefinition
   | MetricEntry
+  | Goal
 
 export type TaskPatch = Partial<
   Pick<
@@ -161,6 +166,8 @@ class Store {
   dayRecords = new SvelteMap<string, DayRecord>()
   metrics = new SvelteMap<string, MetricDefinition>()
   metricEntries = new SvelteMap<string, MetricEntry>()
+  goals = new SvelteMap<string, Goal>()
+  goalProgress = new SvelteMap<string, GoalProgress>()
   timeBlocks = new SvelteMap<string, TimeBlock>()
   occasionTemplates = new SvelteMap<string, OccasionTemplate>()
   /** The shared nameday calendar, loaded on first use: `MM-DD` → names. */
@@ -226,6 +233,8 @@ class Store {
     this.dayRecords.clear()
     this.metrics.clear()
     this.metricEntries.clear()
+    this.goals.clear()
+    this.goalProgress.clear()
     this.occasionTemplates.clear()
     this.namedays = null
     this.focusTimer = IDLE_TIMER
@@ -298,6 +307,7 @@ class Store {
       this.dayRecords.clear()
       this.metrics.clear()
       this.metricEntries.clear()
+      this.goals.clear()
     }
     this.occasionTemplates.clear()
     for (const x of r.occasion_templates) this.occasionTemplates.set(x.kind, x)
@@ -329,6 +339,7 @@ class Store {
     for (const x of r.day_records) this.applyRemote('day_record', x)
     for (const x of r.metrics) this.applyRemote('metric', x)
     for (const x of r.metric_entries) this.applyRemote('metric_entry', x)
+    for (const x of r.goals) this.applyRemote('goal', x)
     this.rev = Math.max(this.rev, r.rev)
     this.ready = true
   }
@@ -377,7 +388,8 @@ class Store {
         c.kind === 'time_block' ||
         c.kind === 'day_record' ||
         c.kind === 'metric' ||
-        c.kind === 'metric_entry'
+        c.kind === 'metric_entry' ||
+        c.kind === 'goal'
       )
         this.applyRemote(c.kind, c.data as Entity)
       else if (c.kind === 'task' || c.kind === 'project' || c.kind === 'day_entry' || c.kind === 'day_plan')
@@ -418,6 +430,7 @@ class Store {
       day_record: this.dayRecords,
       metric: this.metrics,
       metric_entry: this.metricEntries,
+      goal: this.goals,
     }
     return maps[kind] as SvelteMap<string, Entity>
   }
@@ -1514,6 +1527,84 @@ class Store {
     )
   }
 
+  // ---- goals -----------------------------------------------------------------
+
+  goalList(): Goal[] {
+    return [...this.goals.values()].sort(byPosition)
+  }
+
+  async loadGoalProgress() {
+    try {
+      const ps = await api.get<GoalProgress[]>('/goals/progress')
+      this.goalProgress.clear()
+      for (const p of ps) this.goalProgress.set(p.goal_id, p)
+    } catch {
+      /* offline */
+    }
+  }
+
+  /** Whether the periodic goals review is due (and there's something to review). */
+  goalReviewDue(): boolean {
+    if (!this.me || ![...this.goals.values()].some((g) => g.status === 'active')) return false
+    return reviewDue(this.me.review_cadence as Cadence, this.me.last_review_date, this.today, this.me.week_start)
+  }
+
+  createGoal(title: string, groupId: string | null = null) {
+    const id = ulid()
+    const ts = now()
+    const g: Goal = {
+      id,
+      owner_user_id: groupId ? null : (this.me?.id ?? null),
+      owner_group_id: groupId,
+      title,
+      description: '',
+      target_date: null,
+      status: 'active',
+      progress_override: null,
+      milestones: [],
+      project_ids: [],
+      task_ids: [],
+      position: keyBetween(this.goalList().at(-1)?.position, null),
+      created_at: ts,
+      updated_at: ts,
+      deleted_at: null,
+      rev: 0,
+    }
+    return this.optimistic(
+      [['goal', id]],
+      () => this.goals.set(id, g),
+      async () => [['goal', await api.post<Goal>('/goals', { id, title, owner_group_id: groupId })]],
+    ).then(() => this.loadGoalProgress())
+  }
+
+  updateGoal(
+    id: string,
+    patch: Partial<Pick<Goal, 'title' | 'description' | 'target_date' | 'status' | 'progress_override' | 'milestones' | 'project_ids' | 'task_ids' | 'owner_group_id'>>,
+  ) {
+    const cur = this.goals.get(id)
+    if (!cur) return
+    const local = { ...cur, ...patch }
+    if ('owner_group_id' in patch) local.owner_user_id = patch.owner_group_id ? null : (this.me?.id ?? null)
+    return this.optimistic(
+      [['goal', id]],
+      () => this.goals.set(id, local),
+      async () => [['goal', await api.patch<Goal>(`/goals/${id}`, patch)]],
+    ).then(() => this.loadGoalProgress())
+  }
+
+  deleteGoal(id: string) {
+    if (!this.goals.has(id)) return
+    return this.optimistic(
+      [['goal', id]],
+      () => this.goals.delete(id),
+      () => api.del(`/goals/${id}`),
+    )
+  }
+
+  async submitReview(notes: { goal_id: string; note: string }[]) {
+    this.me = await api.post<Me>('/goals/review', { notes })
+  }
+
   // ---- occasions -------------------------------------------------------------
 
   /** Load the shared nameday calendar (once; `force` reloads it). */
@@ -1789,6 +1880,7 @@ class Store {
         | 'focus_long_break_min'
         | 'focus_long_every'
         | 'unit_system'
+        | 'review_cadence'
       >
     >,
   ) {

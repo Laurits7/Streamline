@@ -31,4 +31,8 @@ focus_work_min: number, focus_short_break_min: number, focus_long_break_min: num
 /**
  * `metric` (kg) or `imperial` (lb) for displaying weight; values are stored metric.
  */
-unit_system: 'metric' | 'imperial', };
+unit_system: 'metric' | 'imperial', 
+/**
+ * How often the goals review is offered.
+ */
+review_cadence: 'off' | 'weekly' | 'monthly', last_review_date: string | null, };

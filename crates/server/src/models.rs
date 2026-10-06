@@ -28,6 +28,8 @@ pub struct User {
     pub focus_long_break_min: i32,
     pub focus_long_every: i32,
     pub unit_system: String,
+    pub review_cadence: String,
+    pub last_review_date: Option<String>,
 }
 
 impl User {
@@ -76,6 +78,10 @@ pub struct Me {
     /// `metric` (kg) or `imperial` (lb) for displaying weight; values are stored metric.
     #[ts(type = "'metric' | 'imperial'")]
     pub unit_system: String,
+    /// How often the goals review is offered.
+    #[ts(type = "'off' | 'weekly' | 'monthly'")]
+    pub review_cadence: String,
+    pub last_review_date: Option<String>,
 }
 
 impl From<&User> for Me {
@@ -100,6 +106,8 @@ impl From<&User> for Me {
             focus_long_break_min: u.focus_long_break_min,
             focus_long_every: u.focus_long_every,
             unit_system: u.unit_system.clone(),
+            review_cadence: u.review_cadence.clone(),
+            last_review_date: u.last_review_date.clone(),
         }
     }
 }
@@ -1016,6 +1024,65 @@ pub async fn upsert_metric_entry(conn: &mut SqliteConnection, e: &MetricEntry) -
     )
     .bind(&e.id).bind(&e.user_id).bind(&e.metric_id).bind(&e.date).bind(&e.at).bind(e.value).bind(&e.note)
     .bind(&e.created_at).bind(&e.updated_at).bind(&e.deleted_at).bind(e.rev)
+    .execute(conn)
+    .await
+    .map(|_| ())
+}
+
+/// A milestone of a goal.
+#[derive(Debug, Clone, Serialize, serde::Deserialize, TS, utoipa::ToSchema, PartialEq)]
+#[ts(export)]
+pub struct Milestone {
+    pub id: String,
+    pub title: String,
+    pub due_date: Option<String>,
+    pub done: bool,
+}
+
+/// A long-term goal (SPEC §6.10).
+#[derive(Debug, Clone, Serialize, FromRow, TS, utoipa::ToSchema)]
+#[ts(export)]
+pub struct Goal {
+    pub id: String,
+    pub owner_user_id: Option<String>,
+    pub owner_group_id: Option<String>,
+    pub title: String,
+    pub description: String,
+    pub target_date: Option<String>,
+    #[ts(type = "'active' | 'paused' | 'achieved' | 'dropped'")]
+    pub status: String,
+    /// 0–1, set by hand; `null` = derived from milestones and linked work.
+    pub progress_override: Option<f64>,
+    #[ts(as = "Vec<Milestone>")]
+    #[schema(value_type = Vec<Milestone>)]
+    pub milestones: sqlx::types::Json<Vec<Milestone>>,
+    #[ts(as = "Vec<String>")]
+    #[schema(value_type = Vec<String>)]
+    pub project_ids: sqlx::types::Json<Vec<String>>,
+    #[ts(as = "Vec<String>")]
+    #[schema(value_type = Vec<String>)]
+    pub task_ids: sqlx::types::Json<Vec<String>>,
+    pub position: String,
+    pub created_at: String,
+    pub updated_at: String,
+    pub deleted_at: Option<String>,
+    #[ts(type = "number")]
+    pub rev: i64,
+}
+
+pub async fn upsert_goal(conn: &mut SqliteConnection, g: &Goal) -> sqlx::Result<()> {
+    sqlx::query(
+        "INSERT INTO goals (id, owner_user_id, owner_group_id, title, description, target_date, status, progress_override, milestones,
+           project_ids, task_ids, position, created_at, updated_at, deleted_at, rev)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+         ON CONFLICT(id) DO UPDATE SET owner_user_id=excluded.owner_user_id, owner_group_id=excluded.owner_group_id, title=excluded.title,
+           description=excluded.description, target_date=excluded.target_date, status=excluded.status, progress_override=excluded.progress_override,
+           milestones=excluded.milestones, project_ids=excluded.project_ids, task_ids=excluded.task_ids, position=excluded.position,
+           updated_at=excluded.updated_at, deleted_at=excluded.deleted_at, rev=excluded.rev",
+    )
+    .bind(&g.id).bind(&g.owner_user_id).bind(&g.owner_group_id).bind(&g.title).bind(&g.description).bind(&g.target_date)
+    .bind(&g.status).bind(g.progress_override).bind(&g.milestones).bind(&g.project_ids).bind(&g.task_ids).bind(&g.position)
+    .bind(&g.created_at).bind(&g.updated_at).bind(&g.deleted_at).bind(g.rev)
     .execute(conn)
     .await
     .map(|_| ())

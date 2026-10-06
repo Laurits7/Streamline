@@ -4081,3 +4081,245 @@ async fn tracking_summary_export_and_privacy() {
     }
     assert!(seen >= 8, "saw {seen} tracking events");
 }
+
+#[tokio::test]
+async fn goals_progress_sharing_and_reviews() {
+    let t = setup().await;
+    let admin = t.admin().await;
+    let anna = t.user(&admin, "anna").await;
+    let ben = t.user(&admin, "ben").await;
+    let (_, me_ben, _) = t.req("GET", "/api/v1/me", Some(&ben), None).await;
+
+    // A project with a subproject: 4 tasks, 1 done, 1 won't do (doesn't count).
+    let (_, house, _) = t
+        .req(
+            "POST",
+            "/api/v1/projects",
+            Some(&anna),
+            Some(json!({"name": "Renovation"})),
+        )
+        .await;
+    let (_, kitchen, _) = t
+        .req(
+            "POST",
+            "/api/v1/projects",
+            Some(&anna),
+            Some(json!({"name": "Kitchen", "parent_id": house["id"]})),
+        )
+        .await;
+    let mut ids = vec![];
+    for (title, pid) in [
+        ("Plan", &house["id"]),
+        ("Paint", &house["id"]),
+        ("Tiles", &kitchen["id"]),
+        ("Sink", &kitchen["id"]),
+    ] {
+        let (_, x, _) = t
+            .req(
+                "POST",
+                "/api/v1/tasks",
+                Some(&anna),
+                Some(json!({"title": title, "project_id": pid})),
+            )
+            .await;
+        ids.push(x["id"].as_str().unwrap().to_string());
+    }
+    t.req(
+        "PATCH",
+        &format!("/api/v1/tasks/{}", ids[0]),
+        Some(&anna),
+        Some(json!({"status": "done"})),
+    )
+    .await;
+    t.req(
+        "PATCH",
+        &format!("/api/v1/tasks/{}", ids[3]),
+        Some(&anna),
+        Some(json!({"status": "wont_do"})),
+    )
+    .await;
+    let (_, loose, _) = t
+        .req(
+            "POST",
+            "/api/v1/tasks",
+            Some(&anna),
+            Some(json!({"title": "Ask for quotes"})),
+        )
+        .await;
+
+    let (s, goal, _) = t
+        .req(
+            "POST",
+            "/api/v1/goals",
+            Some(&anna),
+            Some(json!({
+                "title": "Finish the renovation", "target_date": "2027-06-01",
+                "milestones": [{"id": "m1", "title": "Kitchen done", "due_date": null, "done": true}, {"id": "m2", "title": "Move back in", "due_date": null, "done": false}],
+                "project_ids": [house["id"]], "task_ids": [loose["id"]]
+            })),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{goal}");
+    let gid = goal["id"].as_str().unwrap().to_string();
+    let progress_of = |v: &Value| {
+        v.as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["goal_id"] == gid.as_str())
+            .unwrap()
+            .clone()
+    };
+    let (_, p, _) = t
+        .req("GET", "/api/v1/goals/progress", Some(&anna), None)
+        .await;
+    let p = progress_of(&p);
+    // Milestones 1/2, tasks 1/4 (Plan done of Plan, Paint, Tiles + the loose one).
+    assert_eq!(
+        (
+            p["milestones_done"].as_i64(),
+            p["milestones"].as_i64(),
+            p["tasks_done"].as_i64(),
+            p["tasks"].as_i64()
+        ),
+        (Some(1), Some(2), Some(1), Some(4))
+    );
+    assert_eq!(p["progress"], 2.0 / 6.0);
+
+    // Manual override wins; null goes back to derived.
+    t.req(
+        "PATCH",
+        &format!("/api/v1/goals/{gid}"),
+        Some(&anna),
+        Some(json!({"progress_override": 0.8})),
+    )
+    .await;
+    let (_, p, _) = t
+        .req("GET", "/api/v1/goals/progress", Some(&anna), None)
+        .await;
+    assert_eq!(
+        (
+            progress_of(&p)["progress"].as_f64(),
+            progress_of(&p)["derived"].as_f64()
+        ),
+        (Some(0.8), Some(2.0 / 6.0))
+    );
+    let (s, _, _) = t
+        .req(
+            "PATCH",
+            &format!("/api/v1/goals/{gid}"),
+            Some(&anna),
+            Some(json!({"progress_override": 1.5})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+
+    // Links must be visible to you.
+    let (_, bens, _) = t
+        .req(
+            "POST",
+            "/api/v1/projects",
+            Some(&ben),
+            Some(json!({"name": "Ben's"})),
+        )
+        .await;
+    let (s, _, _) = t
+        .req(
+            "PATCH",
+            &format!("/api/v1/goals/{gid}"),
+            Some(&anna),
+            Some(json!({"project_ids": [bens["id"]]})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+
+    // Shared with the family: Ben sees it; unsharing takes it away again.
+    let (_, fam, _) = t
+        .req(
+            "POST",
+            "/api/v1/groups",
+            Some(&anna),
+            Some(json!({"name": "Family"})),
+        )
+        .await;
+    t.req(
+        "POST",
+        &format!("/api/v1/groups/{}/members", fam["id"].as_str().unwrap()),
+        Some(&anna),
+        Some(json!({"user_id": me_ben["id"]})),
+    )
+    .await;
+    let (_, b, _) = t.req("GET", "/api/v1/sync", Some(&ben), None).await;
+    assert_eq!(b["goals"], json!([]));
+    t.req(
+        "PATCH",
+        &format!("/api/v1/goals/{gid}"),
+        Some(&anna),
+        Some(json!({"owner_group_id": fam["id"]})),
+    )
+    .await;
+    let (_, b, _) = t.req("GET", "/api/v1/sync", Some(&ben), None).await;
+    assert_eq!(b["goals"][0]["title"], "Finish the renovation");
+    let mut rx = t.state.bus.subscribe();
+    t.req(
+        "PATCH",
+        &format!("/api/v1/goals/{gid}"),
+        Some(&anna),
+        Some(json!({"owner_group_id": null})),
+    )
+    .await;
+    let mut removed_for_ben = false;
+    while let Ok(c) = rx.try_recv() {
+        if c.kind == "goal"
+            && c.audience.iter().any(|a| a.starts_with("g:"))
+            && c.data["deleted_at"].is_string()
+        {
+            removed_for_ben = true;
+        }
+    }
+    assert!(removed_for_ben, "the group hears it's gone");
+    let (s, _, _) = t
+        .req(
+            "PATCH",
+            &format!("/api/v1/goals/{gid}"),
+            Some(&ben),
+            Some(json!({"title": "x"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+
+    // Review: a note per goal, and the review counts as done.
+    let (_, me, _) = t.req("GET", "/api/v1/me", Some(&anna), None).await;
+    assert_eq!(
+        (me["review_cadence"].as_str(), &me["last_review_date"]),
+        (Some("weekly"), &Value::Null)
+    );
+    let (s, me, _) = t
+        .req(
+            "POST",
+            "/api/v1/goals/review",
+            Some(&anna),
+            Some(json!({"notes": [{"goal_id": gid, "note": "Kitchen is nearly there"}]})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{me}");
+    assert!(me["last_review_date"].is_string());
+    let (_, revs, _) = t
+        .req(
+            "GET",
+            &format!("/api/v1/goals/{gid}/reviews"),
+            Some(&anna),
+            None,
+        )
+        .await;
+    assert_eq!(revs[0]["note"], "Kitchen is nearly there");
+    assert_eq!(revs[0]["progress"], 0.8);
+    let (s, _, _) = t
+        .req(
+            "PATCH",
+            "/api/v1/me",
+            Some(&anna),
+            Some(json!({"review_cadence": "daily"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+}

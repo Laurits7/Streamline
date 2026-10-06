@@ -8,6 +8,7 @@ import type { DayRecord } from "./DayRecord";
 import type { DayTemplate } from "./DayTemplate";
 import type { FocusSession } from "./FocusSession";
 import type { FocusTimer } from "./FocusTimer";
+import type { Goal } from "./Goal";
 import type { Group } from "./Group";
 import type { Me } from "./Me";
 import type { MetricDefinition } from "./MetricDefinition";
@@ -43,6 +44,10 @@ day_records: Array<DayRecord>, metrics: Array<MetricDefinition>,
  * Logged values (a full sync covers the last 400 days).
  */
 metric_entries: Array<MetricEntry>, 
+/**
+ * Your goals and your groups' goals.
+ */
+goals: Array<Goal>, 
 /**
  * People whose namedays and birthdays matter to you.
  */

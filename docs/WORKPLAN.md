@@ -5,7 +5,7 @@
 > and 3 are complete**, plus the owner's follow-ups (orange unplanned banner, Done → To do on the board,
 > tasks in several projects, daily activity log; D-48), routine versions (D-49) and 2b.6a Places (D-50).
 > Phases 3b (prerequisites, multi-step chores) and 4 (groups) are complete too. Phase 5 (calendar)
-> and 3b.6a Occasions (D-57) are complete. Phase 5a (conflicts, blocks, planner) and 5b (summary, tracking) too. Next: 5c.
+> and 3b.6a Occasions (D-57) are complete. Phase 5a (conflicts, blocks, planner) 5b (summary, tracking) and 5c (goals) too (D-58..D-60). Next: Phase 6 (PWA and polish → v1.0).
 > Legend: `[x]` done · `[~]` partly done (the remaining work is noted) · `[ ]` not started.
 
 ## MVP status (2026-10-06)
@@ -494,13 +494,13 @@ Legend: **Deliverables** = what exists afterwards · **Tests** = what must be co
 
 ### Phase 5c: Long-term goals (§6.10)
 
-- [ ] **5c.1 Goals backend**  *(needs Q-21)*: goals, milestones, links to projects and tasks;
+- [x] **5c.1 Goals backend**  *(needs Q-21)*: goals, milestones, links to projects and tasks;
       derived progress (share of linked items done) with manual override; group goals via
       the ownership model.
-- [ ] **5c.2 Goals UI and reviews**: goals overview with progress bars, goal detail with
+- [x] **5c.2 Goals UI and reviews**: goals overview with progress bars, goal detail with
       milestones and linked work; weekly/monthly review prompt that ties into reflection;
       optional weekly planning (§6.2d "later").
-- [ ] **5c.3 Phase gate**
+- [x] **5c.3 Phase gate**
 
 ---
 

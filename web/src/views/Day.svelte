@@ -155,6 +155,9 @@
 <div class="day" class:wide>
   <div class="main-col">
     {#if isToday}<PlanBanner />{/if}
+    {#if isToday && store.goalReviewDue()}
+      <a class="card review-banner" href="/goals/review"><Icon name="flag" size={16} /> Time for your {store.me?.review_cadence === 'monthly' ? 'monthly' : 'weekly'} goals review <Icon name="right" size={16} /></a>
+    {/if}
     <header class="head">
       <div class="title">
         <h1>{dayLabel(date, store.today)}</h1>
@@ -294,6 +297,16 @@
 </div>
 
 <style>
+  .review-banner {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    margin-bottom: 12px;
+    font-weight: 600;
+    color: var(--accent);
+    background: var(--accent-soft);
+  }
   .blocks-menu {
     margin-left: auto;
     width: auto;

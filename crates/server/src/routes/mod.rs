@@ -3,6 +3,7 @@ mod blocks;
 mod calendar;
 mod days;
 pub mod focus;
+mod goals;
 pub mod groups;
 mod log;
 mod occasions;
@@ -46,6 +47,7 @@ use crate::AppState;
         occasions::calendar, occasions::search, occasions::load, occasions::create_person, occasions::patch_person, occasions::delete_person, occasions::put_template,
         blocks::create_template, blocks::patch_template, blocks::delete_template, blocks::apply_template, blocks::create_block, blocks::patch_block, blocks::delete_block, blocks::suggest,
         tracking::put_record, tracking::summary, tracking::glance, tracking::create_metric, tracking::patch_metric, tracking::delete_metric, tracking::create_entry, tracking::patch_entry, tracking::delete_entry, tracking::metric_csv, tracking::import_csv, tracking::export,
+        goals::create, goals::patch, goals::delete, goals::all_progress, goals::review, goals::reviews,
         sync::sync, sync::events, sync::today, sync::task_types,
         projects::list, projects::create, projects::patch, projects::delete,
         tasks::list, tasks::create, tasks::get_one, tasks::patch, tasks::delete,
@@ -66,6 +68,7 @@ use crate::AppState;
         (name = "calendar", description = "Calendar account (CalDAV) and calendars"),
         (name = "occasions", description = "Nameday calendar, people, birthdays and namedays"),
         (name = "tracking", description = "Reflection, metrics, day summary and export (personal)"),
+        (name = "goals", description = "Long-term goals, milestones and reviews"),
     )
 )]
 pub struct ApiDoc;
@@ -198,6 +201,11 @@ pub fn router(state: AppState) -> Router {
             patch(tracking::patch_entry).delete(tracking::delete_entry),
         )
         .route("/export", get(tracking::export))
+        .route("/goals", post(goals::create))
+        .route("/goals/progress", get(goals::all_progress))
+        .route("/goals/review", post(goals::review))
+        .route("/goals/{id}", patch(goals::patch).delete(goals::delete))
+        .route("/goals/{id}/reviews", get(goals::reviews))
         .route("/sync", get(sync::sync))
         .route("/events", get(sync::events))
         .route("/today", get(sync::today))

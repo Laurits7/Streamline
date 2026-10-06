@@ -22,6 +22,7 @@
     ['calendar', 'Your calendar and the agenda'],
     ['occasions', 'Namedays and birthdays'],
     ['tracking', 'Summary, journal and tracking'],
+    ['goals', 'Long-term goals'],
     ['account', 'Account, users and API tokens'],
     ['soon', 'Coming later'],
   ]
@@ -358,6 +359,20 @@
     </ul>
   </section>
 
+  <section id="goals">
+    <h2><Icon name="flag" size={18} /> Long-term goals</h2>
+    <p>
+      <a href="/goals">Goals</a> are the bigger things you're working towards (“Run a half marathon”, “Finish the
+      renovation”). Give one a target date, break it into milestones, and link the projects and tasks that move it
+      forward: progress fills up as milestones and linked tasks get done (tasks in subprojects count too). You can also
+      set the progress by hand.
+    </p>
+    <ul>
+      <li>Once a week (or month; choose on the Goals page) the Today view invites you to a short <strong>review</strong>: where each goal stands, a note on each, and your reflection. Notes are kept with the goal.</li>
+      <li>Goals are yours unless you share one with a group, like a project.</li>
+    </ul>
+  </section>
+
   <section id="occasions">
     <h2><Icon name="gift" size={18} /> Namedays and birthdays</h2>
     <p>
@@ -377,7 +392,7 @@
     <h2>Coming later</h2>
     <p class="muted">Planned, roughly in this order:</p>
     <ul>
-      <li>Long-term goals with milestones and reviews.</li>
+      <li>Installing it as an app, offline reading and push notifications (over HTTPS), and scheduled backups.</li>
     </ul>
   </section>
 </article>

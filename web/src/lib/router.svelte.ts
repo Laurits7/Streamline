@@ -38,6 +38,8 @@ export type Route =
   | { name: 'occasions' }
   | { name: 'summary'; date: string | null }
   | { name: 'trends' }
+  | { name: 'goals' }
+  | { name: 'goal-review' }
   | { name: 'focus' }
   | { name: 'projects' }
   | { name: 'project'; id: string }
@@ -60,6 +62,8 @@ export function match(path: string): Route {
   if (p === '/summary') return { name: 'summary', date: null }
   if ((m = p.match(/^\/summary\/(\d{4}-\d{2}-\d{2})$/))) return { name: 'summary', date: m[1] }
   if (p === '/trends') return { name: 'trends' }
+  if (p === '/goals') return { name: 'goals' }
+  if (p === '/goals/review') return { name: 'goal-review' }
   if (p === '/focus') return { name: 'focus' }
   if (p === '/projects') return { name: 'projects' }
   if ((m = p.match(/^\/projects\/([0-9A-Za-z]+)$/))) return { name: 'project', id: m[1] }

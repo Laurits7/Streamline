@@ -494,6 +494,7 @@
 </section>
 
 <a class="card help-link" href="/summary"><Icon name="book" /><span>Summary &amp; journal</span><Icon name="right" size={16} /></a>
+<a class="card help-link" href="/goals"><Icon name="flag" /><span>Goals</span><Icon name="right" size={16} /></a>
 <a class="card help-link" href="/trends"><Icon name="chart" /><span>Trends</span><Icon name="right" size={16} /></a>
 <a class="card help-link" href="/occasions"><Icon name="gift" /><span>Namedays & birthdays</span><Icon name="right" size={16} /></a>
 

@@ -18,6 +18,8 @@ What works today:
 - **Your calendar**: connect any CalDAV calendar (Nextcloud, Fastmail, iCloud, Radicale, …;
   read-only). Events appear on the day's timeline and in a week **agenda**, and busy time is
   subtracted from the day's free time. Recurring events, exceptions and time zones are handled.
+- **Long-term goals**: milestones, links to projects and tasks, progress that fills up as work
+  gets done (or set by hand), and a weekly/monthly review.
 - **Summary, journal and tracking**: a day summary (planned vs. done, routines, events, focus),
   a private journal with prompts, mood/weight/custom metrics with reminders, trend charts,
   CSV import/export and a full JSON export.

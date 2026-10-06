@@ -5,6 +5,7 @@ pub mod calendar;
 pub mod conflicts;
 pub mod deps;
 pub mod focus;
+pub mod goals;
 pub mod occasions;
 pub mod order;
 pub mod planner;

@@ -148,6 +148,8 @@ pub struct PatchMe {
     focus_long_every: Option<i32>,
     /// `metric` or `imperial`.
     unit_system: Option<String>,
+    /// `off`, `weekly` or `monthly`.
+    review_cadence: Option<String>,
 }
 
 #[utoipa::path(patch, path = "/me", tag = "account", summary = "Update profile and preferences", request_body = PatchMe, responses((status = 200, body = Me), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
@@ -158,6 +160,12 @@ pub async fn patch_me(
 ) -> ApiResult<Json<Me>> {
     let mut u = user.user;
     let old_tz = u.timezone.clone();
+    if let Some(v) = p.review_cadence {
+        if streamline_domain::goals::Cadence::parse(&v).is_none() {
+            return Err(bad("review_cadence must be off, weekly or monthly"));
+        }
+        u.review_cadence = v;
+    }
     if let Some(v) = p.unit_system {
         if v != "metric" && v != "imperial" {
             return Err(bad("unit_system must be metric or imperial"));
@@ -253,7 +261,7 @@ pub async fn patch_me(
     let mut tx = state.db.write.begin().await?;
     let rev = crate::db::next_rev(&mut tx).await?;
     sqlx::query(
-        "UPDATE users SET display_name = ?, timezone = ?, day_end = ?, locale = ?, week_start = ?, plan_mode = ?, plan_time_evening = ?, plan_time_morning = ?, day_window_start = ?, day_window_end = ?, focus_work_min = ?, focus_short_break_min = ?, focus_long_break_min = ?, focus_long_every = ?, unit_system = ?, updated_at = ?, rev = ? WHERE id = ?",
+        "UPDATE users SET display_name = ?, timezone = ?, day_end = ?, locale = ?, week_start = ?, plan_mode = ?, plan_time_evening = ?, plan_time_morning = ?, day_window_start = ?, day_window_end = ?, focus_work_min = ?, focus_short_break_min = ?, focus_long_break_min = ?, focus_long_every = ?, unit_system = ?, review_cadence = ?, updated_at = ?, rev = ? WHERE id = ?",
     )
         .bind(&u.display_name)
         .bind(&u.timezone)
@@ -270,6 +278,7 @@ pub async fn patch_me(
     .bind(u.focus_long_break_min)
     .bind(u.focus_long_every)
     .bind(&u.unit_system)
+    .bind(&u.review_cadence)
         .bind(now())
         .bind(rev)
         .bind(&u.id)

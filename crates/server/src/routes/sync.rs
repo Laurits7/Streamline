@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use tokio_stream::wrappers::{BroadcastStream, errors::BroadcastStreamRecvError};
 use ts_rs::TS;
 
-use crate::models::{DayRecord, MetricDefinition, MetricEntry};
+use crate::models::{DayRecord, Goal, MetricDefinition, MetricEntry};
 use crate::{
     AppState,
     auth::AuthUser,
@@ -68,6 +68,8 @@ pub struct SyncResponse {
     pub metrics: Vec<MetricDefinition>,
     /// Logged values (a full sync covers the last 400 days).
     pub metric_entries: Vec<MetricEntry>,
+    /// Your goals and your groups' goals.
+    pub goals: Vec<Goal>,
     /// People whose namedays and birthdays matter to you.
     pub people: Vec<Person>,
     /// What each kind of occasion creates (always complete).
@@ -251,6 +253,13 @@ pub async fn sync(
     .bind(&year_ago)
     .fetch_all(db)
     .await?;
+    let goals = sqlx::query_as(
+        "SELECT * FROM goals WHERE (owner_user_id = ?1 OR owner_group_id IN (SELECT group_id FROM group_members WHERE user_id = ?1)) AND (?2 = 0 AND deleted_at IS NULL OR ?2 > 0 AND rev > ?2) ORDER BY position",
+    )
+    .bind(user.id())
+    .bind(since)
+    .fetch_all(db)
+    .await?;
     let people = sqlx::query_as(
         "SELECT * FROM people WHERE owner_user_id = ?1 AND (?2 = 0 AND deleted_at IS NULL OR ?2 > 0 AND rev > ?2)",
     )
@@ -289,6 +298,7 @@ pub async fn sync(
         day_records,
         metrics,
         metric_entries,
+        goals,
         people,
         occasion_templates,
         groups,

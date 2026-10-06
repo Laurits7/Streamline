@@ -6,7 +6,7 @@ use std::sync::Arc;
 use serde::Serialize;
 use tokio::sync::broadcast;
 
-use crate::models::{DayRecord, MetricDefinition, MetricEntry};
+use crate::models::{DayRecord, Goal, MetricDefinition, MetricEntry};
 use crate::{
     models::{
         Calendar, CalendarAccountView, CalendarEvent, DayEntry, DayPlan, DayTemplate, FocusSession,
@@ -181,6 +181,14 @@ impl Change {
             kind: "metric_entry",
             data: serde_json::to_value(e).unwrap(),
             audience: vec![e.user_id.clone()],
+        }
+    }
+    pub fn goal(g: &Goal) -> Self {
+        Self {
+            rev: g.rev,
+            kind: "goal",
+            data: serde_json::to_value(g).unwrap(),
+            audience: visibility::audience(g.owner_user_id.as_deref(), g.owner_group_id.as_deref()),
         }
     }
     pub fn person(p: &Person) -> Self {

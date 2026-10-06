@@ -136,6 +136,12 @@ Any of them can be revisited when the chunk that implements it starts.
   - **Summary** (computed on request): planned tasks by outcome (done, missed, skipped, carried away, still open), completion rate = done / (done + missed + open), everything completed that day, workflow steps, routines with current streaks, events, focus minutes, estimated vs. recorded minutes, metrics, reflection; a month calendar shows done/planned, mood and journal markers.
   - **Trends:** client-side from synced entries (a full sync carries 400 days): 7 or 30 daily points, or 52 weekly averages; mood next to routine completion for the last 7/30 days. Plain SVG.
   - **Export/import:** all of a user's data as one JSON file (`/export`); CSV per metric; CSV import of `date,value[,note]` (`,` `;` or tab, decimal comma allowed, `DD.MM.YYYY` dates) (D-17).
+- **D-60 · 2026-10-06 · Long-term goals** (Phase 5c, D-21):
+  - A goal has a title, description, optional target date and a status (active, paused, achieved, dropped). It holds its milestones (title, optional due date, done) and links to projects and tasks.
+  - **Progress (D-21, mixed):** derived = (done milestones + done linked tasks) / (all milestones + linked tasks), where linked tasks are the linked tasks plus every task in linked projects and their subprojects, ignoring skipped and won't-do tasks. A manual value (0–100%) overrides it and can be switched back. The server computes it on request (`/goals/progress`), since done tasks older than 30 days aren't on the device. Links must be visible to the user who adds them.
+  - **Sharing:** personal by default; a goal can be shared with a group like a top-level project (members see and edit it; unsharing removes it from their devices).
+  - **Reviews:** weekly (default; the user's week start), monthly, or off. When due and there's an active goal, the Today view shows a banner. The review page lists active goals with progress and open milestones, takes a note per goal (stored with a progress snapshot, shown as history on the goal), and includes today's reflection. Finishing records the review date.
+  - Weekly planning (§6.2d "later") is left for later.
 
 ## Resource log
 
@@ -149,3 +155,4 @@ Any of them can be revisited when the chunk that implements it starts.
 | End of Phase 3b | 9.2 MB | 4.5 MiB (fresh container, 20 s) | 76.3 KB initial | not measured | 2026-10-06 |
 | End of Phase 4 | 9.3 MB | 4.4 MiB (fresh container, 20 s) | 78.6 KB initial | not measured | 2026-10-06 |
 | End of Phase 5 | 11.3 MB (+HTTPS client: reqwest/rustls/ring) | 5.0 MiB (fresh container, 20 s) | 82.2 KB initial (+1.9 Agenda lazy) | not measured | 2026-10-06 |
+| End of Phases 3b.6a, 5a, 5b, 5c | 12.5 MB | 6.8 MiB (fresh container, 20 s, incl. the first nameday download) | 94.8 KB initial (new pages lazy) | not measured | 2026-10-06 |
