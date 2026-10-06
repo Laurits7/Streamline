@@ -52,6 +52,8 @@ Any of them can be revisited when the chunk that implements it starts.
 
 - **D-39 · 2026-10-06 · arm64 and HTTPS**: Multi-arch images (amd64 + arm64) are built in CI with QEMU + buildx; pull requests only build them (this is what verifies arm64), while `main` and `v*` tags publish to `ghcr.io/laurits7/streamline`. Building on a Pi stays possible; `LTO`/`CODEGEN_UNITS` build args reduce compile-time RAM. The HTTPS setup is documented and tested as Streamline behind Caddy (`docs/examples/caddy`, `flush_interval -1` for SSE). Verified: Secure cookie, origin check, live events through the proxy, HTTP→HTTPS redirect, container health check.
 - **D-40 · 2026-10-06 · Sync queue**: `store.sync()` runs syncs one at a time and in order. Repeated delta requests merge, but a full reload never merges into a pending delta. Responses that arrive after sign-out are dropped (found by the new store tests).
+- **D-41 · 2026-10-06 · Places belong to tasks** (owner): a project's place is only a default; tasks such as "buy a garden hose" for the country home can be done elsewhere. Spec §6.16, plan 2b.6a (details in Q-25, not yet confirmed).
+- **D-42 · 2026-10-06 · Occasions** (owner): the full nameday calendar is included; the user selects names of interest; each occasion has its own lead times and dependencies (e.g. buy present 2 days before → say happy birthday); task type per occasion kind with a good default. Spec §6.17, plan 3b.6a (details in Q-24, not yet confirmed).
 
 ## Resource log
 

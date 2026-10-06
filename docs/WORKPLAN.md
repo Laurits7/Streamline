@@ -306,6 +306,9 @@ Legend: **Deliverables** = what exists afterwards · **Tests** = what must be co
 - [ ] **2b.6 Focus view UI**: distraction-free page (title, notes, step context), large timer,
       start/pause/skip, sound + `navigator.vibrate` cue, a mini-timer pill visible on all
       pages, and done / snooze / next-planned-task actions.
+- [ ] **2b.6a Places** (SPEC §6.16)  *(needs Q-25)*: `places` per user/household; optional
+      `place_id` on tasks with a per-project default for new tasks; place chip on rows; a
+      "where am I" filter on the ready stack, pull-in sheet and views.
 - [ ] **2b.7 Phase gate**
 
 ---
@@ -374,6 +377,15 @@ Legend: **Deliverables** = what exists afterwards · **Tests** = what must be co
 - [ ] **3b.6 Routine-attached workflows**  *(needs Q-7)*: a series can reference a template;
       each occurrence spawns an instance; policy for a still-unfinished previous instance
       (Q-7).
+- [ ] **3b.6a Occasions: birthdays and namedays** (SPEC §6.17)  *(needs Q-24)*
+  - Deliverables: bundled nameday calendar (data file + licence check); `people` with name(s)
+    and optional birthday; "names of interest" picker; occasion templates = workflow templates
+    whose steps carry a **day offset** from the occasion (e.g. buy present −2 d → greet 0 d,
+    with a dependency); a yearly series per person/occasion spawns them ahead of time; default
+    task type per occasion kind, editable.
+  - Tests: nameday lookup incl. leap years and names with several days; offsets across month
+    and year boundaries; greet stays blocked until the present step is done; no duplicate
+    spawns.
 - [ ] **3b.7 Phase gate**
 
 ---
@@ -563,6 +575,8 @@ column says when it must be settled.
 | Q-20 | Pomodoro defaults; notify when closed | 25/5/15, long break after 4, configurable per user (per task later). Notify when the app is closed only via Web Push/ntfy (Phase 6). | 2b.5 |
 | Q-21 | Goal progress | **Mixed**: derived by default, manual override per goal. | 5c.1 |
 | Q-22 | Eisenhower: flags or scores | Store **0–3 scores**; quadrant threshold ≥ 2. Dragging into a quadrant sets the value to 2 or 0 only if it crosses the threshold, so finer values are kept. | 2.2 |
+| Q-24 | Occasions: which nameday calendar, and where do names of interest come from? | Estonian nameday calendar first (others addable as data files). Names of interest are entered by the user as *people* (name + optional birthday), and only their namedays and birthdays create tasks. Default template per kind: buy present −2 d (*deadline*) → greet 0 d (*expires*). | 3b.6a |
+| Q-25 | Places: just a filter, or more? | A filter only: tasks have an optional place, and you pick "I'm at X" to narrow lists (tasks without a place always show). No GPS. | 2b.6a |
 | Q-23 | Units and locale | Per-user locale (date/number format) and unit system (metric default, kg). Values stored in canonical units (kg) and converted for display. | 5b.2 |
 
 ---

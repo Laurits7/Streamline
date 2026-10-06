@@ -256,6 +256,17 @@ The app can query other self-hosted apps over their APIs and turn what it finds 
 - Design the framework so other self-hosted apps can be added later (ideas: Grocy, Home Assistant, Nextcloud, Paperless-ngx) without changing the core. Do not build any of those now.
 - **Implementation note for Claude Code:** check the running Mealie instance's own OpenAPI docs (its `/docs` page) for the current endpoints and authentication, rather than relying on remembered endpoint names, since they change between versions.
 
+### 6.16 Places (added 2026-10-06, owner's answer)
+- A task can have a **place** where it has to be done (e.g. "Country home", "Town", "Office"). It is a property of the **task**, not the project: a "Country home" project can contain tasks that are done elsewhere (e.g. "buy a garden hose" in town).
+- A project may suggest a default place for new tasks, overridable per task. Tasks without a place can be done anywhere.
+- Places are used to filter the ready stack and views ("what can I do here?"). Location tracking/geofencing is not planned.
+
+### 6.17 Occasions: birthdays and namedays (added 2026-10-06, owner's answer)
+- The **full nameday calendar** is built in. The user picks the **names of interest** (people they care about); only those generate anything. Birthdays and other yearly dates can be added per person.
+- Each occasion produces a small set of tasks with **individual lead times and dependencies**, e.g. "buy present" 2 days before → "say happy birthday" on the day (blocked until the present is bought). Lead times differ per task and per kind of occasion.
+- Each kind of occasion (birthday, nameday, …) has a **default task type**, changeable per kind (e.g. "say happy birthday" defaults to *expires*, "buy present" to *deadline*).
+- Built on yearly recurrence (§6.3) plus workflow templates with dependencies (§6.3b), with each step placed at an offset from the occasion date.
+
 ## 7. Build phases
 
 Build and verify each phase before starting the next. Each should end with working, runnable software.
