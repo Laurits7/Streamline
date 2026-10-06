@@ -1,8 +1,16 @@
 # Streamline: Work Plan
 
 > Companion to [`SPEC.md`](SPEC.md). Section numbers like §6.2c refer to the spec.
-> Status (2026-10-05): open questions (Part C) **confirmed**, see `DECISIONS.md`.
-> Architecture baseline (Part A) awaiting confirmation before chunk 1.1 starts.
+> Status (2026-10-06): Part A and Part C **confirmed** (see `DECISIONS.md`). An **MVP** covering
+> most of Phase 1 and the core of Phase 2 has been built; see "MVP status" below.
+> Legend: `[x]` done · `[~]` partly done (the remaining work is noted) · `[ ]` not started.
+
+## MVP status (2026-10-06)
+
+Runs with `docker compose up -d`: first-run admin setup, users/API tokens, projects, inbox, tasks
+with all §6.6 attributes, Today view (scheduled/plan/due/done, now line, up next, day
+navigation), pull-in sheet, drag-to-reorder lists, carry-on/expires rollover at a configurable
+day end, live multi-device sync. Remaining Phase 1/2 work is marked `[~]` below.
 
 ## How to use this plan
 
@@ -126,14 +134,14 @@ Legend: **Deliverables** = what exists afterwards · **Tests** = what must be co
 
 ### Phase 0: Planning (this document)
 
-- [ ] **0.1 Confirm plan.** Owner reviews Part A and Part C and answers or confirms the defaults.
+- [x] **0.1 Confirm plan.** Owner reviews Part A and Part C and answers or confirms the defaults.
       Record the answers in `docs/DECISIONS.md` (ADR-style, one short entry per decision).
 
 ---
 
 ### Phase 1: Foundation (§7.1, §3, §4, §4b, §6.1)
 
-- [ ] **1.1 Scaffold and toolchain**
+- [x] **1.1 Scaffold and toolchain** (Makefile instead of justfile, D-26; CI in `.github/workflows/ci.yml`)
   - Deliverables: Cargo workspace (`domain`, `server`), SvelteKit app in `web/`, `justfile`
     (`dev` runs Vite with a proxy to the backend, plus `test`, `lint`, `build`), rustfmt/clippy,
     prettier/eslint/svelte-check, `.editorconfig`, `.gitignore` additions (`data/`, `target/`,
@@ -142,13 +150,13 @@ Legend: **Deliverables** = what exists afterwards · **Tests** = what must be co
   - CI (GitHub Actions): fmt, clippy `-D warnings`, cargo test, web lint/check/test, build.
   - Done when: `just dev` serves a hello page via the Rust server, and CI is green.
 
-- [ ] **1.2 Server skeleton**
+- [x] **1.2 Server skeleton**
   - Deliverables: config loading (env + defaults + validation), tracing, `/healthz`, graceful
     shutdown, embedded SPA with fallback and precompressed assets, problem+json error type,
     request ID, compression, proxy-awareness helper (`PUBLIC_URL`/`TRUST_PROXY`).
   - Tests: config parsing; scheme/host resolution with and without forwarded headers.
 
-- [ ] **1.3 Database and conventions**
+- [x] **1.3 Database and conventions**
   - Deliverables: sqlx pool (WAL, pragmas), migration runner at startup, `rev` counter,
     a shared helper/trait for create/update/soft-delete (stamps timestamps and `rev`), ULID
     type. First migration: `users`, `sessions`, `api_tokens`, `settings`, `projects`, `tasks`
@@ -159,7 +167,7 @@ Legend: **Deliverables** = what exists afterwards · **Tests** = what must be co
   - Note: add attribute columns now (estimate, difficulty, importance, urgency,
     actual_minutes) so Phase 2 doesn't need an awkward migration.
 
-- [ ] **1.4 Auth**
+- [x] **1.4 Auth**
   - Deliverables: initial admin created from env on first boot; login/logout; session
     middleware; `me` endpoint; change password; admin-only user CRUD (no public sign-up);
     API token create/list/revoke; Origin check for cookie-based writes; login rate limit.
@@ -167,7 +175,7 @@ Legend: **Deliverables** = what exists afterwards · **Tests** = what must be co
     `Secure` flag over HTTP vs HTTPS (proxied), admin-only routes.
   - Done when: `curl` with a bearer token and the browser with a cookie both reach `/api/v1/me`.
 
-- [ ] **1.5 Projects and tasks API**
+- [~] **1.5 Projects and tasks API** (MVP: utoipa OpenAPI not yet; API table in README)
   - Deliverables: projects CRUD and archive; tasks CRUD, complete/reopen, move between
     projects, reorder (fractional index), inbox (`project_id IS NULL`), list filters;
     `GET /changes?since=`; utoipa OpenAPI; ts-rs type generation script.
@@ -175,21 +183,21 @@ Legend: **Deliverables** = what exists afterwards · **Tests** = what must be co
     CRUD, reorder, move, archive hiding, tombstones in the change feed, and ownership checks
     (a user cannot read another user's tasks).
 
-- [ ] **1.6 Realtime event stream**
+- [x] **1.6 Realtime event stream**
   - Deliverables: event bus; `GET /api/v1/events` SSE with heartbeat and `Last-Event-ID`
     resume; events emitted from the shared helper for every entity change; visibility filter
     hook (user-only for now, groups added in Phase 4).
   - Tests: subscriber receives own-user events and not other users' events; resume after
     reconnect.
 
-- [ ] **1.7 Frontend shell**
+- [~] **1.7 Frontend shell** (MVP: vitest store tests and a CI bundle-size check still missing)
   - Deliverables: routing, responsive layout (tab bar / sidebar), theme tokens + dark mode,
     login page, API client on top of generated types, normalized store with `mutate()`
     (optimistic + rollback), SSE subscription with reconnect, toast system, empty states.
   - Tests: vitest for the store (optimistic apply, rollback on error, SSE merge ignores echoes).
   - Done when: login works on a phone and on desktop, and the bundle stays within budget.
 
-- [ ] **1.8 Projects and tasks UI**
+- [x] **1.8 Projects and tasks UI**
   - Deliverables: quick-add inbox (one input, Enter to add), project list (create, rename,
     archive), task list (complete with animation, inline edit, detail sheet for notes and due
     date), move-to-project menu, reorder via up/down menu (drag arrives in 2.6); settings page
@@ -197,7 +205,7 @@ Legend: **Deliverables** = what exists afterwards · **Tests** = what must be co
   - Done when: two browser windows stay in sync live; actions feel instant with network
     throttling set to "Slow 3G".
 
-- [ ] **1.9 Packaging and phase gate**
+- [~] **1.9 Packaging and phase gate** (MVP: arm64 image build and a Caddy/HTTPS smoke test still to do)
   - Deliverables: multi-stage Dockerfile (amd64 and arm64), `docker-compose.yml` with
     `./data` volume and `PORT`, `scripts/measure.sh` (image size, idle RSS via `docker stats`
     after 60 s, initial gzip/brotli payload), README quick start, `docs/DECISIONS.md`
@@ -209,17 +217,17 @@ Legend: **Deliverables** = what exists afterwards · **Tests** = what must be co
 
 ### Phase 2: Day plan (§6.2, §6.2c, §6.6, basic §6.12)
 
-- [ ] **2.1 Time model and user preferences**  *(needs Q-2)*
+- [~] **2.1 Time model and user preferences** (MVP: timezone + day end done; locale and week start not yet)  *(needs Q-2)*
   - Deliverables: user prefs (timezone, day-end time, week start, locale); `domain::time`
     with `logical_date()`, day bounds, `HH:MM` handling.
   - Tests: DST transitions (Europe/Tallinn spring/autumn), a day end of 04:00 around midnight,
     timezone change mid-use. Check these carefully, since everything later depends on them.
 
-- [ ] **2.2 Task attributes**  *(needs Q-18, Q-22)*
+- [x] **2.2 Task attributes**  *(needs Q-18, Q-22)*
   - Deliverables: API and validation for estimate, difficulty, importance, urgency,
     actual_minutes, due date; UI quick-setters (chip rows, not dropdowns); badges in lists.
 
-- [ ] **2.3 Task-type engine and day rollover**  *(needs Q-1)*
+- [x] **2.3 Task-type engine and day rollover**  *(needs Q-1)*
   - Deliverables: `domain::rollover`, a pure function from (task, type config, day outcome)
     to the resulting state and events; a rollover job that runs per user once their day end
     passes (idempotent via `last_rollover_date` per user, and catches up over several days
@@ -228,7 +236,7 @@ Legend: **Deliverables** = what exists afterwards · **Tests** = what must be co
   - Tests: carry vs expire at the boundary; catching up after 3 days of downtime; overrides;
     idempotency (running twice gives the same result).
 
-- [ ] **2.4 Day plan API**
+- [x] **2.4 Day plan API**
   - Deliverables: `day_plan_entries` migration; pull into day, remove, reorder, set/clear
     time slot and duration; **ready stack** endpoint (open, not planned elsewhere, not blocked
     once Phase 3b lands); **`GET /api/v1/days/{date}`** aggregate (entries, due tasks,
@@ -237,14 +245,14 @@ Legend: **Deliverables** = what exists afterwards · **Tests** = what must be co
   - Tests: one entry per task per day; carried tasks move to the next day according to type;
     the aggregate respects visibility.
 
-- [ ] **2.5 Today view (landing page)**
+- [x] **2.5 Today view (landing page)**
   - Deliverables: Today as the default route; sections for Now/Next, scheduled timeline
     (with a now marker), ordered unscheduled list, due/overdue, carried over (with "×3 days"
     badges); placeholders for events and routines; a "pull from ready stack" sheet; date
     navigation (yesterday/tomorrow).
   - Done when: opening the app on a phone shows the day in one screen within ~1 s on LAN.
 
-- [ ] **2.6 Basic drag and drop**
+- [~] **2.6 Basic drag and drop** (MVP: handle-based reorder within lists + keyboard; dragging between lists/onto time slots and real-device testing still to do)
   - Deliverables: choose a DnD approach (evaluate `svelte-dnd-action` against a small custom
     pointer-events action; pick on bundle size, touch quality and keyboard support, and log the
     choice in DECISIONS.md). Reorder within a list, drag from the ready stack into the day,

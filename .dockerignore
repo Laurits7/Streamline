@@ -1,0 +1,7 @@
+target
+data
+.git
+web/node_modules
+web/dist
+**/*.md
+!README.md

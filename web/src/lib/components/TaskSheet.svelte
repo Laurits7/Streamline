@@ -1,0 +1,292 @@
+<script lang="ts">
+  import { addDays, fmtMinutes, longDate, shortDate } from '../dates'
+  import { store } from '../store.svelte'
+  import { ui } from '../ui.svelte'
+  import Check from './Check.svelte'
+  import Icon from './Icon.svelte'
+  import Sheet from './Sheet.svelte'
+
+  let { id }: { id: string } = $props()
+
+  const task = $derived(store.tasks.get(id))
+  const entry = $derived(store.entryForTask(id))
+  const projects = $derived(store.projectList())
+  const types = $derived([...store.taskTypes.values()])
+
+  let title = $state('')
+  let notes = $state('')
+  // Re-seed the inputs when another task is opened.
+  $effect.pre(() => {
+    const t = store.tasks.get(id)
+    title = t?.title ?? ''
+    notes = t?.notes ?? ''
+  })
+
+  const close = () => (ui.editing = null)
+
+  function saveTitle() {
+    const t = title.trim()
+    if (task && t && t !== task.title) store.updateTask(id, { title: t })
+    else if (task) title = task.title
+  }
+  function saveNotes() {
+    if (task && notes !== task.notes) store.updateTask(id, { notes })
+  }
+
+  const estimates = [5, 15, 30, 60, 120]
+  const levels = ['None', 'Low', 'Medium', 'High']
+  const behaviorHelp: Record<string, string> = {
+    carry: 'If not done, it rolls over to the next day.',
+    expire: 'If not done by the end of the day, it is marked missed.',
+    window: 'Can be done any time within its window.',
+    deadline: 'Carries on until its due date, then shows as overdue.',
+  }
+
+  let customDate = $state('')
+  function planOn(date: string) {
+    if (date) store.plan(id, date)
+  }
+  function remove() {
+    if (task && confirm(`Delete “${task.title}”?`)) {
+      store.deleteTask(id)
+      close()
+    }
+  }
+</script>
+
+{#if task}
+  <Sheet title="Edit task" onclose={close}>
+    {#snippet header()}
+      <div class="head">
+        <Check done={task.status === 'done'} onclick={() => store.toggleDone(id)} label="Toggle done" />
+        <span class="muted">{task.status === 'open' ? 'Open' : task.status === 'done' ? 'Done' : task.status.replace('_', ' ')}</span>
+      </div>
+    {/snippet}
+
+    <input
+      class="title-input"
+      type="text"
+      bind:value={title}
+      onblur={saveTitle}
+      onkeydown={(e) => e.key === 'Enter' && (e.currentTarget as HTMLInputElement).blur()}
+      aria-label="Title" />
+
+    <section>
+      <h3><Icon name="sun" size={14} /> Day plan</h3>
+      {#if entry}
+        <p class="planned">
+          Planned for <strong>{shortDate(entry.date, store.today)}</strong>
+          <span class="muted">· {longDate(entry.date)}</span>
+        </p>
+        <div class="grid2">
+          <label>
+            <span>Time</span>
+            <input
+              type="time"
+              value={entry.start_time ?? ''}
+              onchange={(e) => store.updateEntry(entry.id, { start_time: (e.currentTarget as HTMLInputElement).value || null })} />
+          </label>
+          <label>
+            <span>Duration</span>
+            <select
+              value={entry.duration_min ?? ''}
+              onchange={(e) => {
+                const v = (e.currentTarget as HTMLSelectElement).value
+                store.updateEntry(entry.id, { duration_min: v ? Number(v) : null })
+              }}>
+              <option value="">Use estimate</option>
+              {#each [15, 30, 45, 60, 90, 120, 180, 240] as m (m)}<option value={m}>{fmtMinutes(m)}</option>{/each}
+            </select>
+          </label>
+        </div>
+      {/if}
+      <div class="chips">
+        <button class="chip" class:on={entry?.date === store.today} onclick={() => planOn(store.today)}>Today</button>
+        <button class="chip" class:on={entry?.date === addDays(store.today, 1)} onclick={() => planOn(addDays(store.today, 1))}>Tomorrow</button>
+        <label class="chip date-chip">
+          <Icon name="calendar" size={14} />
+          <input type="date" bind:value={customDate} onchange={() => planOn(customDate)} aria-label="Plan on date" />
+        </label>
+        {#if entry}<button class="chip" onclick={() => store.unplan(entry.id)}>Not planned</button>{/if}
+      </div>
+    </section>
+
+    <section>
+      <h3>Project</h3>
+      <select
+        value={task.project_id ?? ''}
+        onchange={(e) => store.moveToProject(id, (e.currentTarget as HTMLSelectElement).value || null)}>
+        <option value="">Inbox</option>
+        {#each projects as p (p.id)}<option value={p.id}>{p.name}</option>{/each}
+      </select>
+    </section>
+
+    <section>
+      <h3>Due date</h3>
+      <div class="row">
+        <input
+          type="date"
+          value={task.due_date ?? ''}
+          onchange={(e) => store.updateTask(id, { due_date: (e.currentTarget as HTMLInputElement).value || null })} />
+        {#if task.due_date}<button class="btn small" onclick={() => store.updateTask(id, { due_date: null })}>Clear</button>{/if}
+      </div>
+    </section>
+
+    <section>
+      <h3>Estimate</h3>
+      <div class="chips">
+        {#each estimates as m (m)}
+          <button class="chip" class:on={task.estimate_min === m} onclick={() => store.updateTask(id, { estimate_min: task.estimate_min === m ? null : m })}>{fmtMinutes(m)}</button>
+        {/each}
+        <input
+          class="custom-min"
+          type="number"
+          min="0"
+          max="1440"
+          placeholder="min"
+          aria-label="Custom estimate in minutes"
+          value={task.estimate_min !== null && !estimates.includes(task.estimate_min) ? task.estimate_min : ''}
+          onchange={(e) => {
+            const v = (e.currentTarget as HTMLInputElement).value
+            store.updateTask(id, { estimate_min: v ? Math.min(1440, Math.max(0, Number(v))) : null })
+          }} />
+      </div>
+    </section>
+
+    <section>
+      <h3>Difficulty</h3>
+      <div class="chips">
+        {#each ['Easy', 'Medium', 'Hard'] as label, i (label)}
+          <button class="chip" class:on={task.difficulty === i + 1} onclick={() => store.updateTask(id, { difficulty: task.difficulty === i + 1 ? null : i + 1 })}>{label}</button>
+        {/each}
+      </div>
+    </section>
+
+    <section class="grid2">
+      <div>
+        <h3>Importance</h3>
+        <div class="chips">
+          {#each levels as label, i (label)}
+            <button class="chip" class:on={(task.importance ?? 0) === i} onclick={() => store.updateTask(id, { importance: i || null })}>{label}</button>
+          {/each}
+        </div>
+      </div>
+      <div>
+        <h3>Urgency</h3>
+        <div class="chips">
+          {#each levels as label, i (label)}
+            <button class="chip" class:on={(task.urgency ?? 0) === i} onclick={() => store.updateTask(id, { urgency: i || null })}>{label}</button>
+          {/each}
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h3>If not done by day end</h3>
+      <div class="chips">
+        {#each types as t (t.id)}
+          <button class="chip" class:on={task.task_type_id === t.id} onclick={() => store.updateTask(id, { task_type_id: t.id })}>{t.name}</button>
+        {/each}
+      </div>
+      <p class="muted help">{behaviorHelp[store.taskType(task.task_type_id)?.day_end_behavior ?? 'carry']}</p>
+    </section>
+
+    <section>
+      <h3>Notes</h3>
+      <textarea bind:value={notes} onblur={saveNotes} rows="5" placeholder="Details, links, checklist…"></textarea>
+    </section>
+
+    <footer>
+      {#if task.status === 'open'}
+        <button class="btn" onclick={() => store.updateTask(id, { status: 'wont_do' })}>Won't do</button>
+      {:else if task.status !== 'done'}
+        <button class="btn" onclick={() => store.updateTask(id, { status: 'open' })}>Reopen</button>
+      {/if}
+      <button class="btn danger" onclick={remove}><Icon name="trash" size={16} /> Delete</button>
+    </footer>
+  </Sheet>
+{/if}
+
+<style>
+  .head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    text-transform: capitalize;
+    font-size: 14px;
+  }
+  .title-input {
+    font-size: 19px !important;
+    font-weight: 600;
+    border-color: transparent !important;
+    padding-left: 0 !important;
+    background: transparent !important;
+  }
+  .title-input:focus {
+    border-color: var(--border) !important;
+    padding-left: 12px !important;
+  }
+  section {
+    margin-top: 20px;
+  }
+  h3 {
+    font-size: 12px;
+    font-weight: 650;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .grid2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 10px;
+  }
+  label span {
+    display: block;
+    font-size: 12px;
+    color: var(--muted);
+    margin-bottom: 4px;
+  }
+  .planned {
+    margin: 0 0 10px;
+  }
+  .row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .date-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding-right: 4px;
+  }
+  .date-chip input {
+    border: 0;
+    background: transparent;
+    padding: 4px;
+    width: auto;
+    font-size: 13px;
+  }
+  .custom-min {
+    width: 80px !important;
+    padding: 4px 10px !important;
+    border-radius: 999px !important;
+    font-size: 13px;
+  }
+  .help {
+    font-size: 13px;
+    margin: 8px 2px 0;
+  }
+  footer {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    margin-top: 28px;
+  }
+</style>

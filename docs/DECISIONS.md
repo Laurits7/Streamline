@@ -34,9 +34,21 @@ Any of them can be revisited when the chunk that implements it starts.
 
 ## Architecture
 
-_(Part A of WORKPLAN.md: pending confirmation.)_
+- **D-24 · 2026-10-05 · Architecture baseline**: WORKPLAN Part A was accepted ("go"), with the deviations below made while building the MVP.
+- **D-25 · 2026-10-05 · Svelte + Vite SPA instead of SvelteKit**: The app is a pure SPA embedded in the binary, so SvelteKit's routing, SSR and adapters add nothing. A ~60-line history router keeps the bundle smaller (MVP: about 41 KB gzipped in total). *Revisit if routing gets complex.*
+- **D-26 · 2026-10-05 · Makefile instead of justfile**: `just` isn't installed on the dev machine, and `make` is available everywhere.
+- **D-27 · 2026-10-05 · Well-known crate majors**: axum 0.8, sqlx 0.8, argon2 0.5, rand 0.8, tower-http 0.6, ulid 1. Newer majors exist (sqlx 0.9, argon2 0.6, rand 0.10, tower-http 0.7, ulid 3); upgrade them in one dedicated chunk rather than mixing it with feature work.
+- **D-28 · 2026-10-05 · Dockerfile and compose at repo root**: This lets `docker compose up -d` work right after cloning. The Dockerfile avoids BuildKit-only features (cache mounts), so it builds with the classic builder too; dependencies are cached with a stub-crate layer instead.
+- **D-29 · 2026-10-05 · Container runs as root, in a `scratch` image**: A bind-mounted `./data` that Docker creates is owned by root, so a non-root default would fail on first start. The image contains only the binary and CA certs. Users can set `user:` in compose if they create `data/` themselves.
+- **D-30 · 2026-10-05 · First-run setup page**: If `INITIAL_ADMIN_*` isn't set, the first visitor creates the admin in the UI. No generated password is printed to logs (spec §8: never log credentials).
+- **D-31 · 2026-10-05 · One active day entry per task**: Planning a task on another day *moves* its entry. Rollover moves carried entries to the new day. The history (planned, moved, snoozed, carried, missed) lives in `task_events`.
+- **D-32 · 2026-10-05 · Rollover trigger**: Runs per user from a 60 s background tick and lazily on `/sync` and `/days/{date}`, guarded by `users.last_rollover_date`. If the server was down, it catches up in one step (carry count += days missed).
+- **D-33 · 2026-10-05 · Sync model**: The client does one full `/sync`, then applies SSE `change` events. On every (re)connect (`hello` event) it calls `/sync?since=<rev>`. A full sync sends open tasks plus the last 30 days of history; older data is fetched on demand later.
+- **D-34 · 2026-10-05 · Deferred from Phase 1**: The OpenAPI document (utoipa) isn't in the MVP; the API is documented in README for now. Tracked in WORKPLAN 1.5.
+- **D-35 · 2026-10-05 · New users start in UTC**: The web app adopts the browser's timezone once on first login (with a toast); it can be changed in Settings.
 
 ## Resource log
 
 | Phase | Image size | Idle RSS | Initial payload (gz) | Day aggregate p95 | Date |
 |---|---|---|---|---|---|
+| MVP (Phase 1 + core of 2) | 7.0 MB | 4.6 MiB (after browser smoke test) | 41 KB (36.2 JS + 4.6 CSS + 0.4 HTML) | not measured | 2026-10-06 |

@@ -1,1 +1,132 @@
 # Streamline
+
+A self-hosted todo list and day planner for a household. One small container, one data
+folder, and it works from any phone, tablet or computer on your network.
+
+> **Status: early MVP (Phase 1 + a basic day plan).** See [`docs/WORKPLAN.md`](docs/WORKPLAN.md)
+> for what's built and what's next, and [`docs/SPEC.md`](docs/SPEC.md) for the full vision.
+
+What works today:
+
+- **Today view** (the landing page): scheduled items with a "now" line, an ordered plan you can
+  drag to reorder, what's up next, due/overdue tasks, progress, and browsing other days.
+- **Projects and inbox**: quick-add, drag to reorder, complete with undo, archive.
+- **Pull tasks into a day** from the ready stack, give them a time and duration, or move them to
+  another day.
+- **Task details**: notes, due date, estimate, difficulty, importance and urgency, and task type.
+- **End-of-day behaviour by task type**: *Carry on* tasks roll over to the next day (with a
+  "carried N days" badge), *Expires* tasks are marked missed. The day ends at a time you choose
+  (default 04:00).
+- **Live sync**: changes appear instantly on all your devices.
+- **Multiple users** (admin-created), per-device **API tokens**, and a versioned JSON API.
+
+## Quick start (Docker)
+
+```sh
+git clone <this repo> streamline && cd streamline
+docker compose up -d --build
+```
+
+Open `http://<server-ip>:3000`. On the first visit you create the admin account; add more
+people under **Settings → Users**.
+
+Everything is stored in `./data` (a single SQLite database plus its WAL files).
+
+### Configuration
+
+Set these in `docker-compose.yml` under `environment:`.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `PORT` | `3000` | Host port in `docker-compose.yml` (the container always listens on 3000) |
+| `INITIAL_ADMIN_USER` / `INITIAL_ADMIN_PASSWORD` | – | Create the first admin on startup instead of via the web UI |
+| `TRUST_PROXY` | `false` | Set to `true` behind a reverse proxy, so `X-Forwarded-Proto/Host` are trusted (secure cookies over HTTPS) |
+| `COOKIE_SECURE` | `auto` | `auto`, `true` or `false`. `auto` marks cookies `Secure` only when the proxy reports HTTPS |
+| `SESSION_DAYS` | `90` | How long a login lasts |
+| `LOG_LEVEL` | `info` | e.g. `debug`, `info,sqlx=warn` |
+| `DATA_DIR` | `/data` | Where the database lives (inside the container) |
+
+### HTTPS / reverse proxy
+
+Plain HTTP on your LAN works. To use HTTPS (needed later for installing it as an app and for
+push notifications), put it behind a proxy and set `TRUST_PROXY: "true"`. Caddy example:
+
+```
+todo.example.home {
+    reverse_proxy streamline:3000
+}
+```
+
+Tailscale: `tailscale serve --bg 3000` on the host also works (set `TRUST_PROXY: "true"`).
+
+### Backup and restore
+
+Stop the container and copy the `data/` folder. To back up while it's running, use SQLite's
+online backup:
+
+```sh
+sqlite3 data/streamline.db ".backup 'streamline-backup.db'"
+```
+
+To restore, stop the container, put the backup in place as `data/streamline.db` (remove any
+`-wal`/`-shm` files), and start it again.
+
+### Updating
+
+```sh
+git pull && docker compose up -d --build
+```
+
+Database migrations run automatically on startup.
+
+## Resource use
+
+Measured on the MVP (x86-64): Docker image 7 MB, about 5 MB of memory while idle, and a web
+app of about 41 KB gzipped on first load.
+
+## API
+
+All endpoints are under `/api/v1` and use JSON. Authenticate with the session cookie (web app)
+or `Authorization: Bearer <token>`, using a token created in **Settings → API tokens**.
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /sync?since=<rev>` | All your data (`since=0`) or everything changed after `rev`, including deletions (`deleted_at` set) |
+| `GET /events` | Server-sent events: `change` (`{rev, kind, data}`), `resync`, and `hello` on each connect |
+| `GET /today` | Your current day (`YYYY-MM-DD`), taking timezone and day end into account |
+| `POST/PATCH/DELETE /projects[/{id}]` | Projects |
+| `GET/POST/PATCH/DELETE /tasks[/{id}]` | Tasks. `PATCH {"status":"done"}` completes a task |
+| `GET /days/{date}` | A day's plan entries plus their tasks and anything due |
+| `POST /days/{date}/entries` · `PATCH/DELETE /day-entries/{id}` | Plan, move, schedule and unplan tasks |
+| `GET/PATCH /me`, `POST /me/password`, `GET/POST/DELETE /tokens` | Account |
+| `GET/POST/PATCH/DELETE /users` | User management (admin only) |
+
+Clients may choose ULID ids when creating records, so they can work optimistically or offline.
+Retrying a create with the same id is safe. TypeScript types for every response are in
+[`web/src/lib/api/types`](web/src/lib/api/types), generated from the Rust structs.
+
+## Development
+
+You need Rust (1.88 or newer) and Node 22 or newer.
+
+```sh
+make dev-server   # Rust API on :3000 (data in ./data)
+make dev-web      # Vite on :5173 with hot reload, proxying /api to :3000
+make test         # Rust tests + Svelte type check
+make check        # fmt + clippy + svelte-check
+make types        # regenerate TypeScript types from Rust
+```
+
+Layout:
+
+```
+crates/domain   pure logic (day boundaries, ordering keys, end-of-day rules), unit-tested
+crates/server   Axum HTTP API, auth, SSE, background jobs, embedded web app
+migrations      SQLite schema
+web             Svelte 5 + Vite single-page app
+docs            spec, work plan, decisions
+```
+
+## License
+
+GPL-3.0-or-later

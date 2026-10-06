@@ -1,0 +1,157 @@
+//! Change feed (`/sync?since=rev`) and the realtime SSE stream (`/events`).
+//! Clients do a full sync once, then apply SSE changes, and after any reconnect
+//! call `/sync?since=<last rev>` to catch up.
+
+use std::{convert::Infallible, time::Duration};
+
+use axum::{
+    Json,
+    extract::{Query, State},
+    response::sse::{Event, KeepAlive, Sse},
+};
+use futures_util::{Stream, StreamExt};
+use serde::{Deserialize, Serialize};
+use tokio_stream::wrappers::{BroadcastStream, errors::BroadcastStreamRecvError};
+use ts_rs::TS;
+
+use crate::{
+    AppState,
+    auth::AuthUser,
+    db::current_rev,
+    error::ApiResult,
+    models::{DayEntry, Me, Project, Task, TaskType},
+    rollover,
+};
+
+/// How far back a full sync reaches for finished tasks and past day entries.
+const HISTORY_DAYS: i64 = 30;
+
+#[derive(Deserialize)]
+pub struct SyncQuery {
+    since: Option<i64>,
+}
+
+#[derive(Serialize, TS)]
+#[ts(export)]
+pub struct SyncResponse {
+    #[ts(type = "number")]
+    pub rev: i64,
+    pub full: bool,
+    pub me: Me,
+    pub today: String,
+    pub task_types: Vec<TaskType>,
+    pub projects: Vec<Project>,
+    pub tasks: Vec<Task>,
+    pub day_entries: Vec<DayEntry>,
+}
+
+pub async fn sync(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Query(q): Query<SyncQuery>,
+) -> ApiResult<Json<SyncResponse>> {
+    rollover::run_for_user(&state, &user.user).await?;
+    let since = q.since.unwrap_or(0).max(0);
+    let full = since == 0;
+    let db = &state.db.read;
+    // Read the counter first: anything committed afterwards is re-sent next time (harmless).
+    let rev = current_rev(db).await?;
+    let today = rollover::today_for(&user.user);
+    let cutoff_date = (today - chrono::Duration::days(HISTORY_DAYS))
+        .format("%Y-%m-%d")
+        .to_string();
+    let cutoff_ts = (chrono::Utc::now() - chrono::Duration::days(HISTORY_DAYS)).to_rfc3339();
+
+    let task_types = sqlx::query_as(
+        "SELECT * FROM task_types WHERE (builtin = 1 OR owner_user_id = ?1) AND (?2 = 0 AND deleted_at IS NULL OR ?2 > 0 AND rev > ?2)",
+    )
+    .bind(user.id())
+    .bind(since)
+    .fetch_all(db)
+    .await?;
+    let projects = sqlx::query_as(
+        "SELECT * FROM projects WHERE owner_user_id = ?1 AND (?2 = 0 AND deleted_at IS NULL OR ?2 > 0 AND rev > ?2)",
+    )
+    .bind(user.id())
+    .bind(since)
+    .fetch_all(db)
+    .await?;
+    let tasks = sqlx::query_as(
+        "SELECT * FROM tasks WHERE owner_user_id = ?1 AND (
+            ?2 = 0 AND deleted_at IS NULL AND (status = 'open' OR updated_at >= ?3)
+            OR ?2 > 0 AND rev > ?2)",
+    )
+    .bind(user.id())
+    .bind(since)
+    .bind(&cutoff_ts)
+    .fetch_all(db)
+    .await?;
+    let day_entries = sqlx::query_as(
+        "SELECT * FROM day_entries WHERE user_id = ?1 AND (
+            ?2 = 0 AND deleted_at IS NULL AND date >= ?3
+            OR ?2 > 0 AND rev > ?2)",
+    )
+    .bind(user.id())
+    .bind(since)
+    .bind(&cutoff_date)
+    .fetch_all(db)
+    .await?;
+
+    Ok(Json(SyncResponse {
+        rev,
+        full,
+        me: Me::from(&user.user),
+        today: today.format("%Y-%m-%d").to_string(),
+        task_types,
+        projects,
+        tasks,
+        day_entries,
+    }))
+}
+
+pub async fn today(user: AuthUser) -> Json<serde_json::Value> {
+    Json(
+        serde_json::json!({ "date": rollover::today_for(&user.user).format("%Y-%m-%d").to_string() }),
+    )
+}
+
+pub async fn task_types(
+    State(state): State<AppState>,
+    user: AuthUser,
+) -> ApiResult<Json<Vec<TaskType>>> {
+    let rows = sqlx::query_as(
+        "SELECT * FROM task_types WHERE (builtin = 1 OR owner_user_id = ?) AND deleted_at IS NULL ORDER BY builtin DESC, name",
+    )
+    .bind(user.id())
+    .fetch_all(&state.db.read)
+    .await?;
+    Ok(Json(rows))
+}
+
+/// Server-sent events: `change` events carry `{rev, kind, data}`; a `resync` event
+/// means the client fell behind and should call `/sync?since=<last rev>`.
+pub async fn events(
+    State(state): State<AppState>,
+    user: AuthUser,
+) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    let uid = user.user.id.clone();
+    let stream = BroadcastStream::new(state.bus.subscribe()).filter_map(move |msg| {
+        let out = match msg {
+            Ok(c) if c.audience.contains(&uid) => Some(
+                Event::default()
+                    .event("change")
+                    .id(c.rev.to_string())
+                    .data(serde_json::to_string(&*c).unwrap_or_default()),
+            ),
+            Ok(_) => None,
+            Err(BroadcastStreamRecvError::Lagged(_)) => {
+                Some(Event::default().event("resync").data("1"))
+            }
+        };
+        std::future::ready(out.map(Ok))
+    });
+    let hello = futures_util::stream::once(std::future::ready(Ok(Event::default()
+        .event("hello")
+        .data("1"))));
+    Sse::new(hello.chain(stream)).keep_alive(KeepAlive::new().interval(Duration::from_secs(25)))
+}
