@@ -9,6 +9,7 @@
   import TaskRow from '../lib/components/TaskRow.svelte'
   import Timeline from '../lib/components/Timeline.svelte'
   import { addDays, dayLabel, fmtMinutes, longDate, nowHHMM } from '../lib/dates'
+  import { announce } from '../lib/announce.svelte'
   import { dropList, type DragItem } from '../lib/dnd.svelte'
   import { keyAt } from '../lib/order'
   import { router } from '../lib/router.svelte'
@@ -70,6 +71,7 @@
     if (item.kind !== 'task') return
     const others = flexible.filter((i) => i.task.id !== item.taskId).map((i) => i.entry.position)
     store.plan(item.taskId, date, { position: keyAt(others, index), startTime: null })
+    announce(`“${store.tasks.get(item.taskId)?.title}” is now number ${index + 1} in the plan`)
   }
 
   let showDone = $state(false)
@@ -114,10 +116,18 @@
     {/if}
 
     {#if next}
-      <button class="next card" onclick={() => (ui.editing = next.task.id)}>
-        <span class="label">{next.entry.start_time ? `Next · ${next.entry.start_time}` : 'Up next'}</span>
-        <span class="next-title">{next.task.title}</span>
-      </button>
+      <div class="next card">
+        <button class="next-main" onclick={() => (ui.editing = next.task.id)}>
+          <span class="label">{next.entry.start_time ? `Next · ${next.entry.start_time}` : 'Up next'}</span>
+          <span class="next-title">{next.task.title}</span>
+        </button>
+        <button
+          class="btn small"
+          onclick={() => {
+            store.focus('start', next.task.id)
+            router.go('/focus')
+          }}><Icon name="target" size={14} /> Focus</button>
+      </div>
     {/if}
 
     <QuickAdd
@@ -248,12 +258,19 @@
   .next {
     width: 100%;
     display: flex;
-    flex-direction: column;
-    text-align: left;
+    align-items: center;
+    gap: 10px;
     padding: 14px 16px;
     margin-bottom: 14px;
     border-left: 4px solid var(--accent);
     box-shadow: var(--shadow);
+  }
+  .next-main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    text-align: left;
   }
   .next .label {
     font-size: 12px;

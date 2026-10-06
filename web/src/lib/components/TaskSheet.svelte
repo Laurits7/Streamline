@@ -5,6 +5,7 @@
   import Check from './Check.svelte'
   import Icon from './Icon.svelte'
   import Sheet from './Sheet.svelte'
+  import { router } from '../router.svelte'
 
   let { id }: { id: string } = $props()
 
@@ -59,7 +60,7 @@
     {#snippet header()}
       <div class="head">
         <Check done={task.status === 'done'} onclick={() => store.toggleDone(id)} label="Toggle done" />
-        <span class="muted">{task.status === 'open' ? 'Open' : task.status === 'done' ? 'Done' : task.status.replace('_', ' ')}</span>
+        <span class="muted">{task.status === 'open' ? (task.started_at ? 'In progress' : 'Open') : task.status === 'done' ? 'Done' : task.status.replace('_', ' ')}</span>
       </div>
     {/snippet}
 
@@ -70,6 +71,18 @@
       onblur={saveTitle}
       onkeydown={(e) => e.key === 'Enter' && (e.currentTarget as HTMLInputElement).blur()}
       aria-label="Title" />
+
+    {#if task.status === 'open'}
+      <div class="quick">
+        <button class="btn primary small" onclick={() => { store.focus('start', id); ui.editing = null; router.go('/focus') }}>
+          <Icon name="target" size={14} /> Focus on this
+        </button>
+        <button class="chip" class:on={!!task.started_at} aria-pressed={!!task.started_at} onclick={() => store.setInProgress(id, !task.started_at)}>
+          In progress
+        </button>
+        {#if task.actual_min}<span class="muted spent"><Icon name="clock" size={12} /> {fmtMinutes(task.actual_min)} spent</span>{/if}
+      </div>
+    {/if}
 
     <section>
       <h3><Icon name="sun" size={14} /> Day plan</h3>
@@ -228,6 +241,19 @@
   }
   section {
     margin-top: 20px;
+  }
+  .quick {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-top: 12px;
+  }
+  .spent {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 13px;
   }
   h3 {
     font-size: 12px;

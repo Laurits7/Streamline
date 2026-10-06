@@ -1,6 +1,7 @@
 <script lang="ts">
   // Nested project list. Drag a project onto the middle of another to nest it,
   // or between rows to reorder; drop a task on a row to move the task there.
+  import { announce } from '../announce.svelte'
   import { draggable, droppable, dropList, type DragItem, type DropAt } from '../dnd.svelte'
   import { store } from '../store.svelte'
   import { isCollapsed, toggleCollapsed } from '../ui.svelte'
@@ -19,8 +20,12 @@
     accepts: (it: DragItem, at: DropAt) =>
       it.kind === 'task' || (it.kind === 'project' && it.projectId !== id && store.canMoveProject(it.projectId, id) && inMiddle(at)),
     drop: (it: DragItem) => {
-      if (it.kind === 'task') store.moveToProject(it.taskId, id)
-      else {
+      const target = store.projects.get(id)?.name
+      if (it.kind === 'task') {
+        store.moveToProject(it.taskId, id)
+        announce(`Moved “${store.tasks.get(it.taskId)?.title}” to ${target}`)
+      } else {
+        announce(`Moved project “${store.projects.get(it.projectId)?.name}” into ${target}`)
         store.moveProject(it.projectId, id)
         if (isCollapsed(id)) toggleCollapsed(id)
       }

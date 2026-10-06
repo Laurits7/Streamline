@@ -176,9 +176,20 @@ function start(node: HTMLElement, item: DragItem, down: PointerEvent, at: { clie
     place()
     hit()
   }
-  // Auto-scroll the window, or a scroll box marked [data-autoscroll], near its edges.
+  // Auto-scroll the window, or a scroll box marked [data-autoscroll] (vertical) or
+  // [data-autoscroll-x] (horizontal, e.g. the board), near its edges.
   const loop = () => {
     let scrolled = false
+    const under = document.elementFromPoint(x, y) as HTMLElement | null
+    const hbox = under?.closest<HTMLElement>('[data-autoscroll-x]')
+    if (hbox) {
+      const r = hbox.getBoundingClientRect()
+      const d = x < r.left + 48 ? x - (r.left + 48) : x > r.right - 48 ? x - (r.right - 48) : 0
+      if (d) {
+        hbox.scrollLeft += d / 3
+        scrolled = true
+      }
+    }
     const box = (document.elementFromPoint(x, y) as HTMLElement | null)?.closest<HTMLElement>('[data-autoscroll]')
     if (box) {
       const r = box.getBoundingClientRect()

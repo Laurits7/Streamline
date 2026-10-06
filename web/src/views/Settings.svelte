@@ -208,6 +208,20 @@
 </section>
 
 <section class="card">
+  <h2>Focus timer</h2>
+  <div class="grid4">
+    <label><span>Focus (min)</span><input type="number" min="1" max="180" value={me.focus_work_min} onchange={(e) => store.updateMe({ focus_work_min: Number((e.currentTarget as HTMLInputElement).value) })} /></label>
+    <label><span>Short break</span><input type="number" min="1" max="60" value={me.focus_short_break_min} onchange={(e) => store.updateMe({ focus_short_break_min: Number((e.currentTarget as HTMLInputElement).value) })} /></label>
+    <label><span>Long break</span><input type="number" min="1" max="120" value={me.focus_long_break_min} onchange={(e) => store.updateMe({ focus_long_break_min: Number((e.currentTarget as HTMLInputElement).value) })} /></label>
+    <label><span>Long break every</span><input type="number" min="1" max="12" value={me.focus_long_every} onchange={(e) => store.updateMe({ focus_long_every: Number((e.currentTarget as HTMLInputElement).value) })} /></label>
+  </div>
+  <label class="check">
+    <input type="checkbox" checked={store.pref('focus_sound', true)} onchange={(e) => store.setPref('focus_sound', (e.currentTarget as HTMLInputElement).checked)} />
+    Play a sound when an interval ends
+  </label>
+</section>
+
+<section class="card">
   <h2>Password</h2>
   <form onsubmit={changePassword}>
     <div class="grid2">
@@ -317,6 +331,11 @@
   .grid2 {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 0 12px;
+  }
+  .grid4 {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
     gap: 0 12px;
   }
   .help {

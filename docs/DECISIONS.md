@@ -60,6 +60,13 @@ Any of them can be revisited when the chunk that implements it starts.
   - **Reminders:** one per kind and target day (`reminder_log`), skipped when the day is already planned. A planning time before the day end (e.g. 00:30) counts for the same logical evening. Reminders are delivered in-app through `notify`, the single place where Web Push and ntfy attach later.
   - **Prompts on Today:** evening (tomorrow unplanned after the evening time) beats morning (today unplanned after the morning time), which beats a gentle "today isn't planned yet". Dismissing is per day and per browser.
   - **Wizard bundle:** loaded on demand (5 KB gzip), like Help.
+- **D-44 · 2026-10-06 · Views and focus details** (Phase 2b):
+  - **"In progress":** `tasks.started_at` on an open task, not a new status value (that would mean rebuilding the `tasks` table to change its CHECK). Reopening a task clears it, and starting focus on a task sets it.
+  - **View prefs:** stored per scope (`view:all`, `view:inbox`, `view:project:<id>`) in `users.prefs`, a JSON object merged key by key via `PATCH /me/prefs`, so they follow the user across devices. Board and matrix pages use the wide layout, and the board auto-scrolls sideways while dragging.
+  - **Board columns:** status (To do / In progress / Done in the last 2 weeks), project (inbox + top-level projects for All tasks, or the project itself + its direct subprojects, each column covering its subtree), difficulty, or task type. A drop changes that field; within a column it reorders.
+  - **Matrix:** `views.ts` (quadrantOf/matrixPatch) implements D-22 and is tested over every score combination.
+  - **Focus timer:** one per user, server-side (`domain::focus`). Work rolls into a break automatically; after a break the next work interval waits. Intervals abandoned within a minute aren't logged. Completed or partial work minutes are added to `tasks.actual_min`. Clients correct for clock differences with `server_now`, chime and buzz at zero (sound can be switched off), then ask the server to advance. A background job advances timers nobody is watching and sends an in-app notification; a device's own timer already signals, so those notifications only matter for other devices.
+  - **Bundles:** Focus and Plan load on demand. Vite's shared chunk counts as initial in `measure.sh`, which now reads the initial set from `index.html`.
 
 ## Resource log
 
@@ -68,3 +75,4 @@ Any of them can be revisited when the chunk that implements it starts.
 | MVP (Phase 1 + core of 2) | 7.0 MB | 4.6 MiB (after browser smoke test) | 41 KB (36.2 JS + 4.6 CSS + 0.4 HTML) | not measured | 2026-10-06 |
 | End of Phase 2 | 7.5 MB | 3.6–4.1 MiB (fresh container, 20 s) | 48.0 KB initial (+4.0 KB lazy Help) | not measured | 2026-10-06 |
 | End of Phase 2a | 7.6 MB | 4.0 MiB (fresh container, 20 s) | 51.2 KB initial (+4.5 Help, +5.4 Plan lazy) | not measured | 2026-10-06 |
+| End of Phase 2b | 7.8 MB | 4.2 MiB (fresh container, 20 s) | 59.6 KB initial (+5.3 Help, +5.5 Plan, +2.6 Focus lazy) | not measured | 2026-10-06 |

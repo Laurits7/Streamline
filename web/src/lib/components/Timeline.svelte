@@ -5,6 +5,7 @@
   import type { DayEntry } from '../api/types/DayEntry'
   import type { Task } from '../api/types/Task'
   import { fmtMinutes } from '../dates'
+  import { announce } from '../announce.svelte'
   import { draggable, droppable, type DragItem } from '../dnd.svelte'
   import { store } from '../store.svelte'
   import { ui } from '../ui.svelte'
@@ -81,6 +82,7 @@
   function schedule(item: DragItem, start: number) {
     if (item.kind !== 'task') return
     const time = hhmm(start)
+    announce(`Scheduled “${store.tasks.get(item.taskId)?.title}” at ${time}`)
     if (item.entryId && store.entries.get(item.entryId)?.date === date) store.updateEntry(item.entryId, { start_time: time })
     else store.plan(item.taskId, date, { startTime: time })
   }

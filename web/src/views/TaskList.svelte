@@ -3,6 +3,7 @@
   import Icon from '../lib/components/Icon.svelte'
   import QuickAdd from '../lib/components/QuickAdd.svelte'
   import TaskRow from '../lib/components/TaskRow.svelte'
+  import TaskViews from '../lib/components/TaskViews.svelte'
   import { router } from '../lib/router.svelte'
   import { droppable, dropList, type DragItem } from '../lib/dnd.svelte'
   import { keyAt } from '../lib/order'
@@ -112,69 +113,73 @@
     {/if}
   </header>
 
-  <QuickAdd placeholder={project ? `Add to ${project.name}…` : 'Add to inbox…'} onadd={(title) => store.createTask({ title, project_id: projectId })} />
+  <TaskViews scope={projectId ? { kind: 'project', id: projectId } : { kind: 'inbox' }}>
+    {#snippet list()}
+    <QuickAdd placeholder={project ? `Add to ${project.name}…` : 'Add to inbox…'} onadd={(title) => store.createTask({ title, project_id: projectId })} />
 
-  <div
-    class="card list"
-    use:dropList={{
-      accepts: (it) => it.kind === 'task',
-      drop: (it, i) => dropInto(projectId, open, it, i),
-      keyMove: (id, index) => store.reorderTask(open, id, index),
-    }}>
-    {#each open as t (t.id)}
-      <TaskRow task={t} handle planButton />
-    {:else}
-      <p class="empty">{project ? 'No open tasks in this project.' : 'Inbox zero. Capture anything above.'}</p>
-    {/each}
-  </div>
+    <div
+      class="card list"
+      use:dropList={{
+        accepts: (it) => it.kind === 'task',
+        drop: (it, i) => dropInto(projectId, open, it, i),
+        keyMove: (id, index) => store.reorderTask(open, id, index),
+      }}>
+      {#each open as t (t.id)}
+        <TaskRow task={t} handle planButton />
+      {:else}
+        <p class="empty">{project ? 'No open tasks in this project.' : 'Inbox zero. Capture anything above.'}</p>
+      {/each}
+    </div>
 
-  {#if project}
-    <h2 class="section-title"><Icon name="folder" size={14} /> Subprojects</h2>
-    {#each children as c (c.id)}
-      {@const tasks = store.tasksIn(c.id)}
-      {@const subs = store.childProjects(c.id).length}
-      <div class="card sub">
-        <a
-          class="sub-head drop-zone"
-          href="/projects/{c.id}"
-          draggable="false"
-          use:droppable={{ accepts: (it) => it.kind === 'task', drop: (it) => it.kind === 'task' && store.moveToProject(it.taskId, c.id) }}>
-          <i class="dot small" style:background={c.color ?? 'var(--faint)'}></i>
-          <span class="sub-name">{c.name}</span>
-          {#if subs}<span class="muted small">{subs} sub</span>{/if}
-          <span class="muted small">{store.openCountDeep(c.id)} open</span>
-          <Icon name="right" size={16} />
-        </a>
-        <div
-          class="list"
-          use:dropList={{
-            accepts: (it) => it.kind === 'task',
-            drop: (it, i) => dropInto(c.id, tasks, it, i),
-            keyMove: (id, index) => store.reorderTask(tasks, id, index),
-          }}>
-          {#each tasks as t (t.id)}
-            <TaskRow task={t} handle planButton />
-          {:else}
-            <p class="empty small">No open tasks here. Drop tasks to move them in.</p>
+    {#if project}
+      <h2 class="section-title"><Icon name="folder" size={14} /> Subprojects</h2>
+      {#each children as c (c.id)}
+        {@const tasks = store.tasksIn(c.id)}
+        {@const subs = store.childProjects(c.id).length}
+        <div class="card sub">
+          <a
+            class="sub-head drop-zone"
+            href="/projects/{c.id}"
+            draggable="false"
+            use:droppable={{ accepts: (it) => it.kind === 'task', drop: (it) => it.kind === 'task' && store.moveToProject(it.taskId, c.id) }}>
+            <i class="dot small" style:background={c.color ?? 'var(--faint)'}></i>
+            <span class="sub-name">{c.name}</span>
+            {#if subs}<span class="muted small">{subs} sub</span>{/if}
+            <span class="muted small">{store.openCountDeep(c.id)} open</span>
+            <Icon name="right" size={16} />
+          </a>
+          <div
+            class="list"
+            use:dropList={{
+              accepts: (it) => it.kind === 'task',
+              drop: (it, i) => dropInto(c.id, tasks, it, i),
+              keyMove: (id, index) => store.reorderTask(tasks, id, index),
+            }}>
+            {#each tasks as t (t.id)}
+              <TaskRow task={t} handle planButton />
+            {:else}
+              <p class="empty small">No open tasks here. Drop tasks to move them in.</p>
+            {/each}
+          </div>
+        </div>
+      {/each}
+      <QuickAdd placeholder="Add a subproject…" onadd={(name) => store.createProject(name, projectId)} />
+    {/if}
+
+    {#if closed.length}
+      <button class="section-title toggle" onclick={() => (showDone = !showDone)} aria-expanded={showDone}>
+        <Icon name={showDone ? 'left' : 'right'} size={14} /> Completed ({closed.length})
+      </button>
+      {#if showDone}
+        <div class="card list">
+          {#each closed.slice(0, 100) as t (t.id)}
+            <TaskRow task={t} />
           {/each}
         </div>
-      </div>
-    {/each}
-    <QuickAdd placeholder="Add a subproject…" onadd={(name) => store.createProject(name, projectId)} />
-  {/if}
-
-  {#if closed.length}
-    <button class="section-title toggle" onclick={() => (showDone = !showDone)} aria-expanded={showDone}>
-      <Icon name={showDone ? 'left' : 'right'} size={14} /> Completed ({closed.length})
-    </button>
-    {#if showDone}
-      <div class="card list">
-        {#each closed.slice(0, 100) as t (t.id)}
-          <TaskRow task={t} />
-        {/each}
-      </div>
+      {/if}
     {/if}
-  {/if}
+    {/snippet}
+  </TaskViews>
 {/if}
 
 <style>

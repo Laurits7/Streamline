@@ -3,7 +3,7 @@
 A self-hosted todo list and day planner for a household. One small container, one data
 folder, and it works from any phone, tablet or computer on your network.
 
-> **Status: Phases 1, 2 and 2a done (foundation, day plan, planning ritual).** See [`docs/WORKPLAN.md`](docs/WORKPLAN.md)
+> **Status: Phases 1–2b done (foundation, day plan, planning ritual, views and focus).** See [`docs/WORKPLAN.md`](docs/WORKPLAN.md)
 > for what's built and what's next, and [`docs/SPEC.md`](docs/SPEC.md) for the full vision.
 
 What works today:
@@ -17,6 +17,12 @@ What works today:
     block's bottom edge to change its duration, and drag a block back into the plan to unschedule it.
 - **Projects, subprojects (any depth) and inbox**: quick-add, complete with undo, archive.
 - **Built-in help** at `/help` (sidebar, or Settings on a phone).
+- **Views**: All tasks, the Inbox and every project as a list, a board (columns by status,
+  project, difficulty or task type) or an urgent/important matrix; drag cards between
+  columns/quadrants to change them. Each place remembers its view on all your devices.
+- **Focus timer**: a distraction-free view of one task with a Pomodoro timer (25/5/15 by default)
+  that runs on the server, so it's the same on every device; a mini timer on other pages, a chime
+  and buzz between intervals, and focus time added to the task's time spent.
 - **Daily planning ritual**: a five-step planner (review → look ahead → pick → arrange →
   confirm) for tomorrow in the evening or today in the morning, with planned vs. free time,
   an overbooking warning, a reminder at your planning time and a banner until the day is planned.

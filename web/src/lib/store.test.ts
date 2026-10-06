@@ -12,6 +12,7 @@ const TS = '2026-10-06T08:00:00.000Z'
 const ME = {
   id: 'U1', username: 'me', display_name: 'Me', is_admin: true, timezone: 'UTC', day_end: '04:00', locale: '', week_start: 1,
   plan_mode: 'evening' as const, plan_time_evening: '21:00', plan_time_morning: '07:30', day_window_start: '08:00', day_window_end: '22:00',
+  prefs: {}, focus_work_min: 25, focus_short_break_min: 5, focus_long_break_min: 15, focus_long_every: 4,
 }
 
 const task = (id: string, extra: Partial<Task> = {}): Task => ({
@@ -32,6 +33,7 @@ const task = (id: string, extra: Partial<Task> = {}): Task => ({
   actual_min: 0,
   task_type_id: 'tt_carry_on',
   carry_count: 0,
+  started_at: null,
   completed_at: null,
   completed_by: null,
   ext_source: null,
@@ -97,7 +99,9 @@ function mockApi(handler: Handler) {
 }
 
 function syncResponse(data: Partial<SyncResponse> = {}): SyncResponse {
-  return { rev: 10, full: true, me: ME, today: '2026-10-06', task_types: [], projects: [], tasks: [], day_entries: [], day_plans: [], ...data }
+  return { rev: 10, full: true, me: ME, today: '2026-10-06', task_types: [], projects: [], tasks: [], day_entries: [], day_plans: [],
+    focus_timer: { task_id: null, phase: 'idle', running_since_ms: null, elapsed_ms: 0, length_min: 0, cycle_done: 0, rev: 0 },
+    focus_sessions: [], server_now: Date.now(), ...data }
 }
 
 /** Load the store with a full sync of the given data. */

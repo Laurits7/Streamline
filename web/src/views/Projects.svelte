@@ -29,6 +29,18 @@
 <QuickAdd placeholder="New project…" onadd={(name) => store.createProject(name)} />
 
 <div class="card list">
+  <a class="item" href="/tasks">
+    <span class="icon"><Icon name="list" /></span>
+    <span class="name">All tasks</span>
+    <span class="count">{[...store.tasks.values()].filter((t) => t.status === 'open').length}</span>
+  </a>
+  <a class="item" href="/focus">
+    <span class="icon"><Icon name="target" /></span>
+    <span class="name">Focus timer</span>
+  </a>
+</div>
+
+<div class="card list">
   <a class="item drop-zone" href="/inbox" draggable="false" use:droppable={inboxTarget}>
     <span class="icon"><Icon name="inbox" /></span>
     <span class="name">Inbox</span>

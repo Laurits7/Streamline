@@ -6,6 +6,9 @@ import { SvelteMap } from 'svelte/reactivity'
 import { api, ApiError } from './api/client'
 import type { DayEntry } from './api/types/DayEntry'
 import type { DayPlan } from './api/types/DayPlan'
+import type { FocusSession } from './api/types/FocusSession'
+import type { FocusState } from './api/types/FocusState'
+import type { FocusTimer } from './api/types/FocusTimer'
 import type { Me } from './api/types/Me'
 import type { Notification } from './api/types/Notification'
 import type { Project } from './api/types/Project'
@@ -16,8 +19,8 @@ import { keyAt, keyBetween } from './order'
 import { toast } from './toast.svelte'
 import { ulid } from './ulid'
 
-type Kind = 'task' | 'project' | 'day_entry' | 'day_plan'
-type Entity = Task | Project | DayEntry | DayPlan
+type Kind = 'task' | 'project' | 'day_entry' | 'day_plan' | 'focus_session'
+type Entity = Task | Project | DayEntry | DayPlan | FocusSession
 
 export type TaskPatch = Partial<
   Pick<
@@ -38,6 +41,15 @@ export type TaskPatch = Partial<
 export type EntryPatch = Partial<Pick<DayEntry, 'date' | 'position' | 'start_time' | 'duration_min'>>
 
 const now = () => new Date().toISOString()
+const IDLE_TIMER: FocusTimer = {
+  task_id: null,
+  phase: 'idle',
+  running_since_ms: null,
+  elapsed_ms: 0,
+  length_min: 0,
+  cycle_done: 0,
+  rev: 0,
+}
 const byPosition = (a: { position: string }, b: { position: string }) =>
   a.position < b.position ? -1 : a.position > b.position ? 1 : 0
 
@@ -53,6 +65,10 @@ class Store {
   tasks = new SvelteMap<string, Task>()
   entries = new SvelteMap<string, DayEntry>()
   dayPlans = new SvelteMap<string, DayPlan>()
+  focusSessions = new SvelteMap<string, FocusSession>()
+  focusTimer = $state<FocusTimer>(IDLE_TIMER)
+  /** server clock - local clock (ms), from the last response that carried server_now. */
+  clockOffset = 0
 
   /** Called for notifications pushed by the server (e.g. planning reminders). */
   onNotification: ((n: Notification) => void) | null = null
@@ -92,6 +108,8 @@ class Store {
     this.tasks.clear()
     this.entries.clear()
     this.dayPlans.clear()
+    this.focusSessions.clear()
+    this.focusTimer = IDLE_TIMER
   }
 
   private onVisible = () => {
@@ -149,7 +167,10 @@ class Store {
       this.tasks.clear()
       this.entries.clear()
       this.dayPlans.clear()
+      this.focusSessions.clear()
     }
+    this.clockOffset = r.server_now - Date.now()
+    if (r.focus_timer.rev >= this.focusTimer.rev) this.focusTimer = r.focus_timer
     this.me = r.me
     this.today = r.today
     for (const t of r.task_types) {
@@ -160,6 +181,7 @@ class Store {
     for (const t of r.tasks) this.applyRemote('task', t)
     for (const e of r.day_entries) this.applyRemote('day_entry', e)
     for (const p of r.day_plans) this.applyRemote('day_plan', p)
+    for (const f of r.focus_sessions) this.applyRemote('focus_session', f)
     this.rev = Math.max(this.rev, r.rev)
     this.ready = true
   }
@@ -177,6 +199,10 @@ class Store {
       const c = JSON.parse((ev as MessageEvent).data) as { kind: string; data: unknown }
       if (c.kind === 'me') this.me = c.data as Me
       else if (c.kind === 'notification') this.onNotification?.(c.data as Notification)
+      else if (c.kind === 'focus_timer') {
+        const t = c.data as FocusTimer
+        if (t.rev >= this.focusTimer.rev) this.focusTimer = t
+      } else if (c.kind === 'focus_session') this.applyRemote('focus_session', c.data as Entity)
       else if (c.kind === 'task' || c.kind === 'project' || c.kind === 'day_entry' || c.kind === 'day_plan')
         this.applyRemote(c.kind, c.data as Entity)
     })
@@ -197,7 +223,13 @@ class Store {
   }
 
   private map(kind: Kind): SvelteMap<string, Entity> {
-    const maps = { task: this.tasks, project: this.projects, day_entry: this.entries, day_plan: this.dayPlans }
+    const maps = {
+      task: this.tasks,
+      project: this.projects,
+      day_entry: this.entries,
+      day_plan: this.dayPlans,
+      focus_session: this.focusSessions,
+    }
     return maps[kind] as SvelteMap<string, Entity>
   }
 
@@ -361,6 +393,7 @@ class Store {
       actual_min: 0,
       task_type_id: input.task_type_id ?? 'tt_carry_on',
       carry_count: 0,
+      started_at: null,
       completed_at: null,
       completed_by: null,
       ext_source: null,
@@ -419,6 +452,7 @@ class Store {
     if (patch.status && patch.status !== cur.status) {
       local.completed_at = patch.status === 'done' ? now() : null
       local.completed_by = patch.status === 'done' ? (this.me?.id ?? null) : null
+      if (patch.status === 'open') local.started_at = null
     }
     this.optimistic(
       [['task', id]],
@@ -688,6 +722,103 @@ class Store {
     )
   }
 
+  // ---- focus timer -----------------------------------------------------------
+
+  /** Current time on the server's clock (ms). */
+  serverNow(): number {
+    return Date.now() + this.clockOffset
+  }
+
+  /** Remaining ms of the current interval. */
+  focusRemaining(at = this.serverNow()): number {
+    const t = this.focusTimer
+    const elapsed = t.elapsed_ms + (t.running_since_ms !== null ? Math.max(0, at - t.running_since_ms) : 0)
+    return Math.max(0, t.length_min * 60_000 - elapsed)
+  }
+
+  /**
+   * Control the timer. Start/pause/resume/stop show immediately; the server's answer
+   * (which also completes anything due and logs sessions) then replaces the local state.
+   */
+  async focus(action: 'start' | 'pause' | 'resume' | 'skip' | 'stop' | 'sync', taskId?: string | null) {
+    const prev = this.focusTimer
+    const at = this.serverNow()
+    const t = { ...prev }
+    if (action === 'start')
+      Object.assign(t, {
+        phase: 'work',
+        task_id: taskId ?? null,
+        running_since_ms: at,
+        elapsed_ms: 0,
+        length_min: this.me?.focus_work_min ?? 25,
+        cycle_done: prev.phase === 'long_break' ? 0 : prev.cycle_done,
+      })
+    else if (action === 'pause' && t.running_since_ms !== null)
+      Object.assign(t, { elapsed_ms: t.elapsed_ms + (at - t.running_since_ms), running_since_ms: null })
+    else if (action === 'resume' && t.running_since_ms === null && t.phase !== 'idle') t.running_since_ms = at
+    else if (action === 'stop') Object.assign(t, IDLE_TIMER, { rev: prev.rev })
+    this.focusTimer = t
+    if (action === 'start' && taskId) {
+      const task = this.tasks.get(taskId)
+      if (task && task.status === 'open' && !task.started_at) this.tasks.set(taskId, { ...task, started_at: now() })
+    }
+    try {
+      const r = await api.post<FocusState>('/focus', { action, task_id: taskId ?? null })
+      this.clockOffset = r.server_now - Date.now()
+      if (r.timer.rev >= this.focusTimer.rev) this.focusTimer = r.timer
+    } catch (e) {
+      this.focusTimer = prev
+      toast(e instanceof ApiError ? e.message : 'Could not reach the server', 'error')
+    }
+  }
+
+  /** Focus sessions, newest first, optionally for one task and/or since a time. */
+  sessions(opts: { taskId?: string; since?: string; kind?: 'work' | 'break' } = {}): FocusSession[] {
+    return [...this.focusSessions.values()]
+      .filter(
+        (s) =>
+          (!opts.taskId || s.task_id === opts.taskId) &&
+          (!opts.since || s.started_at >= opts.since) &&
+          (!opts.kind || s.kind === opts.kind),
+      )
+      .sort((a, b) => (a.started_at < b.started_at ? 1 : -1))
+  }
+
+  // ---- in progress ----------------------------------------------------------
+
+  setInProgress(id: string, inProgress: boolean) {
+    const cur = this.tasks.get(id)
+    if (!cur) return
+    this.optimistic(
+      [['task', id]],
+      () => this.tasks.set(id, { ...cur, started_at: inProgress ? (cur.started_at ?? now()) : null, updated_at: now() }),
+      async () => [['task', await api.patch<Task>(`/tasks/${id}`, { in_progress: inProgress })]],
+    )
+  }
+
+  // ---- preferences ----------------------------------------------------------
+
+  pref<T>(key: string, fallback: T): T {
+    const v = this.me?.prefs?.[key]
+    return v === undefined || v === null ? fallback : (v as T)
+  }
+
+  /** Save a UI preference for this user (shared across devices); `null` removes it. */
+  async setPref(key: string, value: unknown) {
+    if (!this.me) return
+    const prev = this.me.prefs
+    const next = { ...prev }
+    if (value === null) delete next[key]
+    else next[key] = value
+    this.me = { ...this.me, prefs: next }
+    try {
+      const me = await api.patch<Me>('/me/prefs', { [key]: value })
+      if (this.me) this.me = { ...this.me, prefs: me.prefs }
+    } catch {
+      if (this.me) this.me = { ...this.me, prefs: prev }
+    }
+  }
+
   // ---- account --------------------------------------------------------------
 
   async updateMe(
@@ -704,6 +835,10 @@ class Store {
         | 'plan_time_morning'
         | 'day_window_start'
         | 'day_window_end'
+        | 'focus_work_min'
+        | 'focus_short_break_min'
+        | 'focus_long_break_min'
+        | 'focus_long_every'
       >
     >,
   ) {

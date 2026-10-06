@@ -4,6 +4,10 @@
   import PullSheet from './lib/components/PullSheet.svelte'
   import TaskSheet from './lib/components/TaskSheet.svelte'
   import Toasts from './lib/components/Toasts.svelte'
+  import FocusTicker from './lib/components/FocusTicker.svelte'
+  import MiniTimer from './lib/components/MiniTimer.svelte'
+  import { announce, live } from './lib/announce.svelte'
+  import AllTasks from './views/AllTasks.svelte'
   import { droppable, type DragItem } from './lib/dnd.svelte'
   import { match, router } from './lib/router.svelte'
   import { store } from './lib/store.svelte'
@@ -49,7 +53,11 @@
   }
 
   // Reminders and other notifications pushed by the server.
-  store.onNotification = (n) => toast(n.title, 'info', { label: 'Plan now', run: () => router.go(n.url) })
+  store.onNotification = (n) => {
+    // Focus notifications are already signalled by this device's own timer (FocusTicker).
+    if (n.kind === 'focus') return
+    toast(n.title, 'info', { label: 'Plan now', run: () => router.go(n.url) })
+  }
 
   $effect(() => {
     boot()
@@ -71,16 +79,29 @@
   const active = (name: string, id?: string) =>
     route.name === name && (!id || (route.name === 'project' && route.id === id)) ? 'page' : undefined
   const todayActive = $derived(route.name === 'today' || route.name === 'day' ? 'page' : undefined)
-  const isDayRoute = $derived(route.name === 'today' || route.name === 'day' || route.name === 'plan')
+  // Board and matrix views need room: widen the page when one is shown.
+  const viewKey = $derived(
+    route.name === 'tasks' ? 'view:all' : route.name === 'inbox' ? 'view:inbox' : route.name === 'project' ? `view:project:${route.id}` : null,
+  )
+  const wideView = $derived(!!viewKey && store.pref<{ view?: string }>(viewKey, {}).view !== undefined && store.pref<{ view?: string }>(viewKey, {}).view !== 'list')
+  const isDayRoute = $derived(route.name === 'today' || route.name === 'day' || route.name === 'plan' || wideView)
 
   // Navigation links double as drop targets for tasks.
   const toProject = (projectId: string | null) => ({
     accepts: (it: DragItem) => it.kind === 'task',
-    drop: (it: DragItem) => it.kind === 'task' && store.moveToProject(it.taskId, projectId),
+    drop: (it: DragItem) => {
+      if (it.kind !== 'task') return
+      store.moveToProject(it.taskId, projectId)
+      announce(`Moved “${store.tasks.get(it.taskId)?.title}” to ${projectId ? store.projects.get(projectId)?.name : 'Inbox'}`)
+    },
   })
   const toToday = {
     accepts: (it: DragItem) => it.kind === 'task',
-    drop: (it: DragItem) => it.kind === 'task' && store.plan(it.taskId, store.today),
+    drop: (it: DragItem) => {
+      if (it.kind !== 'task') return
+      store.plan(it.taskId, store.today)
+      announce(`Planned “${store.tasks.get(it.taskId)?.title}” for today`)
+    },
   }
   const projectsActive = $derived(route.name === 'projects' || route.name === 'project' ? 'page' : undefined)
 </script>
@@ -94,7 +115,13 @@
   </div>
 {:else if phase === 'login' || phase === 'setup'}
   <Login setup={phase === 'setup'} onlogin={boot} />
+{:else if route.name === 'focus'}
+  <FocusTicker />
+  {#await import('./views/Focus.svelte') then m}<m.default />{/await}
+  {#if ui.editing}<TaskSheet id={ui.editing} />{/if}
 {:else}
+  <FocusTicker />
+  <MiniTimer />
   <div class="shell">
     <aside class="sidebar">
       <div class="brand">
@@ -105,6 +132,8 @@
       <nav aria-label="Main">
         <a href="/" class="drop-zone" draggable="false" aria-current={todayActive} use:droppable={toToday}><Icon name="sun" /> Today</a>
         <a href="/inbox" class="drop-zone" draggable="false" aria-current={active('inbox')} use:droppable={toProject(null)}><Icon name="inbox" /> Inbox</a>
+        <a href="/tasks" draggable="false" aria-current={active('tasks')}><Icon name="list" /> All tasks</a>
+        <a href="/focus" draggable="false"><Icon name="target" /> Focus</a>
         <a href="/projects" draggable="false" aria-current={active('projects')}><Icon name="folder" /> Projects</a>
         <div class="projects">
           {#each projects as { project: p, depth } (p.id)}
@@ -138,6 +167,8 @@
         <Day date={route.date} />
       {:else if route.name === 'plan'}
         {#await import('./views/Plan.svelte') then m}{#key route.date}<m.default date={route.date} />{/key}{/await}
+      {:else if route.name === 'tasks'}
+        <AllTasks />
       {:else if route.name === 'inbox'}
         <TaskList />
       {:else if route.name === 'projects'}
@@ -166,6 +197,7 @@
 {/if}
 
 <Toasts />
+<div class="sr-only" aria-live="polite">{live.message}</div>
 
 <style>
   .splash {

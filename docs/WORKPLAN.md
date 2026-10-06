@@ -1,8 +1,8 @@
 # Streamline: Work Plan
 
 > Companion to [`SPEC.md`](SPEC.md). Section numbers like §6.2c refer to the spec.
-> Status (2026-10-06): Part A and Part C **confirmed** (see `DECISIONS.md`). **Phases 1, 2 and 2a
-> are complete.** Next: Phase 2b (views and focus) or Phase 3 (recurrence), owner's choice.
+> Status (2026-10-06): Part A and Part C **confirmed** (see `DECISIONS.md`). **Phases 1, 2, 2a and 2b
+> are complete** (2b.6a Places waits for Q-25). Next: Phase 3 (recurrence and routines).
 > Legend: `[x]` done · `[~]` partly done (the remaining work is noted) · `[ ]` not started.
 
 ## MVP status (2026-10-06)
@@ -287,29 +287,29 @@ Legend: **Deliverables** = what exists afterwards · **Tests** = what must be co
 
 ### Phase 2b: Views and focus (§6.7, §6.9, §6.12)
 
-- [ ] **2b.1 View framework**: view switcher (list / kanban / matrix), filters stored per
+- [x] **2b.1 View framework** (list/board/matrix on All tasks, Inbox and projects; per-scope prefs in `users.prefs`): view switcher (list / kanban / matrix), filters stored per
       view in server-side user prefs (so they follow the user across devices).
-- [ ] **2b.2 Kanban**: columns by status (open / in progress / done), or by project or task
+- [x] **2b.2 Kanban** (in progress = `started_at`, D-44; also by difficulty): columns by status (open / in progress / done), or by project or task
       type; drag between columns changes the matching field; adds an `in_progress` status.
-- [ ] **2b.3 Eisenhower matrix**  *(needs Q-22)*: four quadrants; drag sets importance and
+- [x] **2b.3 Eisenhower matrix**  *(needs Q-22)*: four quadrants; drag sets importance and
       urgency; blocked tasks are dimmed (once 3b lands).
-- [~] **2b.4 DnD everywhere and accessibility pass** (shared layer and sidebar/project drop targets done in 2.6; kanban/matrix targets, screen-reader announcements remain): drag tasks onto projects in the
+- [x] **2b.4 DnD everywhere and accessibility pass** (board/matrix targets, horizontal auto-scroll, aria-live announcements for drops, menu/sheet alternatives): drag tasks onto projects in the
       sidebar; one shared DnD layer for all views; screen reader announcements; menu
       alternatives everywhere.
-- [ ] **2b.5 Focus sessions backend**  *(needs Q-20)*
+- [x] **2b.5 Focus sessions backend**  *(needs Q-20)*
   - Deliverables: `focus_sessions` table; a server-side timer state machine per user
     (`idle → work → break → long_break`, pause/resume/skip), stored as start time + accumulated
     pause, so any device can reconstruct the countdown from the server state. Work sessions
     add to `tasks.actual_minutes`. SSE updates.
   - Tests: state transitions, pause accounting, long break after N sessions, recovery after a
     server restart.
-- [ ] **2b.6 Focus view UI**: distraction-free page (title, notes, step context), large timer,
+- [x] **2b.6 Focus view UI**: distraction-free page (title, notes, step context), large timer,
       start/pause/skip, sound + `navigator.vibrate` cue, a mini-timer pill visible on all
       pages, and done / snooze / next-planned-task actions.
 - [ ] **2b.6a Places** (SPEC §6.16)  *(needs Q-25)*: `places` per user/household; optional
       `place_id` on tasks with a per-project default for new tasks; place chip on rows; a
       "where am I" filter on the ready stack, pull-in sheet and views.
-- [ ] **2b.7 Phase gate**
+- [x] **2b.7 Phase gate** (2026-10-06: tests green, measurements logged, browser run of views and focus on desktop and phone)
 
 ---
 

@@ -20,10 +20,13 @@ if [ -d web/dist ]; then
   initial=0
   for f in web/dist/index.html web/dist/assets/*; do
     s=$(gzip -9c "$f" | wc -c)
-    case "$(basename "$f")" in
-      index.html | index-*.js | style-*.css) kind=initial; initial=$((initial + s)) ;;
-      *) kind=lazy ;;
-    esac
+    # Initial = index.html plus every asset it references (entry, CSS, modulepreloads).
+    name="${f#web/dist/}"
+    if [ "$name" = index.html ] || grep -q "/$name\"" web/dist/index.html; then
+      kind=initial; initial=$((initial + s))
+    else
+      kind=lazy
+    fi
     LC_ALL=C awk -v f="${f#web/dist/}" -v s="$s" -v k="$kind" 'BEGIN { printf "  %-40s %6.1f KB  %s\n", f, s / 1024, k }'
   done
   LC_ALL=C awk -v s="$initial" 'BEGIN { printf "  %-40s %6.1f KB  (budget 150 KB)\n", "initial load total", s / 1024 }'

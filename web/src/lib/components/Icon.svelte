@@ -24,6 +24,13 @@
     bolt: 'M13 2 3 14h9l-1 8 10-12h-9l1-8Z',
     zap: 'M13 2 3 14h9l-1 8 10-12h-9l1-8Z',
     help: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20ZM9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17h.01',
+    columns: 'M4 4h4v16H4zM10 4h4v12h-4zM16 4h4v8h-4z',
+    grid: 'M3 3h8v8H3zM13 3h8v8h-8zM3 13h8v8H3zM13 13h8v8h-8z',
+    target: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20ZM12 18a6 6 0 1 0 0-12 6 6 0 0 0 0 12ZM12 14a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z',
+    play: 'm6 3 14 9-14 9V3Z',
+    pause: 'M6 4h4v16H6zM14 4h4v16h-4z',
+    skip: 'm5 4 10 8-10 8V4ZM19 5v14',
+    stop: 'M6 6h12v12H6z',
     list: 'M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01',
   }
   let { name, size = 18, label }: { name: string; size?: number; label?: string } = $props()

@@ -8,6 +8,8 @@
     ['today', 'The Today view'],
     ['planning', 'Planning your day'],
     ['dnd', 'Drag and drop'],
+    ['views', 'List, board and matrix'],
+    ['focus', 'Focus timer'],
     ['tasks', 'Tasks and their details'],
     ['dayend', 'What happens at the end of the day'],
     ['projects', 'Projects and the inbox'],
@@ -96,6 +98,43 @@
     <p class="muted">Everything you can drag can also be done from the task's details, for small screens and keyboards.</p>
   </section>
 
+  <section id="views">
+    <h2><Icon name="columns" size={18} /> List, board and matrix</h2>
+    <p>
+      <a href="/tasks">All tasks</a>, the Inbox and every project can be shown in three ways (switch at the top; each
+      place remembers its choice, on all your devices):
+    </p>
+    <ul>
+      <li><strong>List</strong>: the normal ordered list.</li>
+      <li>
+        <strong>Board</strong>: columns by <em>status</em> (To do, In progress, Done), <em>project</em>
+        (subprojects inside a project), <em>difficulty</em> or <em>task type</em>. Drag a card to another column to change
+        that property, or within a column to reorder.
+      </li>
+      <li>
+        <strong>Matrix</strong>: urgent/important quadrants (Do first, Schedule, Delegate, Later). Dragging a task to
+        another quadrant sets its urgency and importance, keeping finer values (like “very important”) when only the
+        other axis changes.
+      </li>
+    </ul>
+    <p class="muted">These are just views: the tasks stay where they are, with the same order and details.</p>
+  </section>
+
+  <section id="focus">
+    <h2><Icon name="target" size={18} /> Focus timer</h2>
+    <p>
+      Open a task and choose <strong>Focus on this</strong> (or <strong>Focus</strong> on “Up next”). The focus view
+      shows just that task with a Pomodoro timer: 25 minutes of focus, then a 5-minute break, and a longer break after
+      every 4 rounds (change the lengths in <a href="/settings">Settings</a>).
+    </p>
+    <ul>
+      <li>Pause, resume, skip or stop at any time. A chime and a buzz tell you when an interval ends.</li>
+      <li>The timer runs on the server: start it on your phone and the same countdown shows on your computer. Leave the focus view and a small timer stays in the corner.</li>
+      <li>Focus time is added to the task's <em>time spent</em>, so you can compare it with your estimate. Starting focus also marks the task <em>in progress</em>.</li>
+      <li>From the focus view: mark the task done (the next planned task starts), snooze it to tomorrow, or jump to the next task.</li>
+    </ul>
+  </section>
+
   <section id="tasks">
     <h2><Icon name="edit" size={18} /> Tasks and their details</h2>
     <p>Tap a task to open its details. Changes save immediately.</p>
@@ -179,7 +218,6 @@
     <h2>Coming later</h2>
     <p class="muted">Planned, roughly in this order:</p>
     <ul>
-      <li>Kanban board, an urgent/important matrix, and a focus view with a Pomodoro timer.</li>
       <li>Repeating tasks and routines (daily, weekly, “twice a week”).</li>
       <li>Multi-step chores (e.g. laundry: wash → dry → fold) where the next step appears when the previous one is done.</li>
       <li>Shared household groups and chores anyone can complete.</li>
