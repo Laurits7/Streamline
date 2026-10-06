@@ -1,4 +1,5 @@
 // Thin JSON client for /api/v1. Cookies carry the session (same origin).
+import { connection } from '../connection.svelte'
 
 export class ApiError extends Error {
   constructor(
@@ -26,8 +27,10 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
       body: body !== undefined ? JSON.stringify(body) : undefined,
     })
   } catch {
+    connection.offline = true
     throw new ApiError(0, 'You appear to be offline')
   }
+  connection.offline = res.headers.get('X-Streamline-Offline') === '1'
   if (res.status === 401 && path !== '/auth/login') unauthorizedListeners.forEach((l) => l())
   if (!res.ok) {
     let msg = res.statusText

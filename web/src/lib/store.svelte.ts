@@ -1881,6 +1881,8 @@ class Store {
         | 'focus_long_every'
         | 'unit_system'
         | 'review_cadence'
+        | 'notify_off'
+        | 'ntfy_url'
       >
     >,
   ) {

@@ -2,7 +2,7 @@
 
 export type Notification = { 
 /**
- * e.g. `plan_evening`, `plan_morning`.
+ * e.g. `plan_evening`, `plan_morning`, `ready`, `focus`, `conflict`, `metric`.
  */
 kind: string, title: string, body: string, 
 /**

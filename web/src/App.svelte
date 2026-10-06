@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { connection } from './lib/connection.svelte'
+  import { clearOfflineData } from './lib/pwa'
   import { api, ApiError, onUnauthorized } from './lib/api/client'
   import Icon from './lib/components/Icon.svelte'
   import PullSheet from './lib/components/PullSheet.svelte'
@@ -52,6 +54,7 @@
       /* ignore */
     }
     store.stop()
+    clearOfflineData()
     ui.editing = null
     ui.pullFor = null
     phase = 'login'
@@ -109,6 +112,12 @@
     },
   }
   const projectsActive = $derived(route.name === 'projects' || route.name === 'project' ? 'page' : undefined)
+  $effect(() => {
+    // Back online: catch up.
+    const on = () => store.me && store.sync().catch(() => {})
+    window.addEventListener('online', on)
+    return () => window.removeEventListener('online', on)
+  })
 </script>
 
 {#if phase === 'loading'}
@@ -173,6 +182,9 @@
     </aside>
 
     <main class="content" class:wide={isDayRoute}>
+      {#if connection.offline}
+        <div class="offline" role="status">You're offline: showing what was last loaded. Changes need a connection.</div>
+      {/if}
       {#if route.name === 'today'}
         <Day />
       {:else if route.name === 'day'}
@@ -230,6 +242,15 @@
 <div class="sr-only" aria-live="polite">{live.message}</div>
 
 <style>
+  .offline {
+    background: var(--warn-soft);
+    color: var(--warn);
+    border-radius: var(--radius-sm);
+    padding: 8px 12px;
+    margin-bottom: 12px;
+    font-size: 14px;
+    font-weight: 600;
+  }
   .splash {
     min-height: 100dvh;
     display: grid;

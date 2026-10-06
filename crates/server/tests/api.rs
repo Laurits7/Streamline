@@ -788,7 +788,11 @@ async fn planning_reminders_fire_once_and_skip_planned_days() {
     assert_eq!(sent.len(), 1);
     assert_eq!(sent[0].kind, "plan_evening");
     assert!(sent[0].url.starts_with("/plan/") && !sent[0].url.ends_with(&today));
-    let ev = events.try_recv().unwrap();
+    // Delivery runs in the background (it also pushes to devices).
+    let ev = tokio::time::timeout(std::time::Duration::from_secs(2), events.recv())
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(ev.kind, "notification");
     assert_eq!(ev.audience, std::slice::from_ref(&user.id));
 
@@ -3177,6 +3181,7 @@ async fn calendar_account_sync_and_privacy() {
         .await;
     t.req("POST", "/api/v1/calendar/sync", Some(&anna), None)
         .await;
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
     let mut notes = vec![];
     while let Ok(c) = rx.try_recv() {
         if c.kind == "notification" {
@@ -4322,4 +4327,203 @@ async fn goals_progress_sharing_and_reviews() {
         )
         .await;
     assert_eq!(s, StatusCode::BAD_REQUEST);
+}
+
+// ----- Web Push (Phase 6.2): a mock push service that decrypts what it receives -----
+
+#[tokio::test]
+async fn web_push_reaches_devices_and_respects_settings() {
+    use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD as B64};
+    use p256::elliptic_curve::sec1::ToEncodedPoint;
+    type Got = std::sync::Arc<std::sync::Mutex<Vec<(String, Vec<u8>)>>>;
+    let got: Got = Default::default();
+    let gone = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let app = {
+        let (got, gone) = (got.clone(), gone.clone());
+        Router::new().fallback(
+            move |headers: axum::http::HeaderMap, body: axum::body::Bytes| {
+                let (got, gone) = (got.clone(), gone.clone());
+                async move {
+                    let auth = headers
+                        .get("authorization")
+                        .and_then(|v| v.to_str().ok())
+                        .unwrap_or("")
+                        .to_string();
+                    got.lock().unwrap().push((auth, body.to_vec()));
+                    if gone.load(std::sync::atomic::Ordering::SeqCst) {
+                        StatusCode::GONE
+                    } else {
+                        StatusCode::CREATED
+                    }
+                }
+            },
+        )
+    };
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let endpoint = format!("http://{}/push/device1", listener.local_addr().unwrap());
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+    let t = setup().await;
+    let admin = t.admin().await;
+    let anna = t.user(&admin, "anna").await;
+    // The device's keys, as a browser would create them.
+    let ua_secret = p256::SecretKey::random(&mut rand::rngs::OsRng);
+    let p256dh = B64.encode(ua_secret.public_key().to_encoded_point(false).as_bytes());
+    let auth_secret = [7u8; 16];
+    let (_, key, _) = t.req("GET", "/api/v1/push/key", Some(&anna), None).await;
+    let (s, _, _) = t
+        .req("POST", "/api/v1/push/subscriptions", Some(&anna), Some(json!({"endpoint": "http://example.com/x", "keys": {"p256dh": p256dh, "auth": B64.encode(auth_secret)}})))
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST, "push services are HTTPS");
+    let (s, _, _) = t
+        .req("POST", "/api/v1/push/subscriptions", Some(&anna), Some(json!({"endpoint": endpoint, "keys": {"p256dh": p256dh, "auth": B64.encode(auth_secret)}})))
+        .await;
+    assert_eq!(s, StatusCode::NO_CONTENT);
+
+    let wait = |n: usize| {
+        let got = got.clone();
+        async move {
+            for _ in 0..100 {
+                if got.lock().unwrap().len() >= n {
+                    return;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+            }
+            panic!("no push arrived");
+        }
+    };
+    let (_, st, _) = t.req("POST", "/api/v1/push/test", Some(&anna), None).await;
+    assert_eq!(st["devices"], 1);
+    wait(1).await;
+    let (auth, body) = got.lock().unwrap()[0].clone();
+    assert!(
+        auth.starts_with("vapid t=")
+            && auth.ends_with(&format!("k={}", key["public_key"].as_str().unwrap())),
+        "{auth}"
+    );
+    let plain = web_push_native::decrypt(
+        body,
+        &ua_secret,
+        &web_push_native::Auth::clone_from_slice(&auth_secret),
+    )
+    .unwrap();
+    let n: Value = serde_json::from_slice(&plain).unwrap();
+    assert_eq!(
+        (n["title"].as_str(), n["url"].as_str()),
+        (Some("Streamline"), Some("/settings"))
+    );
+
+    // Kinds the user turned off aren't sent (here: a task becoming ready).
+    let (s, me, _) = t
+        .req(
+            "PATCH",
+            "/api/v1/me",
+            Some(&anna),
+            Some(json!({"notify_off": ["ready"]})),
+        )
+        .await;
+    assert_eq!(
+        (s, me["notify_off"].clone()),
+        (StatusCode::OK, json!(["ready"]))
+    );
+    let (s, _, _) = t
+        .req(
+            "PATCH",
+            "/api/v1/me",
+            Some(&anna),
+            Some(json!({"notify_off": ["bogus"]})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    let (_, a, _) = t
+        .req(
+            "POST",
+            "/api/v1/tasks",
+            Some(&anna),
+            Some(json!({"title": "Wash"})),
+        )
+        .await;
+    t.req(
+        "POST",
+        "/api/v1/tasks",
+        Some(&anna),
+        Some(json!({"title": "Dry", "depends_on": [a["id"]]})),
+    )
+    .await;
+    t.req(
+        "PATCH",
+        &format!("/api/v1/tasks/{}", a["id"].as_str().unwrap()),
+        Some(&anna),
+        Some(json!({"status": "done"})),
+    )
+    .await;
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    assert_eq!(
+        got.lock().unwrap().len(),
+        1,
+        "the 'ready' notification was off"
+    );
+
+    // A device that's gone (410) is forgotten.
+    gone.store(true, std::sync::atomic::Ordering::SeqCst);
+    t.req("POST", "/api/v1/push/test", Some(&anna), None).await;
+    wait(2).await;
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    let (_, st, _) = t.req("POST", "/api/v1/push/test", Some(&anna), None).await;
+    assert_eq!(st["devices"], 0);
+}
+
+#[tokio::test]
+async fn backups_for_admins() {
+    let t = setup().await;
+    let admin = t.admin().await;
+    let anna = t.user(&admin, "anna").await;
+    t.req(
+        "POST",
+        "/api/v1/tasks",
+        Some(&anna),
+        Some(json!({"title": "Keep me safe"})),
+    )
+    .await;
+    let (s, _, _) = t
+        .req("POST", "/api/v1/admin/backups", Some(&anna), None)
+        .await;
+    assert_eq!(s, StatusCode::FORBIDDEN);
+    let mut names = vec![];
+    for _ in 0..4 {
+        let (s, b, _) = t
+            .req("POST", "/api/v1/admin/backups", Some(&admin), None)
+            .await;
+        assert_eq!(s, StatusCode::OK, "{b}");
+        names.push(b["name"].as_str().unwrap().to_string());
+        tokio::time::sleep(std::time::Duration::from_millis(1100)).await; // names have seconds
+    }
+    let (_, list, _) = t
+        .req("GET", "/api/v1/admin/backups", Some(&admin), None)
+        .await;
+    assert_eq!(
+        list.as_array().unwrap().len(),
+        3,
+        "keeps the newest 3 (test config)"
+    );
+    assert_eq!(list[0]["name"].as_str().unwrap(), names[3]);
+    // The copy is a working database with the data in it.
+    let path = t.state.config.data_dir.join("backups").join(&names[3]);
+    let pool = sqlx::SqlitePool::connect(&format!("sqlite://{}?mode=ro", path.display()))
+        .await
+        .unwrap();
+    let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM tasks WHERE title = 'Keep me safe'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(n, 1);
+    let (s, _, _) = t
+        .req(
+            "GET",
+            "/api/v1/admin/backups/..%2Fstreamline.db",
+            Some(&admin),
+            None,
+        )
+        .await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
 }

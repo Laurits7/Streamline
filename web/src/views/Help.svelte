@@ -17,6 +17,7 @@
     ['dayend', 'What happens at the end of the day'],
     ['projects', 'Projects and the inbox'],
     ['devices', 'Phones, tablets and sync'],
+    ['install', 'Install on your phone, notifications'],
     ['groups', 'Sharing with your household'],
     ['places', 'Places'],
     ['calendar', 'Your calendar and the agenda'],
@@ -346,7 +347,7 @@
   <section id="tracking">
     <h2><Icon name="book" size={18} /> Summary, journal and tracking</h2>
     <p>
-      The <em>Track</em> card on the Today view logs your mood (tap a face), weight, and anything you add yourself in
+      The <em>Track</em> card on the Today view logs your mood (tap a face whenever you think of it: each tap is a new entry with its time, and the day shows the average and how it went through the day), weight, and anything you add yourself in
       <a href="/settings">Settings</a> (sleep, water, steps, “took vitamins”…). Log as often as you like; each metric
       decides how a day's values combine (latest, average, sum or highest).
     </p>
@@ -388,11 +389,25 @@
     </ul>
   </section>
 
+  <section id="install">
+    <h2><Icon name="bolt" size={18} /> Install on your phone, notifications</h2>
+    <p>
+      When Streamline is opened over HTTPS you can put it on your home screen: on an <strong>iPhone</strong>, open it in
+      Safari and tap <em>Share → Add to Home Screen</em>; on Android, use the browser's <em>Install app</em>. It then opens
+      full screen like any app, and shows the data it last loaded when you're offline.
+    </p>
+    <ul>
+      <li><strong>Notifications</strong>: in <a href="/settings">Settings → Notifications</a>, tap <em>Turn on</em> on each device (on iPhone, from the home-screen app). You then get planning reminders, overlap warnings and the like even when Streamline is closed. Choose which kinds there too.</li>
+      <li>Without HTTPS, everything else works in the browser as usual; the <a href="https://ntfy.sh">ntfy</a> app can still deliver notifications (Settings → Notifications).</li>
+    </ul>
+  </section>
+
   <section id="soon">
     <h2>Coming later</h2>
     <p class="muted">Planned, roughly in this order:</p>
     <ul>
-      <li>Installing it as an app, offline reading and push notifications (over HTTPS), and scheduled backups.</li>
+      <li>A shopping-list and meal-plan link with Mealie, and printable day sheets.</li>
+      <li>Writing planned time blocks back to your calendar.</li>
     </ul>
   </section>
 </article>

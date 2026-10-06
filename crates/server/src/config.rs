@@ -25,6 +25,15 @@ pub struct Config {
     pub secret_key: Option<String>,
     /// Where to download the nameday calendar from (`NAMEDAYS_URL`, `off` = never).
     pub namedays_url: Option<String>,
+    /// Contact sent to push services with each notification (`mailto:` or `https:`).
+    pub push_contact: String,
+    /// The address Streamline is reached at (e.g. `https://todo.example.org`), for links
+    /// in ntfy notifications.
+    pub public_url: Option<String>,
+    /// Back up every N hours (0 = no automatic backups).
+    pub backup_hours: u64,
+    /// How many backups to keep.
+    pub backup_keep: usize,
 }
 
 impl Config {
@@ -56,6 +65,19 @@ impl Config {
                 .context("SESSION_DAYS")?
                 .unwrap_or(90),
             secret_key: var("SECRET_KEY"),
+            push_contact: var("PUSH_CONTACT")
+                .unwrap_or_else(|| "mailto:streamline@example.org".into()),
+            public_url: var("PUBLIC_URL"),
+            backup_hours: var("BACKUP_HOURS")
+                .map(|v| v.parse())
+                .transpose()
+                .context("BACKUP_HOURS")?
+                .unwrap_or(24),
+            backup_keep: var("BACKUP_KEEP")
+                .map(|v| v.parse())
+                .transpose()
+                .context("BACKUP_KEEP")?
+                .unwrap_or(7),
             namedays_url: match var("NAMEDAYS_URL").as_deref() {
                 Some("off" | "false" | "0") => None,
                 Some(u) => Some(u.to_string()),
@@ -77,6 +99,10 @@ impl Config {
             session_days: 90,
             secret_key: None,
             namedays_url: None,
+            push_contact: "mailto:test@example.org".into(),
+            public_url: None,
+            backup_hours: 0,
+            backup_keep: 3,
         }
     }
 }

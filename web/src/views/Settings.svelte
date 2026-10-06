@@ -1,12 +1,14 @@
 <script lang="ts">
   import { api, ApiError } from '../lib/api/client'
   import type { ApiToken } from '../lib/api/types/ApiToken'
+  import type { Backup } from '../lib/api/types/Backup'
   import type { DayTemplate } from '../lib/api/types/DayTemplate'
   import type { TemplateBlock } from '../lib/api/types/TemplateBlock'
   import type { Me } from '../lib/api/types/Me'
   import type { UserSummary } from '../lib/api/types/UserSummary'
   import Icon from '../lib/components/Icon.svelte'
   import PlaceSwitcher from '../lib/components/PlaceSwitcher.svelte'
+  import { disablePush, enablePush, pushBlocker, pushEnabled } from '../lib/pwa'
   import { store } from '../lib/store.svelte'
   import { toast } from '../lib/toast.svelte'
 
@@ -44,6 +46,68 @@
       { enableHighAccuracy: true, timeout: 20_000 },
     )
   }
+  // Backups (admins)
+  let backups = $state<Backup[]>([])
+  let backingUp = $state(false)
+  $effect(() => {
+    if (store.me?.is_admin) api.get<Backup[]>('/admin/backups').then((b) => (backups = b)).catch(() => {})
+  })
+  async function backupNow() {
+    backingUp = true
+    try {
+      await api.post('/admin/backups')
+      backups = await api.get<Backup[]>('/admin/backups')
+      toast('Backup saved')
+    } catch (e) {
+      err(e)
+    } finally {
+      backingUp = false
+    }
+  }
+  const mb = (n: number) => (n < 1e6 ? `${Math.round(n / 1024)} KB` : `${(n / 1e6).toFixed(1)} MB`)
+
+  // Notifications
+  const KINDS = [
+    ['planning', 'Planning reminders'],
+    ['ready', 'A waiting task is ready'],
+    ['focus', 'Focus timer: interval over'],
+    ['conflict', 'Overlaps with your calendar'],
+    ['metric', 'Tracking reminders'],
+  ] as const
+  let pushOn = $state(false)
+  let pushBusy = $state(false)
+  const blocker = pushBlocker()
+  $effect(() => {
+    pushEnabled().then((v) => (pushOn = v)).catch(() => {})
+  })
+  async function togglePush() {
+    pushBusy = true
+    try {
+      if (pushOn) await disablePush()
+      else await enablePush()
+      pushOn = await pushEnabled()
+      toast(pushOn ? 'Notifications are on for this device' : 'Notifications are off for this device')
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Could not change notifications', 'error')
+    } finally {
+      pushBusy = false
+    }
+  }
+  async function testPush() {
+    try {
+      const r = await api.post<{ devices: number; ntfy: boolean }>('/push/test')
+      toast(r.devices || r.ntfy ? `Test sent to ${r.devices} device${r.devices === 1 ? '' : 's'}${r.ntfy ? ' and ntfy' : ''}` : 'No device has notifications on yet')
+    } catch (e) {
+      err(e)
+    }
+  }
+  function toggleKind(kind: string, on: boolean) {
+    const off = new Set(me.notify_off)
+    if (on) off.delete(kind)
+    else off.add(kind)
+    store.updateMe({ notify_off: [...off] })
+  }
+
   // Tracking
   let nm = $state({ name: '', kind: 'number', unit: '' })
   function addMetric(e: Event) {
@@ -309,6 +373,32 @@
     You get one reminder at the planning time (in the app; phone notifications come later), and Today shows a
     banner until the day is planned. “My day” is the time counted as free when planning.
   </p>
+</section>
+
+<section class="card" id="notifications">
+  <h2>Notifications</h2>
+  <p class="help muted">
+    Reminders and alerts show inside Streamline while it's open. Turn on notifications to get them on this device even
+    when Streamline is closed: on a phone they appear on the lock screen like any app's.
+  </p>
+  <div class="line">
+    <div>
+      <strong>This device</strong>
+      <div class="muted small">{blocker ?? (pushOn ? 'Notifications are on.' : 'Notifications are off.')}</div>
+    </div>
+    <div class="row">
+      {#if !blocker}<button class="btn small" class:primary={!pushOn} disabled={pushBusy} onclick={togglePush}>{pushBusy ? (pushOn ? 'Turning off…' : 'Turning on…') : pushOn ? 'Turn off' : 'Turn on'}</button>{/if}
+      <button class="btn small" onclick={testPush}>Send a test</button>
+    </div>
+  </div>
+  <p class="help muted kinds-title">What to notify about (all devices):</p>
+  {#each KINDS as [kind, label] (kind)}
+    <label class="check plain"><input type="checkbox" checked={!me.notify_off.includes(kind)} onchange={(e) => toggleKind(kind, (e.currentTarget as HTMLInputElement).checked)} /> {label}</label>
+  {/each}
+  <label class="ntfy">
+    <span>Also send to ntfy (optional, works without HTTPS): your topic's address</span>
+    <input type="url" value={me.ntfy_url ?? ''} placeholder="https://ntfy.sh/your-secret-topic" onchange={(e) => store.updateMe({ ntfy_url: (e.currentTarget as HTMLInputElement).value })} />
+  </label>
 </section>
 
 <section class="card" id="tracking">
@@ -637,6 +727,20 @@
       <button class="btn" type="submit">Add user</button>
     </form>
   </section>
+  <section class="card" id="backups">
+    <h2>Backups</h2>
+    <p class="help muted">
+      The database is copied to <code>data/backups/</code> every day (the newest 7 are kept). Keep a copy of the
+      <code>data/</code> folder somewhere else too; restoring is described in the README.
+    </p>
+    {#each backups as b (b.name)}
+      <div class="line">
+        <span>{new Date(b.created_at).toLocaleString(me.locale || undefined, { dateStyle: 'medium', timeStyle: 'short' })} <span class="muted small">· {mb(b.bytes)}</span></span>
+        <a class="btn small" href="/api/v1/admin/backups/{b.name}" download>Download</a>
+      </div>
+    {:else}<p class="muted small">No backups yet.</p>{/each}
+    <button class="btn" onclick={backupNow} disabled={backingUp}>{backingUp ? 'Backing up…' : 'Back up now'}</button>
+  </section>
 {/if}
 
 <section class="card">
@@ -774,6 +878,15 @@
   }
   .small {
     font-size: 12px;
+  }
+  .kinds-title {
+    margin: 12px 0 4px;
+  }
+  .ntfy {
+    margin-top: 12px;
+  }
+  #notifications .check.plain {
+    padding: 3px 0;
   }
   .inline {
     display: flex;

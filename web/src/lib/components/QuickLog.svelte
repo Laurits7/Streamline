@@ -2,13 +2,27 @@
   // Today's quick log (SPEC §6.2b): mood, weight and your own metrics in a tap or two.
   import type { MetricDefinition } from '../api/types/MetricDefinition'
   import { store } from '../store.svelte'
-  import { MOODS, showWeight, storeWeight } from '../tracking'
+  import { MOODS, moodEmoji, showWeight, storeWeight } from '../tracking'
+  import { toast } from '../toast.svelte'
   import Icon from './Icon.svelte'
 
   let { date }: { date: string } = $props()
   const imperial = $derived(store.me?.unit_system === 'imperial')
   const metrics = $derived(store.metricList())
-  const todays = (m: MetricDefinition) => store.entriesOf(m.id).filter((e) => e.date === date)
+  const todays = (m: MetricDefinition) =>
+    store
+      .entriesOf(m.id)
+      .filter((e) => e.date === date)
+      .sort((a, b) => (a.at < b.at ? -1 : 1))
+  const clock = (at: string) =>
+    new Date(at).toLocaleTimeString(store.me?.locale || undefined, { hour: '2-digit', minute: '2-digit', timeZone: store.me?.timezone })
+  // Mood changes through the day: every tap is a new entry ("how I feel now").
+  async function logMood(m: MetricDefinition, v: number) {
+    const before = new Set(todays(m).map((e) => e.id))
+    await store.logMetric(m.id, v, date)
+    const added = todays(m).find((e) => !before.has(e.id))
+    toast(`Mood ${MOODS[v - 1]} logged`, 'info', added ? { label: 'Undo', run: () => store.deleteMetricEntry(added.id) } : undefined)
+  }
   const valueOf = (m: MetricDefinition) => store.metricDaily(m.id).get(date)
 
   let drafts = $state<Record<string, string>>({})
@@ -39,7 +53,7 @@
       {#if m.key === 'mood'}
         <div class="moods" role="group" aria-label="Mood">
           {#each MOODS as emoji, i (emoji)}
-            <button class="mood" class:on={v !== undefined && Math.round(v) === i + 1} aria-label="Mood {i + 1} of 5" onclick={() => store.logMetric(m.id, i + 1, date)}>{emoji}</button>
+            <button class="mood" aria-label="Mood {i + 1} of 5: log it now" onclick={() => logMood(m, i + 1)}>{emoji}</button>
           {/each}
         </div>
       {:else if m.kind === 'scale'}
@@ -59,8 +73,18 @@
           <button class="btn small" type="submit">Log</button>
         </form>
       {/if}
+      {#if m.key === 'mood' && todays(m).length}
+        <div class="moodlog" aria-label="Mood today">
+          {#each todays(m) as e (e.id)}
+            <span class="entry">
+              <span class="muted">{clock(e.at)}</span> {moodEmoji(e.value)}
+              <button class="del" aria-label="Remove mood logged at {clock(e.at)}" onclick={() => store.deleteMetricEntry(e.id)}>×</button>
+            </span>
+          {/each}
+        </div>
+      {/if}
       <span class="today muted">
-        {#if v !== undefined}{m.kind === 'yes_no' ? (v ? 'yes' : 'no') : m.key === 'mood' ? `${Math.round(v * 10) / 10}/5` : fmt(m, v)}{#if todays(m).length > 1} · {todays(m).length}×{/if}{/if}
+        {#if v !== undefined && m.key === 'mood'}avg {Math.round(v * 10) / 10}/5{:else if v !== undefined}{m.kind === 'yes_no' ? (v ? 'yes' : 'no') : fmt(m, v)}{#if todays(m).length > 1} · {todays(m).length}×{/if}{/if}
       </span>
     </div>
   {/each}
@@ -109,7 +133,31 @@
     filter: grayscale(0.7);
     opacity: 0.7;
   }
-  .mood.on,
+  .mood:active {
+    transform: scale(1.2);
+  }
+  .moodlog {
+    flex-basis: 100%;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 10px;
+    padding-left: 100px;
+    font-size: 13px;
+  }
+  .entry {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+  }
+  .del {
+    color: var(--faint);
+    padding: 0 3px;
+  }
+  @media (max-width: 560px) {
+    .moodlog {
+      padding-left: 0;
+    }
+  }
   .mood:hover {
     filter: none;
     opacity: 1;

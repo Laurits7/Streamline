@@ -2,6 +2,7 @@
 //! embedded web app, in one binary.
 
 pub mod auth;
+pub mod backup;
 pub mod blocks;
 pub mod caldav;
 pub mod calsync;
@@ -15,6 +16,7 @@ pub mod models;
 pub mod notify;
 pub mod occasions;
 pub mod ownership;
+pub mod push;
 pub mod reminders;
 pub mod rollover;
 pub mod routes;
@@ -41,6 +43,8 @@ pub struct App {
     pub secrets: secrets::Secrets,
     /// Calendar syncs run one at a time.
     pub calendar_lock: Mutex<()>,
+    /// Web Push signing key (data/vapid.key).
+    pub vapid: push::Vapid,
 }
 
 pub type AppState = Arc<App>;
@@ -50,6 +54,7 @@ pub async fn build(config: config::Config) -> anyhow::Result<(axum::Router, AppS
     std::fs::create_dir_all(&config.data_dir)?;
     let db = db::Db::open(&config.data_dir.join("streamline.db")).await?;
     let secrets = secrets::Secrets::load(&config.data_dir, config.secret_key.as_deref())?;
+    let vapid = push::Vapid::load(&config.data_dir, &config.push_contact)?;
     let state = Arc::new(App {
         config,
         db,
@@ -57,6 +62,7 @@ pub async fn build(config: config::Config) -> anyhow::Result<(axum::Router, AppS
         login_failures: Mutex::new(HashMap::new()),
         secrets,
         calendar_lock: Mutex::new(()),
+        vapid,
     });
     auth::bootstrap_admin(&state).await?;
     Ok((routes::router(state.clone()), state))
@@ -74,7 +80,8 @@ pub async fn run() -> anyhow::Result<()> {
     let addr = SocketAddr::new(config.bind, config.port);
     let (app, state) = build(config).await?;
     jobs::spawn(state.clone());
-    calsync::spawn(state);
+    calsync::spawn(state.clone());
+    backup::spawn(state);
     let listener = TcpListener::bind(addr).await?;
     tracing::info!("Streamline listening on http://{addr}");
     axum::serve(

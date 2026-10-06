@@ -150,6 +150,10 @@ pub struct PatchMe {
     unit_system: Option<String>,
     /// `off`, `weekly` or `monthly`.
     review_cadence: Option<String>,
+    /// Kinds of notification to turn off (the rest are on).
+    notify_off: Option<Vec<String>>,
+    /// ntfy topic URL, or empty to stop using ntfy.
+    ntfy_url: Option<String>,
 }
 
 #[utoipa::path(patch, path = "/me", tag = "account", summary = "Update profile and preferences", request_body = PatchMe, responses((status = 200, body = Me), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
@@ -160,6 +164,25 @@ pub async fn patch_me(
 ) -> ApiResult<Json<Me>> {
     let mut u = user.user;
     let old_tz = u.timezone.clone();
+    if let Some(v) = p.notify_off {
+        if v.iter()
+            .any(|k| !crate::notify::GROUPS.contains(&k.as_str()))
+        {
+            return Err(bad("unknown notification kind"));
+        }
+        u.notify_off = serde_json::to_string(&v)?;
+    }
+    if let Some(v) = p.ntfy_url {
+        let v = v.trim().to_string();
+        if !v.is_empty() && !(v.starts_with("https://") || v.starts_with("http://"))
+            || v.len() > 500
+        {
+            return Err(bad(
+                "the ntfy address must be a URL like https://ntfy.sh/your-topic",
+            ));
+        }
+        u.ntfy_url = (!v.is_empty()).then_some(v);
+    }
     if let Some(v) = p.review_cadence {
         if streamline_domain::goals::Cadence::parse(&v).is_none() {
             return Err(bad("review_cadence must be off, weekly or monthly"));
@@ -261,7 +284,7 @@ pub async fn patch_me(
     let mut tx = state.db.write.begin().await?;
     let rev = crate::db::next_rev(&mut tx).await?;
     sqlx::query(
-        "UPDATE users SET display_name = ?, timezone = ?, day_end = ?, locale = ?, week_start = ?, plan_mode = ?, plan_time_evening = ?, plan_time_morning = ?, day_window_start = ?, day_window_end = ?, focus_work_min = ?, focus_short_break_min = ?, focus_long_break_min = ?, focus_long_every = ?, unit_system = ?, review_cadence = ?, updated_at = ?, rev = ? WHERE id = ?",
+        "UPDATE users SET display_name = ?, timezone = ?, day_end = ?, locale = ?, week_start = ?, plan_mode = ?, plan_time_evening = ?, plan_time_morning = ?, day_window_start = ?, day_window_end = ?, focus_work_min = ?, focus_short_break_min = ?, focus_long_break_min = ?, focus_long_every = ?, unit_system = ?, review_cadence = ?, notify_off = ?, ntfy_url = ?, updated_at = ?, rev = ? WHERE id = ?",
     )
         .bind(&u.display_name)
         .bind(&u.timezone)
@@ -279,6 +302,8 @@ pub async fn patch_me(
     .bind(u.focus_long_every)
     .bind(&u.unit_system)
     .bind(&u.review_cadence)
+    .bind(&u.notify_off)
+    .bind(&u.ntfy_url)
         .bind(now())
         .bind(rev)
         .bind(&u.id)

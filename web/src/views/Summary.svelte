@@ -133,7 +133,20 @@
           <h2>Tracked</h2>
           <ul class="facts">
             {#each summary.metrics as m (m.metric_id)}
-              <li>{store.metrics.get(m.metric_id)?.name}<strong>{metricText(m.metric_id, m.value)}</strong></li>
+              {@const def = store.metrics.get(m.metric_id)}
+              <li>
+                <span>
+                  {def?.name}
+                  {#if def?.key === 'mood' && m.entries > 1}
+                    <span class="moods muted small">
+                      {#each store.entriesOf(m.metric_id).filter((e) => e.date === date).sort((x, y) => (x.at < y.at ? -1 : 1)) as e (e.id)}
+                        <span>{new Date(e.at).toLocaleTimeString(userLocale(), { hour: '2-digit', minute: '2-digit', timeZone: store.me?.timezone })} {moodEmoji(e.value)}</span>
+                      {/each}
+                    </span>
+                  {/if}
+                </span>
+                <strong>{def?.key === 'mood' && m.entries > 1 ? `avg ${metricText(m.metric_id, m.value)}` : metricText(m.metric_id, m.value)}</strong>
+              </li>
             {/each}
           </ul>
         </section>
@@ -231,6 +244,12 @@
     padding: 4px 0;
     font-size: 14px;
     border-bottom: 1px solid var(--border);
+  }
+  .moods {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 2px 8px;
+    margin-left: 6px;
   }
   .ok {
     color: var(--ok);

@@ -60,6 +60,8 @@ What works today:
   "carried N days" badge), *Expires* tasks are marked missed. The day ends at a time you choose
   (default 04:00).
 - **Live sync**: changes appear instantly on all your devices.
+- **Installable app with notifications** (over HTTPS): add it to your phone's home screen, get
+  reminders and alerts even when it's closed, and read your day offline. Daily automatic backups.
 - **Multiple users** (admin-created), per-device **API tokens**, and a versioned JSON API.
 
 ## Quick start (Docker)
@@ -87,6 +89,9 @@ Set these in `docker-compose.yml` under `environment:`.
 | `SESSION_DAYS` | `90` | How long a login lasts |
 | `SECRET_KEY` | – | Encrypts stored passwords (e.g. your calendar's). If unset, a random key is created in `data/secret.key`; keep it with your backups |
 | `NAMEDAYS_URL` | stat.ee list | Where to download the nameday calendar on first start; `off` to never download (admins can upload a list instead) |
+| `PUSH_CONTACT` | `mailto:streamline@example.org` | Contact sent to push services with notifications (use your e-mail as `mailto:you@…`) |
+| `PUBLIC_URL` | – | The address Streamline is reached at (e.g. `https://todo.example.org`); used for links in ntfy notifications |
+| `BACKUP_HOURS` / `BACKUP_KEEP` | `24` / `7` | Automatic backups into `data/backups/` (0 hours = off) and how many to keep |
 | `LOG_LEVEL` | `info` | e.g. `debug`, `info,sqlx=warn` |
 | `DATA_DIR` | `/data` | Where the database lives (inside the container) |
 
@@ -108,18 +113,33 @@ A complete, tested setup (Streamline + Caddy, automatic or internal certificates
 
 Tailscale: `tailscale serve --bg 3000` on the host also works (set `TRUST_PROXY: "true"`).
 
+### Install it on your phone, notifications
+
+Over HTTPS, Streamline can be installed as an app and send notifications to your devices even
+when it's closed:
+
+- **iPhone/iPad (iOS 16.4+):** open it in Safari, tap **Share → Add to Home Screen**, open it from
+  the Home Screen, then **Settings → Notifications → Turn on**.
+- **Android / desktop Chrome, Edge:** use the browser's *Install app* menu (optional), then
+  **Settings → Notifications → Turn on**.
+
+Notifications go through the browser maker's push service (Apple, Google, Mozilla), so the server
+needs outgoing internet access; it doesn't need to be reachable from the internet. Without HTTPS,
+everything else works as before, and the optional [ntfy](https://ntfy.sh) channel (Settings →
+Notifications) still delivers notifications. The push signing key is generated as
+`data/vapid.key`; keep it with your backups, otherwise devices just have to turn notifications on
+again. Offline, an installed app shows the data it last loaded (read-only).
+
 ### Backup and restore
 
-Stop the container and copy the `data/` folder (it includes `secret.key`, needed to read stored
-calendar passwords; without it you just enter them again). To back up while it's running, use SQLite's
-online backup:
+Streamline copies its database to `data/backups/` every day and keeps the newest 7 (change with
+`BACKUP_HOURS` / `BACKUP_KEEP`; `BACKUP_HOURS=0` turns it off). Admins can make one now and
+download backups in **Settings → Backups**. Also copy the whole `data/` folder somewhere else from
+time to time: besides the database it holds `secret.key` (needed to read stored calendar
+passwords) and `vapid.key` (push notifications).
 
-```sh
-sqlite3 data/streamline.db ".backup 'streamline-backup.db'"
-```
-
-To restore, stop the container, put the backup in place as `data/streamline.db` (remove any
-`-wal`/`-shm` files), and start it again.
+To restore: stop the container, copy the backup to `data/streamline.db`, delete
+`data/streamline.db-wal` and `data/streamline.db-shm` if present, and start it again.
 
 ### Updating
 

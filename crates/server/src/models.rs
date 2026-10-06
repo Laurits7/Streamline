@@ -30,6 +30,8 @@ pub struct User {
     pub unit_system: String,
     pub review_cadence: String,
     pub last_review_date: Option<String>,
+    pub notify_off: String,
+    pub ntfy_url: Option<String>,
 }
 
 impl User {
@@ -82,6 +84,10 @@ pub struct Me {
     #[ts(type = "'off' | 'weekly' | 'monthly'")]
     pub review_cadence: String,
     pub last_review_date: Option<String>,
+    /// Notification kinds turned off: `planning`, `ready`, `focus`, `conflict`, `metric`.
+    pub notify_off: Vec<String>,
+    /// ntfy topic URL notifications are also sent to.
+    pub ntfy_url: Option<String>,
 }
 
 impl From<&User> for Me {
@@ -108,6 +114,8 @@ impl From<&User> for Me {
             unit_system: u.unit_system.clone(),
             review_cadence: u.review_cadence.clone(),
             last_review_date: u.last_review_date.clone(),
+            notify_off: serde_json::from_str(&u.notify_off).unwrap_or_default(),
+            ntfy_url: u.ntfy_url.clone(),
         }
     }
 }

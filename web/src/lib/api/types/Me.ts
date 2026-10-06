@@ -35,4 +35,12 @@ unit_system: 'metric' | 'imperial',
 /**
  * How often the goals review is offered.
  */
-review_cadence: 'off' | 'weekly' | 'monthly', last_review_date: string | null, };
+review_cadence: 'off' | 'weekly' | 'monthly', last_review_date: string | null, 
+/**
+ * Notification kinds turned off: `planning`, `ready`, `focus`, `conflict`, `metric`.
+ */
+notify_off: Array<string>, 
+/**
+ * ntfy topic URL notifications are also sent to.
+ */
+ntfy_url: string | null, };

@@ -1,4 +1,5 @@
 pub(crate) mod account;
+mod backups;
 mod blocks;
 mod calendar;
 mod days;
@@ -9,6 +10,7 @@ mod log;
 mod occasions;
 pub mod places;
 mod projects;
+mod push;
 mod series;
 mod sync;
 mod tasks;
@@ -48,6 +50,8 @@ use crate::AppState;
         blocks::create_template, blocks::patch_template, blocks::delete_template, blocks::apply_template, blocks::create_block, blocks::patch_block, blocks::delete_block, blocks::suggest,
         tracking::put_record, tracking::summary, tracking::glance, tracking::create_metric, tracking::patch_metric, tracking::delete_metric, tracking::create_entry, tracking::patch_entry, tracking::delete_entry, tracking::metric_csv, tracking::import_csv, tracking::export,
         goals::create, goals::patch, goals::delete, goals::all_progress, goals::review, goals::reviews,
+        push::key, push::subscribe, push::unsubscribe, push::test,
+        backups::list, backups::create, backups::download,
         sync::sync, sync::events, sync::today, sync::task_types,
         projects::list, projects::create, projects::patch, projects::delete,
         tasks::list, tasks::create, tasks::get_one, tasks::patch, tasks::delete,
@@ -206,6 +210,12 @@ pub fn router(state: AppState) -> Router {
         .route("/goals/review", post(goals::review))
         .route("/goals/{id}", patch(goals::patch).delete(goals::delete))
         .route("/goals/{id}/reviews", get(goals::reviews))
+        .route("/push/key", get(push::key))
+        .route("/push/subscriptions", post(push::subscribe))
+        .route("/push/subscriptions/remove", post(push::unsubscribe))
+        .route("/push/test", post(push::test))
+        .route("/admin/backups", get(backups::list).post(backups::create))
+        .route("/admin/backups/{name}", get(backups::download))
         .route("/sync", get(sync::sync))
         .route("/events", get(sync::events))
         .route("/today", get(sync::today))
