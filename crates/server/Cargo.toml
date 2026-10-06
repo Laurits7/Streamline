@@ -10,11 +10,16 @@ anyhow = "1"
 argon2 = "0.5"
 axum = { version = "0.8", features = ["macros"] }
 base64 = "0.22"
+chacha20poly1305 = "0.10"
 chrono.workspace = true
 chrono-tz.workspace = true
 futures-util = { version = "0.3", default-features = false }
 mime_guess = "2"
+quick-xml = "0.42"
 rand = "0.8"
+# CalDAV client: rustls with the ring provider (no C toolchain needed for cross builds).
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
 rust-embed = "8"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

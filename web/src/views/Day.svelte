@@ -60,8 +60,10 @@
   })
   // For today only the rest of the day counts as free.
   const free = $derived(
-    store.me ? dayLoad(store.me, store.dayEntries(date), (id) => store.tasks.get(id), isToday ? now : undefined).free : 0,
+    store.me ? dayLoad(store.me, store.dayEntries(date), (id) => store.tasks.get(id), isToday ? now : undefined, store.dayBusy(date)).free
+      : 0,
   )
+  const dayEvents = $derived(store.dayEvents(date))
   const upcoming = $derived(
     open.filter((i) => i.entry.start_time && i.entry.start_time >= now).sort((a, b) => (a.entry.start_time! < b.entry.start_time! ? -1 : 1)),
   )
@@ -98,7 +100,14 @@
     <Icon name="clock" size={14} /> Timeline
     <span class="hint">drag tasks onto a time</span>
   </h2>
-  <Timeline {date} items={timed} now={isToday ? now : null} />
+  {#if dayEvents.allDay.length}
+    <ul class="allday" aria-label="All-day events">
+      {#each dayEvents.allDay as d (d.event.id)}
+        <li style:--cal={d.color} title={d.event.location ?? ''}>{d.event.title}</li>
+      {/each}
+    </ul>
+  {/if}
+  <Timeline {date} items={timed} events={dayEvents.timed} now={isToday ? now : null} />
 {/snippet}
 
 <div class="day" class:wide>
@@ -215,6 +224,22 @@
 </div>
 
 <style>
+  .allday {
+    list-style: none;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 0 0 8px;
+    padding: 0;
+  }
+  .allday li {
+    font-size: 13px;
+    font-weight: 600;
+    padding: 3px 10px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--cal) 16%, var(--surface));
+    border-left: 3px solid var(--cal);
+  }
   .day.wide {
     display: grid;
     grid-template-columns: minmax(0, 1fr) 360px;

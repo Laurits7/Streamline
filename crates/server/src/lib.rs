@@ -2,6 +2,8 @@
 //! embedded web app, in one binary.
 
 pub mod auth;
+pub mod caldav;
+pub mod calsync;
 pub mod config;
 pub mod db;
 pub mod deps;
@@ -15,6 +17,7 @@ pub mod reminders;
 pub mod rollover;
 pub mod routes;
 pub mod routines;
+pub mod secrets;
 pub mod static_files;
 pub mod util;
 pub mod visibility;
@@ -31,6 +34,10 @@ pub struct App {
     pub bus: events::Bus,
     /// Failed login attempts per key (username or IP): (count, window start).
     pub login_failures: Mutex<HashMap<String, (u32, Instant)>>,
+    /// Encrypts stored credentials (CalDAV passwords).
+    pub secrets: secrets::Secrets,
+    /// Calendar syncs run one at a time.
+    pub calendar_lock: Mutex<()>,
 }
 
 pub type AppState = Arc<App>;
@@ -39,11 +46,14 @@ pub type AppState = Arc<App>;
 pub async fn build(config: config::Config) -> anyhow::Result<(axum::Router, AppState)> {
     std::fs::create_dir_all(&config.data_dir)?;
     let db = db::Db::open(&config.data_dir.join("streamline.db")).await?;
+    let secrets = secrets::Secrets::load(&config.data_dir, config.secret_key.as_deref())?;
     let state = Arc::new(App {
         config,
         db,
         bus: events::Bus::new(),
         login_failures: Mutex::new(HashMap::new()),
+        secrets,
+        calendar_lock: Mutex::new(()),
     });
     auth::bootstrap_admin(&state).await?;
     Ok((routes::router(state.clone()), state))
@@ -60,7 +70,8 @@ pub async fn run() -> anyhow::Result<()> {
     let config = config::Config::from_env()?;
     let addr = SocketAddr::new(config.bind, config.port);
     let (app, state) = build(config).await?;
-    jobs::spawn(state);
+    jobs::spawn(state.clone());
+    calsync::spawn(state);
     let listener = TcpListener::bind(addr).await?;
     tracing::info!("Streamline listening on http://{addr}");
     axum::serve(

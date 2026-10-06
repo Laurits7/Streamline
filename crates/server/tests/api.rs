@@ -2914,3 +2914,359 @@ async fn shared_fixed_time_routines_land_on_every_members_timeline() {
     assert_eq!(task["status"], "done");
     assert_eq!(task["completed_by"], me_ben["id"]);
 }
+
+// ----- Calendar (Phase 5): a mock CalDAV server -----
+
+#[derive(Default)]
+struct Dav {
+    ctag: u32,
+    /// href → (etag, ics)
+    objects: std::collections::BTreeMap<String, (String, String)>,
+    requests: Vec<String>,
+}
+
+type DavState = std::sync::Arc<std::sync::Mutex<Dav>>;
+
+async fn dav_handler(
+    axum::extract::State(dav): axum::extract::State<DavState>,
+    method: axum::http::Method,
+    uri: axum::http::Uri,
+    headers: axum::http::HeaderMap,
+    body: String,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    // anna:secret
+    if headers
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        != Some("Basic YW5uYTpzZWNyZXQ=")
+    {
+        return StatusCode::UNAUTHORIZED.into_response();
+    }
+    let mut d = dav.lock().unwrap();
+    let path = uri.path().to_string();
+    let kind = [
+        "current-user-principal",
+        "calendar-home-set",
+        "calendar-multiget",
+        "calendar-query",
+        "resourcetype",
+    ]
+    .into_iter()
+    .find(|k| body.contains(k))
+    .unwrap_or("?");
+    d.requests.push(format!("{method} {path} {kind}"));
+    let ms = |inner: String| {
+        (
+            StatusCode::MULTI_STATUS,
+            [(header::CONTENT_TYPE, "application/xml")],
+            format!(r#"<?xml version="1.0"?><d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav" xmlns:cs="http://calendarserver.org/ns/">{inner}</d:multistatus>"#),
+        )
+            .into_response()
+    };
+    let ok = |href: &str, props: &str| {
+        format!(
+            "<d:response><d:href>{href}</d:href><d:propstat><d:prop>{props}</d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>"
+        )
+    };
+    match (method.as_str(), path.as_str(), kind) {
+        ("PROPFIND", "/dav/", "resourcetype") => ms(ok(
+            "/dav/",
+            "<d:resourcetype><d:collection/></d:resourcetype>",
+        )),
+        ("PROPFIND", "/dav/", "current-user-principal") => ms(ok(
+            "/dav/",
+            "<d:current-user-principal><d:href>/dav/anna/</d:href></d:current-user-principal>",
+        )),
+        ("PROPFIND", "/dav/anna/", "calendar-home-set") => ms(ok(
+            "/dav/anna/",
+            "<c:calendar-home-set><d:href>/dav/anna/</d:href></c:calendar-home-set>",
+        )),
+        ("PROPFIND", "/dav/anna/", "resourcetype") => ms(ok(
+            "/dav/anna/",
+            "<d:resourcetype><d:collection/></d:resourcetype>",
+        ) + &ok(
+            "/dav/anna/work/",
+            &format!(
+                "<d:resourcetype><d:collection/><c:calendar/></d:resourcetype><d:displayname>Work</d:displayname><cs:getctag>{}</cs:getctag>",
+                d.ctag
+            ),
+        )),
+        ("REPORT", "/dav/anna/work/", "calendar-query") => ms(d
+            .objects
+            .iter()
+            .map(|(h, (e, _))| ok(h, &format!("<d:getetag>{e}</d:getetag>")))
+            .collect()),
+        ("REPORT", "/dav/anna/work/", "calendar-multiget") => ms(d
+            .objects
+            .iter()
+            .filter(|(h, _)| body.contains(&format!("<d:href>{h}</d:href>")))
+            .map(|(h, (e, ics))| {
+                ok(
+                    h,
+                    &format!(
+                        "<d:getetag>{e}</d:getetag><c:calendar-data>{}</c:calendar-data>",
+                        ics.replace('&', "&amp;").replace('<', "&lt;")
+                    ),
+                )
+            })
+            .collect()),
+        _ => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+async fn mock_dav() -> (String, DavState) {
+    let dav = DavState::default();
+    let app = Router::new().fallback(dav_handler).with_state(dav.clone());
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    (format!("http://{addr}/dav/"), dav)
+}
+
+fn vevent(uid: &str, start: chrono::DateTime<chrono::Utc>, extra: &str) -> String {
+    format!(
+        "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//test//EN\r\nBEGIN:VEVENT\r\nUID:{uid}\r\nDTSTAMP:20260101T000000Z\r\nDTSTART:{}\r\nDURATION:PT1H\r\n{extra}END:VEVENT\r\nEND:VCALENDAR\r\n",
+        start.format("%Y%m%dT%H%M%SZ")
+    )
+}
+
+#[tokio::test]
+async fn calendar_account_sync_and_privacy() {
+    let t = setup().await;
+    let admin = t.admin().await;
+    let anna = t.user(&admin, "anna").await;
+    let (url, dav) = mock_dav().await;
+    let tomorrow = (chrono::Utc::now() + chrono::Duration::days(1))
+        .date_naive()
+        .and_hms_opt(9, 0, 0)
+        .unwrap()
+        .and_utc();
+    {
+        let mut d = dav.lock().unwrap();
+        d.ctag = 1;
+        d.objects.insert(
+            "/dav/anna/work/a.ics".into(),
+            (
+                "\"1\"".into(),
+                vevent("a", tomorrow, "SUMMARY:Dentist & checkup\r\n"),
+            ),
+        );
+        d.objects.insert(
+            "/dav/anna/work/b.ics".into(),
+            (
+                "\"1\"".into(),
+                vevent(
+                    "b",
+                    tomorrow,
+                    "SUMMARY:Standup\r\nRRULE:FREQ=DAILY;COUNT=3\r\n",
+                ),
+            ),
+        );
+    }
+
+    // Test connection first: nothing saved.
+    let (s, v, _) = t
+        .req(
+            "POST",
+            "/api/v1/calendar/test",
+            Some(&anna),
+            Some(json!({"url": url, "username": "anna", "password": "wrong"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(v["ok"], false);
+    assert!(v["error"].as_str().unwrap().contains("rejected"), "{v}");
+    let (_, v, _) = t
+        .req(
+            "POST",
+            "/api/v1/calendar/test",
+            Some(&anna),
+            Some(json!({"url": url, "username": "anna", "password": "secret"})),
+        )
+        .await;
+    assert_eq!(v["calendars"], json!(["Work"]));
+    let (_, v, _) = t
+        .req("GET", "/api/v1/calendar/account", Some(&anna), None)
+        .await;
+    assert_eq!(v, Value::Null);
+
+    // Credentials in the URL are split off; the password is never returned.
+    let with_creds = url.replace("http://", "http://anna:secret@");
+    let (s, acc, _) = t
+        .req(
+            "PUT",
+            "/api/v1/calendar/account",
+            Some(&anna),
+            Some(json!({"url": with_creds})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{acc}");
+    assert_eq!(acc["status"], "ok", "{acc}");
+    assert_eq!(acc["url"], url);
+    assert_eq!(acc["username"], "anna");
+    assert_eq!(acc["has_password"], true);
+    let (_, full, _) = t.req("GET", "/api/v1/sync", Some(&anna), None).await;
+    assert!(!full.to_string().contains("secret"));
+    assert_eq!(full["calendar_account"]["status"], "ok");
+    assert_eq!(full["calendars"].as_array().unwrap().len(), 1);
+    let events = full["events"].as_array().unwrap();
+    assert_eq!(events.len(), 4, "one dentist + three standups: {events:?}");
+    let dentist = events.iter().find(|e| e["uid"] == "a").unwrap();
+    assert_eq!(dentist["title"], "Dentist & checkup");
+    assert_eq!(
+        dentist["start_at"],
+        tomorrow.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+    );
+    let rev = full["rev"].as_i64().unwrap();
+
+    // The day view lists the day's events, and busy events reduce free time (overlaps once).
+    let day = |d: chrono::DateTime<chrono::Utc>| format!("/api/v1/days/{}", d.format("%Y-%m-%d"));
+    let (_, with, _) = t.req("GET", &day(tomorrow), Some(&anna), None).await;
+    let (_, without, _) = t
+        .req(
+            "GET",
+            &day(tomorrow + chrono::Duration::days(5)),
+            Some(&anna),
+            None,
+        )
+        .await;
+    assert_eq!(with["events"].as_array().unwrap().len(), 2);
+    assert_eq!(without["events"], json!([]));
+    assert_eq!(
+        without["free_min"].as_i64().unwrap() - with["free_min"].as_i64().unwrap(),
+        60
+    );
+
+    // Nothing changed (same ctag): no listing or fetching.
+    dav.lock().unwrap().requests.clear();
+    t.req("POST", "/api/v1/calendar/sync", Some(&anna), None)
+        .await;
+    let (_, delta, _) = t
+        .req(
+            "GET",
+            &format!("/api/v1/sync?since={rev}"),
+            Some(&anna),
+            None,
+        )
+        .await;
+    assert_eq!(
+        delta["events"].as_array().unwrap().len(),
+        0,
+        "a forced sync rewrites nothing that didn't change"
+    );
+
+    // One event edited, the series deleted: only the edited one is fetched.
+    {
+        let mut d = dav.lock().unwrap();
+        d.ctag = 2;
+        d.objects.insert(
+            "/dav/anna/work/a.ics".into(),
+            (
+                "\"2\"".into(),
+                vevent("a", tomorrow, "SUMMARY:Dentist (moved)\r\n"),
+            ),
+        );
+        d.objects.remove("/dav/anna/work/b.ics");
+        d.requests.clear();
+    }
+    t.req("POST", "/api/v1/calendar/sync", Some(&anna), None)
+        .await;
+    let multiget = dav
+        .lock()
+        .unwrap()
+        .requests
+        .iter()
+        .filter(|r| r.contains("multiget"))
+        .count();
+    assert_eq!(multiget, 1);
+    let (_, delta, _) = t
+        .req(
+            "GET",
+            &format!("/api/v1/sync?since={rev}"),
+            Some(&anna),
+            None,
+        )
+        .await;
+    let ev = delta["events"].as_array().unwrap();
+    assert_eq!(ev.len(), 4, "{ev:?}");
+    assert_eq!(
+        ev.iter().find(|e| e["uid"] == "a").unwrap()["title"],
+        "Dentist (moved)"
+    );
+    assert_eq!(
+        ev.iter()
+            .filter(|e| e["uid"] == "b" && e["deleted_at"].is_string())
+            .count(),
+        3
+    );
+
+    // Other people see nothing of it.
+    let ben = t.user(&admin, "ben").await;
+    let (_, b, _) = t.req("GET", "/api/v1/sync", Some(&ben), None).await;
+    assert_eq!(b["events"], json!([]));
+    assert_eq!(b["calendar_account"], Value::Null);
+    let cal_id = full["calendars"][0]["id"].as_str().unwrap().to_string();
+    let (s, _, _) = t
+        .req(
+            "PATCH",
+            &format!("/api/v1/calendars/{cal_id}"),
+            Some(&ben),
+            Some(json!({"enabled": false})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+
+    // A failing server keeps the last known events and shows the error.
+    let (_, acc, _) = t
+        .req(
+            "PUT",
+            "/api/v1/calendar/account",
+            Some(&anna),
+            Some(json!({"url": url, "username": "anna", "password": "nope"})),
+        )
+        .await;
+    assert_eq!(acc["status"], "error");
+    assert!(acc["last_error"].as_str().unwrap().contains("rejected"));
+    let (_, now_full, _) = t.req("GET", "/api/v1/sync", Some(&anna), None).await;
+    assert_eq!(now_full["events"].as_array().unwrap().len(), 1);
+
+    // Back to the right password (leaving it out keeps the stored one).
+    t.req(
+        "PUT",
+        "/api/v1/calendar/account",
+        Some(&anna),
+        Some(json!({"url": url, "username": "anna", "password": "secret"})),
+    )
+    .await;
+    let (_, acc, _) = t
+        .req(
+            "PUT",
+            "/api/v1/calendar/account",
+            Some(&anna),
+            Some(json!({"url": url, "username": "anna"})),
+        )
+        .await;
+    assert_eq!(acc["status"], "ok", "{acc}");
+
+    // Hiding a calendar removes its events; disconnecting removes everything.
+    let (_, c, _) = t
+        .req(
+            "PATCH",
+            &format!("/api/v1/calendars/{cal_id}"),
+            Some(&anna),
+            Some(json!({"enabled": false, "user_color": "#ff0000"})),
+        )
+        .await;
+    assert_eq!(c["enabled"], false);
+    assert_eq!(c["user_color"], "#ff0000");
+    let (_, f, _) = t.req("GET", "/api/v1/sync", Some(&anna), None).await;
+    assert_eq!(f["events"], json!([]));
+    let (s, _, _) = t
+        .req("DELETE", "/api/v1/calendar/account", Some(&anna), None)
+        .await;
+    assert_eq!(s, StatusCode::NO_CONTENT);
+    let (_, f, _) = t.req("GET", "/api/v1/sync", Some(&anna), None).await;
+    assert_eq!(f["calendar_account"], Value::Null);
+    assert_eq!(f["calendars"], json!([]));
+}

@@ -1,18 +1,25 @@
 <script lang="ts">
   // Day timeline: drop tasks on it to give them a time, drag blocks to move them,
-  // drag a block's bottom edge to change its duration (15-minute steps).
+  // drag a block's bottom edge to change its duration (15-minute steps). Calendar events
+  // are shown alongside, read-only.
   import { tick, untrack } from 'svelte'
   import type { DayEntry } from '../api/types/DayEntry'
   import type { Task } from '../api/types/Task'
   import { fmtMinutes } from '../dates'
   import { announce } from '../announce.svelte'
+  import { timeRange, type DayEvent } from '../calendar'
   import { draggable, droppable, type DragItem } from '../dnd.svelte'
   import { store } from '../store.svelte'
   import { ui } from '../ui.svelte'
   import Check from './Check.svelte'
 
   type Item = { entry: DayEntry; task: Task }
-  let { date, items, now = null }: { date: string; items: Item[]; now?: string | null } = $props()
+  let {
+    date,
+    items,
+    events = [],
+    now = null,
+  }: { date: string; items: Item[]; events?: DayEvent[]; now?: string | null } = $props()
 
   const PX = 0.9 // pixels per minute (54 px per hour)
   const SNAP = 15
@@ -25,19 +32,21 @@
   let preview = $state<{ start: number; dur: number } | null>(null)
   let resizing = $state<{ id: string; dur: number } | null>(null)
 
-  type Block = Item & { start: number; dur: number; lane: number; lanes: number }
-  const blocks = $derived.by(() => {
-    const bs: Block[] = items
-      .map((i) => ({
-        ...i,
-        start: toMin(i.entry.start_time!),
-        dur: resizing?.id === i.entry.id ? resizing.dur : durOf(i),
-        lane: 0,
-        lanes: 1,
-      }))
-      .sort((a, b) => a.start - b.start || b.dur - a.dur)
+  type Slot = { start: number; dur: number; lane: number; lanes: number }
+  type Block = Item & Slot
+  type EventBlock = DayEvent & Slot
+  const layout = $derived.by(() => {
+    const tasks: Block[] = items.map((i) => ({
+      ...i,
+      start: toMin(i.entry.start_time!),
+      dur: resizing?.id === i.entry.id ? resizing.dur : durOf(i),
+      lane: 0,
+      lanes: 1,
+    }))
+    const evs: EventBlock[] = events.map((d) => ({ ...d, lane: 0, lanes: 1 }))
+    const bs: Slot[] = [...evs, ...tasks].sort((a, b) => a.start - b.start || b.dur - a.dur)
     // Side-by-side lanes for overlapping blocks, per cluster of overlaps.
-    let cluster: Block[] = []
+    let cluster: Slot[] = []
     let clusterEnd = -1
     const close = () => {
       const n = Math.max(1, ...cluster.map((b) => b.lane + 1))
@@ -57,8 +66,10 @@
       clusterEnd = Math.max(clusterEnd, b.start + Math.max(b.dur, SNAP))
     }
     if (cluster.length) close()
-    return bs
+    return { tasks, evs }
   })
+  const blocks = $derived(layout.tasks)
+  const eventBlocks = $derived(layout.evs)
 
   const nowMin = $derived(now ? toMin(now) : null)
 
@@ -66,8 +77,8 @@
   $effect(() => {
     date
     untrack(() => {
-      const first = blocks[0]?.start
-      const target = nowMin !== null ? nowMin - 60 : (first ?? 8 * 60) - 30
+      const first = Math.min(blocks[0]?.start ?? 1440, eventBlocks[0]?.start ?? 1440)
+      const target = nowMin !== null ? nowMin - 60 : (first < 1440 ? first : 8 * 60) - 30
       tick().then(() => scroller && (scroller.scrollTop = Math.max(0, target * PX)))
     })
   })
@@ -143,6 +154,21 @@
             {hhmm(preview.start)}–{hhmm(Math.min(preview.start + preview.dur, 1440))}
           </div>
         {/if}
+        {#each eventBlocks as ev (ev.event.id)}
+          <div
+            class="event"
+            class:short={ev.dur < 40}
+            class:free={!ev.event.busy}
+            style:--cal={ev.color}
+            style:top="{ev.start * PX}px"
+            style:height="{Math.max(ev.dur, SNAP) * PX - 2}px"
+            style:left="{(ev.lane / ev.lanes) * 100}%"
+            style:width="calc({100 / ev.lanes}% - 3px)"
+            title="{ev.event.title} · {timeRange(ev)}{ev.event.location ? ` · ${ev.event.location}` : ''}">
+            <span class="title">{ev.event.title}</span>
+            <span class="time">{timeRange(ev)}{ev.event.location ? ` · ${ev.event.location}` : ''}</span>
+          </div>
+        {/each}
         {#each blocks as b (b.entry.id)}
           <div
             class="block"
@@ -245,6 +271,26 @@
     cursor: grab;
     font-size: 13px;
     touch-action: auto;
+  }
+  /* Calendar events: fixed, read-only, in the calendar's colour. */
+  .event {
+    position: absolute;
+    display: flex;
+    flex-direction: column;
+    padding: 4px 8px;
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--cal) 16%, var(--surface));
+    border-left: 3px solid var(--cal);
+    overflow: hidden;
+    font-size: 13px;
+    cursor: default;
+  }
+  .event.free {
+    background: repeating-linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--cal) 10%, var(--surface)) 0 6px,
+      var(--surface) 6px 12px
+    );
   }
   .block.done {
     opacity: 0.55;

@@ -607,3 +607,134 @@ pub async fn log_task_event(
         .await
         .map(|_| ())
 }
+
+/// A connected calendar account (SPEC §6.5). The password is stored encrypted and never
+/// leaves the server.
+#[derive(Debug, Clone, FromRow)]
+pub struct CalendarAccount {
+    pub id: String,
+    pub user_id: String,
+    pub kind: String,
+    pub url: String,
+    pub username: String,
+    pub secret: Option<Vec<u8>>,
+    pub status: String,
+    pub last_sync_at: Option<String>,
+    pub last_error: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+    pub deleted_at: Option<String>,
+    pub rev: i64,
+}
+
+/// What the API shows of a calendar account.
+#[derive(Debug, Clone, Serialize, TS, utoipa::ToSchema)]
+#[ts(export)]
+pub struct CalendarAccountView {
+    pub id: String,
+    pub kind: String,
+    pub url: String,
+    pub username: String,
+    pub has_password: bool,
+    /// `new` (not synced yet), `ok` or `error`.
+    pub status: String,
+    pub last_sync_at: Option<String>,
+    pub last_error: Option<String>,
+}
+
+impl From<&CalendarAccount> for CalendarAccountView {
+    fn from(a: &CalendarAccount) -> Self {
+        Self {
+            id: a.id.clone(),
+            kind: a.kind.clone(),
+            url: a.url.clone(),
+            username: a.username.clone(),
+            has_password: a.secret.is_some(),
+            status: a.status.clone(),
+            last_sync_at: a.last_sync_at.clone(),
+            last_error: a.last_error.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, FromRow, TS, utoipa::ToSchema)]
+#[ts(export)]
+pub struct Calendar {
+    pub id: String,
+    pub account_id: String,
+    pub user_id: String,
+    pub href: String,
+    pub name: String,
+    pub color: Option<String>,
+    pub user_color: Option<String>,
+    pub enabled: bool,
+    #[serde(skip)]
+    #[ts(skip)]
+    pub ctag: Option<String>,
+    #[serde(skip)]
+    #[ts(skip)]
+    pub expanded_for: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+    pub deleted_at: Option<String>,
+    #[ts(type = "number")]
+    pub rev: i64,
+}
+
+pub async fn upsert_calendar(conn: &mut SqliteConnection, c: &Calendar) -> sqlx::Result<()> {
+    sqlx::query(
+        "INSERT INTO calendars (id, account_id, user_id, href, name, color, user_color, enabled, ctag, expanded_for, created_at, updated_at, deleted_at, rev)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+         ON CONFLICT(id) DO UPDATE SET name=excluded.name, color=excluded.color, user_color=excluded.user_color,
+           enabled=excluded.enabled, ctag=excluded.ctag, expanded_for=excluded.expanded_for,
+           updated_at=excluded.updated_at, deleted_at=excluded.deleted_at, rev=excluded.rev",
+    )
+    .bind(&c.id).bind(&c.account_id).bind(&c.user_id).bind(&c.href).bind(&c.name).bind(&c.color).bind(&c.user_color)
+    .bind(c.enabled).bind(&c.ctag).bind(&c.expanded_for).bind(&c.created_at).bind(&c.updated_at).bind(&c.deleted_at).bind(c.rev)
+    .execute(conn)
+    .await
+    .map(|_| ())
+}
+
+/// One occurrence of a calendar event, as expanded from the cached iCalendar data.
+#[derive(Debug, Clone, Serialize, FromRow, TS, utoipa::ToSchema, PartialEq)]
+#[ts(export)]
+pub struct CalendarEvent {
+    pub id: String,
+    pub user_id: String,
+    pub calendar_id: String,
+    pub uid: String,
+    pub instance_key: String,
+    pub title: String,
+    pub location: Option<String>,
+    pub all_day: bool,
+    /// Timed events: RFC 3339 UTC.
+    pub start_at: Option<String>,
+    pub end_at: Option<String>,
+    /// All-day events: `YYYY-MM-DD`, end exclusive.
+    pub start_date: Option<String>,
+    pub end_date: Option<String>,
+    /// Blocks time (not marked free/transparent).
+    pub busy: bool,
+    pub recurring: bool,
+    pub updated_at: String,
+    pub deleted_at: Option<String>,
+    #[ts(type = "number")]
+    pub rev: i64,
+}
+
+pub async fn upsert_event(conn: &mut SqliteConnection, e: &CalendarEvent) -> sqlx::Result<()> {
+    sqlx::query(
+        "INSERT INTO events (id, user_id, calendar_id, uid, instance_key, title, location, all_day, start_at, end_at, start_date, end_date, busy, recurring, updated_at, deleted_at, rev)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+         ON CONFLICT(id) DO UPDATE SET title=excluded.title, location=excluded.location, all_day=excluded.all_day,
+           start_at=excluded.start_at, end_at=excluded.end_at, start_date=excluded.start_date, end_date=excluded.end_date,
+           busy=excluded.busy, recurring=excluded.recurring, updated_at=excluded.updated_at, deleted_at=excluded.deleted_at, rev=excluded.rev",
+    )
+    .bind(&e.id).bind(&e.user_id).bind(&e.calendar_id).bind(&e.uid).bind(&e.instance_key).bind(&e.title).bind(&e.location)
+    .bind(e.all_day).bind(&e.start_at).bind(&e.end_at).bind(&e.start_date).bind(&e.end_date).bind(e.busy).bind(e.recurring)
+    .bind(&e.updated_at).bind(&e.deleted_at).bind(e.rev)
+    .execute(conn)
+    .await
+    .map(|_| ())
+}

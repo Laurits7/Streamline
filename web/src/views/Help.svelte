@@ -18,6 +18,7 @@
     ['devices', 'Phones, tablets and sync'],
     ['groups', 'Sharing with your household'],
     ['places', 'Places'],
+    ['calendar', 'Your calendar and the agenda'],
     ['account', 'Account, users and API tokens'],
     ['soon', 'Coming later'],
   ]
@@ -303,12 +304,29 @@
     </ul>
   </section>
 
+  <section id="calendar">
+    <h2><Icon name="calendar" size={18} /> Your calendar and the agenda</h2>
+    <p>
+      Connect your calendar in <a href="/settings">Settings</a> → <em>Calendar</em> with its CalDAV address, username
+      and password: the same details a calendar app like Evolution or Thunderbird asks for. It works with Nextcloud,
+      Fastmail, iCloud (use an app-specific password), mailbox.org, Radicale and other CalDAV servers. Google Calendar
+      needs a sign-in flow that isn't supported yet.
+    </p>
+    <ul>
+      <li>Events show on the day's timeline in their calendar's colour, next to your scheduled tasks. All-day events appear above it.</li>
+      <li>Busy events count against the day's free time in the planner; events marked “free” are striped and don't.</li>
+      <li><a href="/agenda">Agenda</a> shows a week at a time: events and timed tasks, day by day.</li>
+      <li>Streamline only reads your calendar. It checks for changes every 15 minutes, or press <em>Sync now</em>.</li>
+      <li>Untick a calendar to hide it, or pick another colour. If the server can't be reached, the last known events stay and Settings shows the error.</li>
+      <li>Your password is stored encrypted on the server and never sent back to the browser. Other people never see your events.</li>
+    </ul>
+  </section>
+
   <section id="soon">
     <h2>Coming later</h2>
     <p class="muted">Planned, roughly in this order:</p>
     <ul>
-      <li>Multi-step chores (e.g. laundry: wash → dry → fold) where the next step appears when the previous one is done.</li>
-      <li>Your calendar (CalDAV/Radicale) on the timeline.</li>
+      <li>Overlap warnings when a task is scheduled on top of a calendar event, and day templates with time blocks.</li>
       <li>Daily reflection, mood and other trackers, and long-term goals.</li>
     </ul>
   </section>

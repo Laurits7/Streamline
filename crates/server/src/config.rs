@@ -21,6 +21,8 @@ pub struct Config {
     pub trust_proxy: bool,
     pub cookie_secure: CookieSecure,
     pub session_days: i64,
+    /// Key for encrypting stored credentials; if unset, `data/secret.key` is generated.
+    pub secret_key: Option<String>,
 }
 
 impl Config {
@@ -51,6 +53,7 @@ impl Config {
                 .transpose()
                 .context("SESSION_DAYS")?
                 .unwrap_or(90),
+            secret_key: var("SECRET_KEY"),
         })
     }
 
@@ -65,6 +68,7 @@ impl Config {
             trust_proxy: false,
             cookie_secure: CookieSecure::Auto,
             session_days: 90,
+            secret_key: None,
         }
     }
 }

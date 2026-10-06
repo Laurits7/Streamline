@@ -4,6 +4,9 @@
 
 import { SvelteMap } from 'svelte/reactivity'
 import { api, ApiError } from './api/client'
+import type { Calendar } from './api/types/Calendar'
+import type { CalendarAccountView } from './api/types/CalendarAccountView'
+import type { CalendarEvent } from './api/types/CalendarEvent'
 import type { DayEntry } from './api/types/DayEntry'
 import type { DayPlan } from './api/types/DayPlan'
 import type { FocusSession } from './api/types/FocusSession'
@@ -20,13 +23,36 @@ import type { WorkflowTemplate } from './api/types/WorkflowTemplate'
 import type { SyncResponse } from './api/types/SyncResponse'
 import type { Task } from './api/types/Task'
 import type { TaskType } from './api/types/TaskType'
+import { busyIntervals, eventsOn } from './calendar'
 import { isBlocked } from './deps'
 import { keyAt, keyBetween } from './order'
 import { toast } from './toast.svelte'
 import { ulid } from './ulid'
 
-type Kind = 'task' | 'project' | 'day_entry' | 'day_plan' | 'focus_session' | 'series' | 'place' | 'workflow' | 'group'
-type Entity = Task | Project | DayEntry | DayPlan | FocusSession | Series | Place | WorkflowTemplate | Group
+type Kind =
+  | 'task'
+  | 'project'
+  | 'day_entry'
+  | 'day_plan'
+  | 'focus_session'
+  | 'series'
+  | 'place'
+  | 'workflow'
+  | 'group'
+  | 'calendar'
+  | 'event'
+type Entity =
+  | Task
+  | Project
+  | DayEntry
+  | DayPlan
+  | FocusSession
+  | Series
+  | Place
+  | WorkflowTemplate
+  | Group
+  | Calendar
+  | CalendarEvent
 
 export type TaskPatch = Partial<
   Pick<
@@ -93,6 +119,9 @@ class Store {
   places = new SvelteMap<string, Place>()
   workflows = new SvelteMap<string, WorkflowTemplate>()
   groups = new SvelteMap<string, Group>()
+  calendars = new SvelteMap<string, Calendar>()
+  events = new SvelteMap<string, CalendarEvent>()
+  calendarAccount = $state<CalendarAccountView | null>(null)
   /** Where this device is ('' = anywhere/not set). Per device, like the GPS setting (D-45). */
   currentPlace = $state(readLocal('sl.place', ''))
   /** Use GPS to set the current place (per device; needs HTTPS and permission). */
@@ -144,6 +173,9 @@ class Store {
     this.places.clear()
     this.workflows.clear()
     this.groups.clear()
+    this.calendars.clear()
+    this.events.clear()
+    this.calendarAccount = null
     this.focusTimer = IDLE_TIMER
   }
 
@@ -206,7 +238,10 @@ class Store {
       this.series.clear()
       this.places.clear()
       this.workflows.clear()
+      this.calendars.clear()
+      this.events.clear()
     }
+    this.calendarAccount = r.calendar_account
     // Groups always come complete.
     this.groups.clear()
     for (const g of r.groups) this.groups.set(g.id, g)
@@ -226,6 +261,8 @@ class Store {
     for (const x of r.series) this.applyRemote('series', x)
     for (const x of r.places) this.applyRemote('place', x)
     for (const x of r.workflows) this.applyRemote('workflow', x)
+    for (const x of r.calendars) this.applyRemote('calendar', x)
+    for (const x of r.events) this.applyRemote('event', x)
     this.rev = Math.max(this.rev, r.rev)
     this.ready = true
   }
@@ -255,7 +292,15 @@ class Store {
         const g = c.data as Group
         if (g.deleted_at || !g.members.some((m) => m.user_id === this.me?.id) && !this.me?.is_admin) this.groups.delete(g.id)
         else this.groups.set(g.id, g)
-      } else if (c.kind === 'focus_session' || c.kind === 'series' || c.kind === 'place' || c.kind === 'workflow')
+      } else if (c.kind === 'calendar_account') this.calendarAccount = c.data as CalendarAccountView | null
+      else if (
+        c.kind === 'focus_session' ||
+        c.kind === 'series' ||
+        c.kind === 'place' ||
+        c.kind === 'workflow' ||
+        c.kind === 'calendar' ||
+        c.kind === 'event'
+      )
         this.applyRemote(c.kind, c.data as Entity)
       else if (c.kind === 'task' || c.kind === 'project' || c.kind === 'day_entry' || c.kind === 'day_plan')
         this.applyRemote(c.kind, c.data as Entity)
@@ -287,6 +332,8 @@ class Store {
       place: this.places,
       workflow: this.workflows,
       group: this.groups,
+      calendar: this.calendars,
+      event: this.events,
     }
     return maps[kind] as SvelteMap<string, Entity>
   }
@@ -1087,6 +1134,50 @@ class Store {
     const entry = this.entryForTask(id)
     this.updateTask(id, { due_date: date })
     if (entry) this.plan(id, date, { startTime: entry.start_time })
+  }
+
+  // ---- calendar -------------------------------------------------------------
+
+  /** Calendar events on a local day (all-day ones and timed ones clipped to the day). */
+  dayEvents(date: string) {
+    return eventsOn(date, this.events.values(), this.me?.timezone ?? 'UTC', (id) => this.calendars.get(id))
+  }
+
+  /** Busy calendar time on a day, for free-time math. */
+  dayBusy(date: string) {
+    return busyIntervals(this.dayEvents(date).timed)
+  }
+
+  /** Connect or update the calendar account; the server syncs before answering. */
+  async saveCalendarAccount(input: { url: string; username: string; password?: string }) {
+    this.calendarAccount = await api.put<CalendarAccountView>('/calendar/account', input)
+    await this.sync()
+    return this.calendarAccount
+  }
+
+  testCalendar(input: { url: string; username: string; password?: string }) {
+    return api.post<{ ok: boolean; calendars: string[]; error: string | null }>('/calendar/test', input)
+  }
+
+  async syncCalendar() {
+    this.calendarAccount = await api.post<CalendarAccountView>('/calendar/sync', {})
+    await this.sync()
+  }
+
+  async disconnectCalendar() {
+    await api.del('/calendar/account')
+    this.calendarAccount = null
+    await this.sync()
+  }
+
+  updateCalendar(id: string, patch: { enabled?: boolean; user_color?: string | null }) {
+    const cur = this.calendars.get(id)
+    if (!cur) return
+    return this.optimistic(
+      [['calendar', id]],
+      () => this.calendars.set(id, { ...cur, ...patch }),
+      async () => [['calendar', await api.patch<Calendar>(`/calendars/${id}`, patch)]],
+    )
   }
 
   // ---- places ----------------------------------------------------------------

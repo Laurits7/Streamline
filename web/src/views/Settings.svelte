@@ -44,6 +44,46 @@
   }
   const err = (e: unknown) => toast(e instanceof ApiError ? e.message : 'Something went wrong', 'error')
 
+  // Calendar (CalDAV). The password is write-only: the server never sends it back.
+  let cal = $state({ url: '', username: '', password: '' })
+  $effect(() => {
+    const a = store.calendarAccount
+    if (a && !cal.url) cal = { url: a.url, username: a.username, password: '' }
+  })
+  let calBusy = $state<'' | 'test' | 'save' | 'sync'>('')
+  let calTest = $state<{ ok: boolean; calendars: string[]; error: string | null } | null>(null)
+  const calendars = $derived([...store.calendars.values()].sort((a, b) => a.name.localeCompare(b.name)))
+  const calInput = () => ({ url: cal.url.trim(), username: cal.username.trim(), password: cal.password || undefined })
+  async function calRun(kind: 'test' | 'save' | 'sync', fn: () => Promise<void>) {
+    calBusy = kind
+    try {
+      await fn()
+    } catch (e) {
+      err(e)
+    } finally {
+      calBusy = ''
+    }
+  }
+  const testCal = () => calRun('test', async () => void (calTest = await store.testCalendar(calInput())))
+  const saveCal = (e: Event) => {
+    e.preventDefault()
+    calRun('save', async () => {
+      const a = await store.saveCalendarAccount(calInput())
+      cal.password = ''
+      calTest = null
+      if (a?.status === 'ok') toast('Calendar connected')
+      else toast('Saved, but the calendar could not be read (see below)', 'error')
+    })
+  }
+  const syncCal = () => calRun('sync', () => store.syncCalendar())
+  async function disconnectCal() {
+    if (!confirm('Disconnect the calendar? Its events disappear from Streamline (nothing changes on the server).')) return
+    await store.disconnectCalendar().catch(err)
+    cal = { url: '', username: '', password: '' }
+  }
+  const when = (ts: string | null) =>
+    ts ? new Date(ts).toLocaleString(me.locale || undefined, { dateStyle: 'medium', timeStyle: 'short' }) : 'never'
+
   // Password
   let current = $state('')
   let next = $state('')
@@ -321,6 +361,63 @@
   </p>
 </section>
 
+<section class="card" id="calendar">
+  <h2>Calendar</h2>
+  <p class="help muted">
+    Show your calendar's events in the day view, so plans fit around them. Works with any CalDAV calendar (Nextcloud,
+    Fastmail, iCloud with an app-specific password, mailbox.org, Radicale, Baïkal…), the same details you would give
+    Evolution or Thunderbird. Read-only: Streamline never changes your calendar. Google Calendar needs OAuth sign-in,
+    which isn't supported yet.
+  </p>
+  <form onsubmit={saveCal}>
+    <label><span>CalDAV URL</span><input type="url" bind:value={cal.url} placeholder="https://cloud.example.org/remote.php/dav/" required autocomplete="url" /></label>
+    <div class="grid2">
+      <label><span>Username</span><input type="text" bind:value={cal.username} autocomplete="username" /></label>
+      <label>
+        <span>Password{store.calendarAccount?.has_password ? ' (saved; leave empty to keep)' : ''}</span>
+        <input type="password" bind:value={cal.password} autocomplete="new-password" placeholder={store.calendarAccount?.has_password ? '••••••••' : ''} />
+      </label>
+    </div>
+    <div class="row">
+      <button class="btn" type="button" onclick={testCal} disabled={!!calBusy || !cal.url.trim()}>{calBusy === 'test' ? 'Testing…' : 'Test connection'}</button>
+      <button class="btn primary" type="submit" disabled={!!calBusy}>{calBusy === 'save' ? 'Connecting…' : store.calendarAccount ? 'Save' : 'Connect'}</button>
+    </div>
+  </form>
+  {#if calTest}
+    <p class="cal-status" class:bad={!calTest.ok} role="status">
+      {#if calTest.ok}Connection works. Found {calTest.calendars.length ? calTest.calendars.join(', ') : 'no calendars'}.{:else}{calTest.error}{/if}
+    </p>
+  {/if}
+  {#if store.calendarAccount}
+    {@const a = store.calendarAccount}
+    <p class="cal-status" class:bad={a.status === 'error'} role="status">
+      {#if a.status === 'error'}
+        Last sync failed: {a.last_error}. Showing the events from the last good sync.
+      {:else if a.status === 'ok'}
+        Synced {when(a.last_sync_at)}. Checks for changes every 15 minutes.
+      {:else}Not synced yet.{/if}
+    </p>
+    {#each calendars as c (c.id)}
+      <div class="line">
+        <label class="check plain">
+          <input type="checkbox" checked={c.enabled} onchange={(e) => store.updateCalendar(c.id, { enabled: (e.currentTarget as HTMLInputElement).checked })} />
+          {c.name}
+        </label>
+        <input
+          class="swatch"
+          type="color"
+          value={c.user_color || c.color || '#64748b'}
+          aria-label="Colour of {c.name}"
+          onchange={(e) => store.updateCalendar(c.id, { user_color: (e.currentTarget as HTMLInputElement).value })} />
+      </div>
+    {/each}
+    <div class="row">
+      <button class="btn small" onclick={syncCal} disabled={!!calBusy}>{calBusy === 'sync' ? 'Syncing…' : 'Sync now'}</button>
+      <button class="btn small danger" onclick={disconnectCal}>Disconnect</button>
+    </div>
+  {/if}
+</section>
+
 <section class="card">
   <h2>Focus timer</h2>
   <div class="grid4">
@@ -536,6 +633,25 @@
   }
   .small {
     font-size: 12px;
+  }
+  .cal-status {
+    font-size: 13px;
+    margin: 10px 0 4px;
+    color: var(--muted);
+  }
+  .cal-status.bad {
+    color: var(--danger);
+  }
+  .check.plain {
+    padding: 0;
+    margin: 0;
+  }
+  .swatch {
+    width: 36px !important;
+    height: 28px;
+    padding: 0 !important;
+    border: 0;
+    background: none;
   }
   .adduser {
     margin-top: 16px;

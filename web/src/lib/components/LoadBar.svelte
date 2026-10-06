@@ -6,7 +6,7 @@
 
   let { date }: { date: string } = $props()
   const load = $derived(
-    dayLoad(store.me!, store.dayEntries(date), (id) => store.tasks.get(id), date === store.today ? nowHHMM(store.me!.timezone) : undefined),
+    dayLoad(store.me!, store.dayEntries(date), (id) => store.tasks.get(id), date === store.today ? nowHHMM(store.me!.timezone) : undefined, store.dayBusy(date)),
   )
   const over = $derived(load.planned - load.free)
   const pct = $derived(load.free > 0 ? Math.min(100, (load.planned / load.free) * 100) : load.planned > 0 ? 100 : 0)

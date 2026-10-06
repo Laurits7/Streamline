@@ -8,8 +8,8 @@ use tokio::sync::broadcast;
 
 use crate::{
     models::{
-        DayEntry, DayPlan, FocusSession, FocusTimer, Group, Place, Project, Series, Task,
-        WorkflowTemplate,
+        Calendar, CalendarAccountView, CalendarEvent, DayEntry, DayPlan, FocusSession, FocusTimer,
+        Group, Place, Project, Series, Task, WorkflowTemplate,
     },
     visibility,
 };
@@ -114,6 +114,31 @@ impl Change {
             kind: "focus_session",
             data: serde_json::to_value(s).unwrap(),
             audience: vec![s.user_id.clone()],
+        }
+    }
+    pub fn calendar(c: &Calendar) -> Self {
+        Self {
+            rev: c.rev,
+            kind: "calendar",
+            data: serde_json::to_value(c).unwrap(),
+            audience: vec![c.user_id.clone()],
+        }
+    }
+    pub fn event(e: &CalendarEvent) -> Self {
+        Self {
+            rev: e.rev,
+            kind: "event",
+            data: serde_json::to_value(e).unwrap(),
+            audience: vec![e.user_id.clone()],
+        }
+    }
+    /// The calendar account's settings or sync status changed (not part of the change feed).
+    pub fn calendar_account(user_id: &str, a: Option<&CalendarAccountView>) -> Self {
+        Self {
+            rev: 0,
+            kind: "calendar_account",
+            data: serde_json::to_value(a).unwrap(),
+            audience: vec![user_id.to_string()],
         }
     }
     /// Something to show the user now (e.g. a planning reminder). Not part of the change feed.

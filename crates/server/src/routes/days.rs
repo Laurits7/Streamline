@@ -15,7 +15,9 @@ use crate::{
     db::next_rev,
     error::{ApiResult, AppError},
     events::Change,
-    models::{DayEntry, DayPlan, Task, User, log_task_event, upsert_day_plan, upsert_entry},
+    models::{
+        CalendarEvent, DayEntry, DayPlan, Task, User, log_task_event, upsert_day_plan, upsert_entry,
+    },
     rollover,
     util::{check_hhmm, check_position, check_range, double_option, id_or_new, now, parse_date},
     visibility,
@@ -32,7 +34,10 @@ pub struct DayView {
     pub tasks: Vec<Task>,
     /// Planning state; `null` = unplanned.
     pub plan: Option<DayPlan>,
-    /// Minutes of the user's available window not taken by scheduled (timed) tasks.
+    /// Calendar events on the date: timed ones overlapping it (local time) and all-day ones.
+    pub events: Vec<CalendarEvent>,
+    /// Minutes of the user's available window not taken by scheduled (timed) tasks or
+    /// busy calendar events.
     pub free_min: u32,
     /// Estimated minutes of open planned tasks without a time.
     pub planned_min: u32,
@@ -53,10 +58,11 @@ pub fn day_load(
     entries: &[DayEntry],
     tasks: &[Task],
     now: Option<chrono::NaiveTime>,
+    events: &[(chrono::NaiveTime, u32)],
 ) -> (u32, u32) {
     use streamline_domain::time::parse_hhmm;
     let task = |id: &str| tasks.iter().find(|t| t.id == id);
-    let busy: Vec<_> = entries
+    let mut busy: Vec<_> = entries
         .iter()
         .filter_map(|e| {
             Some((
@@ -65,6 +71,7 @@ pub fn day_load(
             ))
         })
         .collect();
+    busy.extend_from_slice(events);
     let start = parse_hhmm(&user.day_window_start).unwrap_or_default();
     let end = parse_hhmm(&user.day_window_end).unwrap_or_default();
     let window = match now {
@@ -139,7 +146,43 @@ pub async fn get_day(
         let tz = streamline_domain::time::parse_tz(&user.user.timezone).unwrap_or(chrono_tz::UTC);
         chrono::Utc::now().with_timezone(&tz).time()
     });
-    let (free_min, planned_min) = day_load(&user.user, &entries, &tasks, now);
+    let tz = streamline_domain::time::parse_tz(&user.user.timezone).unwrap_or(chrono_tz::UTC);
+    let (from, to) = (
+        streamline_domain::time::resolve_local(tz, day.and_time(chrono::NaiveTime::MIN)),
+        streamline_domain::time::resolve_local(
+            tz,
+            (day + chrono::Duration::days(1)).and_time(chrono::NaiveTime::MIN),
+        ),
+    );
+    let ts =
+        |t: chrono::DateTime<chrono::Utc>| t.to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    let events: Vec<CalendarEvent> = sqlx::query_as(
+        "SELECT e.* FROM events e JOIN calendars c ON c.id = e.calendar_id
+         WHERE e.user_id = ?1 AND e.deleted_at IS NULL AND c.enabled = 1 AND (
+           e.all_day = 0 AND e.start_at < ?3 AND (e.end_at > ?2 OR e.end_at = e.start_at AND e.start_at >= ?2)
+           OR e.all_day = 1 AND e.start_date <= ?4 AND e.end_date > ?4)
+         ORDER BY e.all_day DESC, e.start_at, e.start_date",
+    )
+    .bind(user.id())
+    .bind(ts(from))
+    .bind(ts(to))
+    .bind(&date)
+    .fetch_all(db)
+    .await?;
+    let spans: Vec<_> = events
+        .iter()
+        .filter(|e| e.busy && !e.all_day)
+        .filter_map(|e| {
+            let p = |s: &Option<String>| {
+                chrono::DateTime::parse_from_rfc3339(s.as_deref()?)
+                    .ok()
+                    .map(|t| t.to_utc())
+            };
+            Some((p(&e.start_at)?, p(&e.end_at)?))
+        })
+        .collect();
+    let busy = streamline_domain::calendar::busy_on(day, tz, &spans);
+    let (free_min, planned_min) = day_load(&user.user, &entries, &tasks, now, &busy);
     Ok(Json(DayView {
         date,
         today: rollover::today_for(&user.user)
@@ -148,6 +191,7 @@ pub async fn get_day(
         entries,
         tasks,
         plan,
+        events,
         free_min,
         planned_min,
     }))

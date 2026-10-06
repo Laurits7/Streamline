@@ -1,4 +1,5 @@
 mod account;
+mod calendar;
 mod days;
 pub mod focus;
 pub mod groups;
@@ -38,6 +39,7 @@ use crate::AppState;
         workflows::list, workflows::create, workflows::patch, workflows::delete, workflows::start,
         places::list, places::create, places::patch, places::delete,
         series::list, series::all_stats, series::create, series::patch, series::delete,
+        calendar::get_account, calendar::put_account, calendar::delete_account, calendar::test, calendar::sync_now, calendar::patch_calendar,
         sync::sync, sync::events, sync::today, sync::task_types,
         projects::list, projects::create, projects::patch, projects::delete,
         tasks::list, tasks::create, tasks::get_one, tasks::patch, tasks::delete,
@@ -55,6 +57,7 @@ use crate::AppState;
         (name = "places", description = "Places where tasks are done"),
         (name = "workflows", description = "Multi-step workflow templates"),
         (name = "groups", description = "Groups and shared ownership"),
+        (name = "calendar", description = "Calendar account (CalDAV) and calendars"),
     )
 )]
 pub struct ApiDoc;
@@ -136,6 +139,15 @@ pub fn router(state: AppState) -> Router {
         .route("/series", get(series::list).post(series::create))
         .route("/series/stats", get(series::all_stats))
         .route("/series/{id}", patch(series::patch).delete(series::delete))
+        .route(
+            "/calendar/account",
+            get(calendar::get_account)
+                .put(calendar::put_account)
+                .delete(calendar::delete_account),
+        )
+        .route("/calendar/test", post(calendar::test))
+        .route("/calendar/sync", post(calendar::sync_now))
+        .route("/calendars/{id}", patch(calendar::patch_calendar))
         .route("/sync", get(sync::sync))
         .route("/events", get(sync::events))
         .route("/today", get(sync::today))

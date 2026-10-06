@@ -419,29 +419,29 @@ Legend: **Deliverables** = what exists afterwards · **Tests** = what must be co
 
 ### Phase 5: Calendar read (§6.5)
 
-- [ ] **5.1 CalDAV and iCal spike** (report to the owner before building on it)
+- [x] **5.1 CalDAV and iCal spike** (D-55) (report to the owner before building on it)
   - Add a `radicale` service to a dev compose profile. Prototype discovery
     (`current-user-principal` → `calendar-home-set` → list calendars via PROPFIND) and a
     `calendar-query` REPORT with a time range, using `reqwest` + `quick-xml`. Compare iCal
     parsers (`icalendar` with its parser feature vs. `ical`) on VTIMEZONE, RECURRENCE-ID and
     all-day events. Expected result: the CalDAV transport is hand-rolled (small); parsing and
     RRULE use crates. Log this in DECISIONS.md.
-- [ ] **5.2 Provider abstraction and settings**
+- [x] **5.2 Provider abstraction and settings**
   - Deliverables: `CalendarProvider` trait (`list_calendars`, `fetch_events(range)`, and
     unimplemented `put_event`/`delete_event` reserved for later write-back); the CalDAV
     implementation; encrypted credential storage; settings API + UI (URL, user, password,
     "test connection", calendar selection and colors). The password is write-only in the API.
-- [ ] **5.3 Sync engine and expansion**
+- [x] **5.3 Sync engine and expansion**
   - Deliverables: periodic and on-demand sync; incremental via ctag/etag (sync-token where
     supported); cache of raw VEVENTs + expanded instances for a rolling window; handles
     RRULE, EXDATE, RECURRENCE-ID overrides, all-day and floating times, TZID; sync status and
     last error shown in settings; on failure, keep the last known data and show a warning.
   - Tests: fixture `.ics` files (recurring with exceptions, all-day across DST, floating time,
     non-UTC TZID, cancelled instances); mocked HTTP for the PROPFIND/REPORT XML.
-- [ ] **5.4 Events in the UI**: events in the Today timeline (fixed, read-only); free-time
+- [x] **5.4 Events in the UI**: events in the Today timeline (fixed, read-only); free-time
       gaps between events; agenda/week view; the planning wizard's free-time number now
       subtracts events.
-- [ ] **5.5 Phase gate**
+- [x] **5.5 Phase gate**
 
 ---
 

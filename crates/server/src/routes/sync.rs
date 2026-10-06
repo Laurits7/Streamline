@@ -20,8 +20,8 @@ use crate::{
     db::current_rev,
     error::ApiResult,
     models::{
-        DayEntry, DayPlan, FocusSession, FocusTimer, Group, Me, Place, Project, Series, Task,
-        TaskType, WorkflowTemplate,
+        Calendar, CalendarAccountView, CalendarEvent, DayEntry, DayPlan, FocusSession, FocusTimer,
+        Group, Me, Place, Project, Series, Task, TaskType, WorkflowTemplate,
     },
     rollover,
 };
@@ -53,6 +53,11 @@ pub struct SyncResponse {
     pub series: Vec<Series>,
     pub places: Vec<Place>,
     pub workflows: Vec<WorkflowTemplate>,
+    /// Your connected calendar account, if any (always current).
+    pub calendar_account: Option<CalendarAccountView>,
+    pub calendars: Vec<Calendar>,
+    /// Calendar event instances (a full sync covers the last 30 days onwards).
+    pub events: Vec<CalendarEvent>,
     /// Your groups with their members (always complete).
     pub groups: Vec<Group>,
     /// The server's clock (Unix ms), so clients can correct for clock differences.
@@ -160,6 +165,29 @@ pub async fn sync(
     .fetch_all(db)
     .await?;
 
+    let calendar_account =
+        crate::calsync::account_for(&mut *state.db.read.acquire().await?, user.id())
+            .await?
+            .map(|a| CalendarAccountView::from(&a));
+    let calendars = sqlx::query_as(
+        "SELECT * FROM calendars WHERE user_id = ?1 AND (?2 = 0 AND deleted_at IS NULL OR ?2 > 0 AND rev > ?2)",
+    )
+    .bind(user.id())
+    .bind(since)
+    .fetch_all(db)
+    .await?;
+    let events = sqlx::query_as(
+        "SELECT * FROM events WHERE user_id = ?1 AND (
+            ?2 = 0 AND deleted_at IS NULL AND (all_day = 0 AND end_at >= ?3 OR all_day = 1 AND end_date >= ?4)
+            OR ?2 > 0 AND rev > ?2)",
+    )
+    .bind(user.id())
+    .bind(since)
+    .bind(&cutoff_ts)
+    .bind(&cutoff_date)
+    .fetch_all(db)
+    .await?;
+
     Ok(Json(SyncResponse {
         rev,
         full,
@@ -175,6 +203,9 @@ pub async fn sync(
         series,
         places,
         workflows,
+        calendar_account,
+        calendars,
+        events,
         groups,
         server_now: chrono::Utc::now().timestamp_millis(),
     }))

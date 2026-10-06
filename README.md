@@ -15,6 +15,9 @@ What works today:
   - drop a task on a project, Inbox or Today in the sidebar (or the Today/Inbox tabs on a phone);
   - drop tasks onto the timeline to schedule them, drag blocks to move them in time, drag a
     block's bottom edge to change its duration, and drag a block back into the plan to unschedule it.
+- **Your calendar**: connect any CalDAV calendar (Nextcloud, Fastmail, iCloud, Radicale, …;
+  read-only). Events appear on the day's timeline and in a week **agenda**, and busy time is
+  subtracted from the day's free time. Recurring events, exceptions and time zones are handled.
 - **Places**: give tasks a place (Home, Cottage, Town…); pick where you are, or let GPS detect it
   (HTTPS), and lists show what can be done there.
 - **Activity log**: every day records what happened (done, started, added, missed, focus time,
@@ -72,6 +75,7 @@ Set these in `docker-compose.yml` under `environment:`.
 | `TRUST_PROXY` | `false` | Set to `true` behind a reverse proxy, so `X-Forwarded-Proto/Host` are trusted (secure cookies over HTTPS) |
 | `COOKIE_SECURE` | `auto` | `auto`, `true` or `false`. `auto` marks cookies `Secure` only when the proxy reports HTTPS |
 | `SESSION_DAYS` | `90` | How long a login lasts |
+| `SECRET_KEY` | – | Encrypts stored passwords (e.g. your calendar's). If unset, a random key is created in `data/secret.key`; keep it with your backups |
 | `LOG_LEVEL` | `info` | e.g. `debug`, `info,sqlx=warn` |
 | `DATA_DIR` | `/data` | Where the database lives (inside the container) |
 
@@ -95,7 +99,8 @@ Tailscale: `tailscale serve --bg 3000` on the host also works (set `TRUST_PROXY:
 
 ### Backup and restore
 
-Stop the container and copy the `data/` folder. To back up while it's running, use SQLite's
+Stop the container and copy the `data/` folder (it includes `secret.key`, needed to read stored
+calendar passwords; without it you just enter them again). To back up while it's running, use SQLite's
 online backup:
 
 ```sh

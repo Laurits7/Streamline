@@ -1,6 +1,7 @@
 //! Pure domain logic for Streamline: no IO, no database, no HTTP.
 //! Everything here is deterministic and unit-tested.
 
+pub mod calendar;
 pub mod deps;
 pub mod focus;
 pub mod order;

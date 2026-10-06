@@ -137,6 +137,7 @@
       </div>
       <nav aria-label="Main">
         <a href="/" class="drop-zone" draggable="false" aria-current={todayActive} use:droppable={toToday}><Icon name="sun" /> Today</a>
+        <a href="/agenda" draggable="false" aria-current={active('agenda')}><Icon name="calendar" /> Agenda</a>
         <a href="/inbox" class="drop-zone" draggable="false" aria-current={active('inbox')} use:droppable={toProject(null)}><Icon name="inbox" /> Inbox</a>
         <a href="/tasks" draggable="false" aria-current={active('tasks')}><Icon name="list" /> All tasks</a>
         <a href="/routines" draggable="false" aria-current={active('routines')}><Icon name="repeat" /> Routines</a>
@@ -174,6 +175,8 @@
         <Day date={route.date} />
       {:else if route.name === 'plan'}
         {#await import('./views/Plan.svelte') then m}{#key route.date}<m.default date={route.date} />{/key}{/await}
+      {:else if route.name === 'agenda'}
+        {#await import('./views/Agenda.svelte') then m}<m.default start={route.start} />{/await}
       {:else if route.name === 'routines'}
         <Routines />
       {:else if route.name === 'tasks'}
@@ -196,6 +199,7 @@
     <nav class="tabbar" aria-label="Main">
       <a href="/" class="drop-zone" draggable="false" aria-current={todayActive} use:droppable={toToday}><Icon name="sun" size={22} /><span>Today</span></a>
       <a href="/inbox" class="drop-zone" draggable="false" aria-current={active('inbox')} use:droppable={toProject(null)}><Icon name="inbox" size={22} /><span>Inbox</span></a>
+      <a href="/agenda" aria-current={active('agenda')}><Icon name="calendar" size={22} /><span>Agenda</span></a>
       <a href="/projects" aria-current={projectsActive}><Icon name="folder" size={22} /><span>Projects</span></a>
       <a href="/settings" aria-current={route.name === 'settings' || route.name === 'help' ? 'page' : undefined}><Icon name="settings" size={22} /><span>Settings</span></a>
     </nav>
@@ -243,7 +247,8 @@
     height: calc(var(--nav-h) + env(safe-area-inset-bottom));
     padding-bottom: env(safe-area-inset-bottom);
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-auto-flow: column;
+    grid-auto-columns: 1fr;
     background: color-mix(in srgb, var(--surface) 88%, transparent);
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);

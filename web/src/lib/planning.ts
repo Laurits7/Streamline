@@ -64,9 +64,16 @@ export type DayLoad = { free: number; planned: number; scheduled: number; unesti
 
 /**
  * Free time and planned time of a day from its entries (open tasks only for "planned").
- * Pass `now` (HH:MM) for today, so only the rest of the day counts as free.
+ * Pass `now` (HH:MM) for today, so only the rest of the day counts as free, and busy
+ * calendar events as `[HH:MM, minutes]` (see calendar.ts `busyIntervals`).
  */
-export function dayLoad(me: Me, entries: DayEntry[], task: (id: string) => Task | undefined, now?: string): DayLoad {
+export function dayLoad(
+  me: Me,
+  entries: DayEntry[],
+  task: (id: string) => Task | undefined,
+  now?: string,
+  events: [string, number][] = [],
+): DayLoad {
   const minutes = (e: DayEntry, fallback: number) => e.duration_min ?? task(e.task_id)?.estimate_min ?? fallback
   const busy = entries.filter((e) => e.start_time).map((e): [string, number] => [e.start_time!, minutes(e, 30)])
   let planned = 0
@@ -79,7 +86,7 @@ export function dayLoad(me: Me, entries: DayEntry[], task: (id: string) => Task 
   }
   const window = now ? remainingWindow(me.day_window_start, me.day_window_end, now) : [me.day_window_start, me.day_window_end]
   return {
-    free: window ? freeMinutes(window[0], window[1], busy) : 0,
+    free: window ? freeMinutes(window[0], window[1], [...busy, ...events]) : 0,
     planned,
     scheduled: busy.length,
     unestimated,

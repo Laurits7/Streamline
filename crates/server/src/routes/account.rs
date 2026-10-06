@@ -155,6 +155,7 @@ pub async fn patch_me(
     Json(p): Json<PatchMe>,
 ) -> ApiResult<Json<Me>> {
     let mut u = user.user;
+    let old_tz = u.timezone.clone();
     if let Some(d) = p.display_name {
         let d = d.trim();
         if d.is_empty() || d.len() > 100 {
@@ -265,6 +266,18 @@ pub async fn patch_me(
         .bind(&u.id)
         .execute(&mut *tx)
         .await?;
+    // Floating and all-day calendar events depend on the zone: re-expand on the next sync,
+    // and make that sync happen now.
+    if u.timezone != old_tz {
+        sqlx::query("UPDATE calendars SET expanded_for = NULL WHERE user_id = ?")
+            .bind(&u.id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("UPDATE calendar_accounts SET last_sync_at = NULL WHERE user_id = ?")
+            .bind(&u.id)
+            .execute(&mut *tx)
+            .await?;
+    }
     tx.commit().await?;
     let me = Me::from(&u);
     state
