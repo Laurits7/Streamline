@@ -101,6 +101,7 @@ pub async fn materialize_series(
             ext_source: None,
             ext_id: None,
             ext_url: None,
+            also_project_ids: sqlx::types::Json(vec![]),
             series_id: Some(s.id.clone()),
             occurrence_key: Some(o.key.clone()),
             occurrence_date: Some(fmt(o.date)),

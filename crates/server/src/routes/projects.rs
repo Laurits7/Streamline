@@ -304,6 +304,20 @@ pub async fn delete(
         p.rev = rev;
         upsert_project(&mut tx, &p).await?;
         changes.push(Change::project(&p));
+        // Tasks that were only *also* listed here just lose the link.
+        let linked: Vec<Task> = sqlx::query_as(
+            "SELECT * FROM tasks WHERE deleted_at IS NULL AND EXISTS (SELECT 1 FROM json_each(also_project_ids) WHERE value = ?)",
+        )
+        .bind(&pid)
+        .fetch_all(&mut *tx)
+        .await?;
+        for mut t in linked {
+            t.also_project_ids.0.retain(|x| *x != pid);
+            t.updated_at = ts.clone();
+            t.rev = rev;
+            upsert_task(&mut tx, &t).await?;
+            changes.push(Change::task(&t));
+        }
     }
     tx.commit().await?;
     state.bus.publish(changes);

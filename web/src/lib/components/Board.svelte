@@ -50,7 +50,11 @@
         id: c.id ?? '',
         title: c.title,
         color: c.color,
-        tasks: open.filter((t) => (ids === null ? t.project_id === null : t.project_id !== null && ids.has(t.project_id))).sort(byPosition),
+        tasks: open
+          .filter((t) =>
+            ids === null ? t.project_id === null : (t.project_id !== null && ids.has(t.project_id)) || t.also_project_ids.some((p) => ids.has(p)),
+          )
+          .sort(byPosition),
       }
     })
   })
@@ -85,7 +89,7 @@
       </header>
       <div class="card list" use:dropList={{ accepts: (it) => it.kind === 'task', drop: (it, i) => drop(col, it, i) }}>
         {#each col.tasks as t (t.id)}
-          <TaskRow task={t} showProject={group !== 'project'} />
+          <TaskRow task={t} showProject={group !== 'project'} dragClosed={group === 'status'} />
         {:else}
           <p class="empty">Drop tasks here</p>
         {/each}

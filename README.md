@@ -15,7 +15,9 @@ What works today:
   - drop a task on a project, Inbox or Today in the sidebar (or the Today/Inbox tabs on a phone);
   - drop tasks onto the timeline to schedule them, drag blocks to move them in time, drag a
     block's bottom edge to change its duration, and drag a block back into the plan to unschedule it.
-- **Projects, subprojects (any depth) and inbox**: quick-add, complete with undo, archive.
+- **Activity log**: every day records what happened (done, started, added, missed, focus time,
+  planning) in time order, for reflecting; copy it as text.
+- **Projects, subprojects (any depth) and inbox** (a task can also be listed in several projects): quick-add, complete with undo, archive.
 - **Built-in help** at `/help` (sidebar, or Settings on a phone).
 - **Routines and repeating tasks**: on a schedule (any iCalendar rule: weekdays, monthly on the
   last day, …), at a fixed time (put on the timeline), or N times a week/month. Each occurrence is

@@ -1,6 +1,7 @@
 mod account;
 mod days;
 pub mod focus;
+mod log;
 mod projects;
 mod series;
 mod sync;
@@ -34,7 +35,7 @@ use crate::AppState;
         sync::sync, sync::events, sync::today, sync::task_types,
         projects::list, projects::create, projects::patch, projects::delete,
         tasks::list, tasks::create, tasks::get_one, tasks::patch, tasks::delete,
-        days::get_day, days::add_entry, days::put_plan, days::delete_plan, days::patch_entry, days::delete_entry,
+        days::get_day, log::get_log, days::add_entry, days::put_plan, days::delete_plan, days::patch_entry, days::delete_entry,
     ),
     tags(
         (name = "account", description = "Setup, sign-in, profile and API tokens"),
@@ -128,6 +129,7 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/days/{date}", get(days::get_day))
         .route("/days/{date}/entries", post(days::add_entry))
+        .route("/days/{date}/log", get(log::get_log))
         .route(
             "/days/{date}/plan",
             axum::routing::put(days::put_plan).delete(days::delete_plan),

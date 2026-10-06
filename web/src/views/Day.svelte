@@ -4,6 +4,7 @@
   import type { Task } from '../lib/api/types/Task'
   import Icon from '../lib/components/Icon.svelte'
   import PlanBanner from '../lib/components/PlanBanner.svelte'
+  import DayLog from '../lib/components/DayLog.svelte'
   import { dayLoad } from '../lib/planning'
   import QuickAdd from '../lib/components/QuickAdd.svelte'
   import TaskRow from '../lib/components/TaskRow.svelte'
@@ -186,6 +187,10 @@
           <TaskRow task={t} showProject planButton planDate={date} />
         {/each}
       </div>
+    {/if}
+
+    {#if date <= store.today}
+      {#key date}<DayLog {date} open={date < store.today} />{/key}
     {/if}
 
     {#if closed.length}

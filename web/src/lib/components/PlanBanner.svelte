@@ -58,6 +58,7 @@
 {/if}
 
 <style>
+  /* An unplanned day is something to act on: warm orange (owner request). */
   .banner {
     display: flex;
     align-items: center;
@@ -65,14 +66,18 @@
     padding: 12px 8px 12px 16px;
     margin-bottom: 16px;
     border-radius: var(--radius);
-    background: var(--accent-soft);
-    color: var(--accent);
-    border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+    background: var(--warn-soft);
+    color: var(--warn);
+    border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent);
+    border-left: 4px solid var(--warn);
   }
   .banner.soft {
-    background: var(--surface);
-    color: var(--muted);
-    border-color: var(--border);
+    border-color: color-mix(in srgb, var(--warn) 30%, transparent);
+    border-left-color: var(--warn);
+  }
+  .banner :global(.btn.primary) {
+    background: var(--warn);
+    color: #fff;
   }
   .text {
     flex: 1;
@@ -85,5 +90,6 @@
   }
   .text span {
     font-size: 13px;
+    color: var(--muted);
   }
 </style>

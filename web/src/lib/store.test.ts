@@ -39,6 +39,7 @@ const task = (id: string, extra: Partial<Task> = {}): Task => ({
   ext_source: null,
   ext_id: null,
   ext_url: null,
+  also_project_ids: [],
   series_id: null,
   occurrence_key: null,
   occurrence_date: null,

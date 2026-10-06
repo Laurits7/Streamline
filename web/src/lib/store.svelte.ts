@@ -37,6 +37,7 @@ export type TaskPatch = Partial<
     | 'importance'
     | 'urgency'
     | 'task_type_id'
+    | 'also_project_ids'
   >
 >
 export type EntryPatch = Partial<Pick<DayEntry, 'date' | 'position' | 'start_time' | 'duration_min'>>
@@ -344,7 +345,8 @@ class Store {
   openCountDeep(id: string): number {
     const ids = new Set(this.subtree(id))
     let n = 0
-    for (const t of this.tasks.values()) if (t.status === 'open' && t.project_id && ids.has(t.project_id)) n++
+    for (const t of this.tasks.values())
+      if (t.status === 'open' && ((t.project_id && ids.has(t.project_id)) || t.also_project_ids.some((p) => ids.has(p)))) n++
     return n
   }
 
@@ -361,7 +363,7 @@ class Store {
     return [...this.tasks.values()]
       .filter(
         (t) =>
-          t.project_id === projectId &&
+          (t.project_id === projectId || (projectId !== null && t.also_project_ids.includes(projectId))) &&
           !this.isUpcoming(t) &&
           (status === 'open' ? t.status === 'open' : t.status !== 'open'),
       )
@@ -420,6 +422,7 @@ class Store {
       ext_source: null,
       ext_id: null,
       ext_url: null,
+      also_project_ids: [],
       series_id: null,
       occurrence_key: null,
       occurrence_date: null,
@@ -602,6 +605,10 @@ class Store {
     this.optimistic(
       touched,
       () => {
+        // Tasks only also listed in the deleted projects just lose the link.
+        for (const t of this.tasks.values())
+          if (t.also_project_ids.some((p) => ids.has(p)) && !tasks.includes(t))
+            this.tasks.set(t.id, { ...t, also_project_ids: t.also_project_ids.filter((p) => !ids.has(p)) })
         ids.forEach((pid) => this.projects.delete(pid))
         tasks.forEach((t) => this.tasks.delete(t.id))
         entries.forEach((e) => this.entries.delete(e.id))
@@ -665,7 +672,19 @@ class Store {
     if (!t) return
     if (t.project_id === projectId && position === undefined) return
     const last = this.tasksIn(projectId).filter((x) => x.id !== id).at(-1)
-    this.updateTask(id, { project_id: projectId, position: position ?? keyBetween(last?.position, null) })
+    this.updateTask(id, {
+      project_id: projectId,
+      position: position ?? keyBetween(last?.position, null),
+      // Becoming the main project replaces an "also in" link to it.
+      also_project_ids: t.also_project_ids.filter((p) => p !== projectId),
+    })
+  }
+
+  /** Also list a task in other projects (besides its main one). */
+  setAlsoProjects(id: string, projectIds: string[]) {
+    const t = this.tasks.get(id)
+    if (!t) return
+    this.updateTask(id, { also_project_ids: [...new Set(projectIds)].filter((p) => p !== t.project_id) })
   }
 
   updateEntry(id: string, patch: EntryPatch) {

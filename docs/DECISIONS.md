@@ -77,6 +77,18 @@ Any of them can be revisited when the chunk that implements it starts.
   - **Edits:** "this one" means editing the task. "All future" (`PATCH /series/{id}` with `from`) updates content in place on open occurrences from that date. A *schedule* change splits the routine: the old one ends the day before (or is deleted if it has no history), and the new one starts after the last settled occurrence or window, so nothing is done twice. Ending a routine removes open occurrences from today on and keeps the history.
   - **Known limit:** splitting a "N per week" routine mid-window when only some slots are done starts the new routine next week; this week's remaining open slots are removed.
   - **Streaks:** consecutive done occurrences (or fully done windows). Skips don't break a streak; open, carry-on occurrences are undecided.
+- **D-48 · 2026-10-06 · Owner follow-ups** (after Phase 3):
+  - **Unplanned banner:** an unplanned day's banner is warm orange (warning colours), not neutral or accent.
+  - **Board:** Done cards can be dragged back to To do / In progress to undo a mistaken "done". On the board only; elsewhere, closed tasks stay undraggable.
+  - **Tasks in several projects:** `tasks.also_project_ids` (JSON array) next to the main `project_id`. The task is listed and counted in all of them, with one shared order. Making an "also" project the main one removes the duplicate link. Deleting a project only unlinks tasks that are merely also in it; tasks whose *main* project it is are deleted as before. Chosen over a join table: it keeps tasks a single synced record (D-33); a join table is still possible later if group sharing needs per-link data.
+  - **Activity log:** `GET /days/{date}/log`, built on the fly (nothing new is stored). It includes, within the logical day:
+    - task events: completed (unless later reopened), skipped, won't do
+    - misses that belong to the day
+    - tasks started, and tasks added by hand (not routine occurrences)
+    - focus intervals
+    - days marked planned
+
+    Shown on the day view (open by default for past days) and in the planner's Review step, with "Copy as text". Groundwork for the Phase 5b daily summary.
 
 ## Resource log
 

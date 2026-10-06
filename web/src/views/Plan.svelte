@@ -7,6 +7,7 @@
   import type { Task } from '../lib/api/types/Task'
   import Icon from '../lib/components/Icon.svelte'
   import LoadBar from '../lib/components/LoadBar.svelte'
+  import DayLog from '../lib/components/DayLog.svelte'
   import QuickAdd from '../lib/components/QuickAdd.svelte'
   import TaskRow from '../lib/components/TaskRow.svelte'
   import Timeline from '../lib/components/Timeline.svelte'
@@ -183,6 +184,7 @@
           <h3>Missed</h3>
           <div class="card list">{#each missed as i (i.entry.id)}<TaskRow task={i.task} entry={i.entry} showProject />{/each}</div>
         {/if}
+        {#if reviewDate <= store.today}<DayLog date={reviewDate} open={false} />{/if}
         {#if done.length}
           <h3>Done</h3>
           <ul class="done-list">{#each done as i (i.entry.id)}<li><Icon name="check" size={14} /> {i.task.title}</li>{/each}</ul>

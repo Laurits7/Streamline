@@ -56,6 +56,11 @@
       for today.
     </p>
     <p>Use the arrows next to the date to look at, and plan, other days.</p>
+    <p>
+      <strong>Activity log</strong>: each day keeps an automatic log of what happened — tasks completed, started,
+      added, skipped or missed, focus time and planning — in time order. It's on the day view and in the evening
+      review, and <em>Copy as text</em> gives you a summary to reflect on or paste elsewhere.
+    </p>
   </section>
 
   <section id="planning">
@@ -130,7 +135,8 @@
       <li>
         <strong>Board</strong>: columns by <em>status</em> (To do, In progress, Done), <em>project</em>
         (subprojects inside a project), <em>difficulty</em> or <em>task type</em>. Drag a card to another column to change
-        that property, or within a column to reorder.
+        that property, or within a column to reorder. Marked something done by mistake? Drag it from <em>Done</em>
+        back to <em>To do</em>.
       </li>
       <li>
         <strong>Matrix</strong>: urgent/important quadrants (Do first, Schedule, Delegate, Later). Dragging a task to
@@ -194,6 +200,11 @@
       <strong>Projects</strong> group related tasks. From a project's <Icon name="more" size={14} /> menu you can
       rename it, pick a colour, move it under another project, archive it (hides it but keeps everything) or delete it
       together with its tasks. The sun button on a task plans it for today.
+    </p>
+    <p>
+      A task can be listed in <strong>several projects</strong>: open it and use <em>Also in → + Add project</em>
+      (e.g. “buy a garden hose” for both <em>Cottage</em> and <em>Shopping</em>). Its main project is where it was
+      created; deleting another project only removes the link.
     </p>
     <p>
       <strong>Subprojects</strong> break bigger things down, as deep as you like. For example, “Paper” can contain

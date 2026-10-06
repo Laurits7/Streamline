@@ -1489,3 +1489,243 @@ async fn routine_edits_this_one_vs_all_future() {
     );
     assert_eq!(occurrences(&t, &admin, &sid).await.len(), 1);
 }
+
+#[tokio::test]
+async fn tasks_in_several_projects() {
+    let t = setup().await;
+    let admin = t.admin().await;
+    let mk = |name: &'static str| {
+        let (t, admin) = (&t, admin.clone());
+        async move {
+            t.req(
+                "POST",
+                "/api/v1/projects",
+                Some(&admin),
+                Some(json!({"name": name})),
+            )
+            .await
+            .1["id"]
+                .as_str()
+                .unwrap()
+                .to_string()
+        }
+    };
+    let (house, garden, cottage) = (mk("House").await, mk("Garden").await, mk("Cottage").await);
+    let (_, task, _) = t
+        .req(
+            "POST",
+            "/api/v1/tasks",
+            Some(&admin),
+            Some(json!({"title": "Buy garden hose", "project_id": cottage})),
+        )
+        .await;
+    let tid = task["id"].as_str().unwrap().to_string();
+    assert_eq!(task["also_project_ids"], json!([]));
+
+    // Duplicates and the main project are ignored; unknown projects rejected.
+    let (_, v, _) = t
+        .req(
+            "PATCH",
+            &format!("/api/v1/tasks/{tid}"),
+            Some(&admin),
+            Some(json!({"also_project_ids": [garden, house, garden, cottage]})),
+        )
+        .await;
+    assert_eq!(v["also_project_ids"], json!([garden, house]));
+    let (s, _, _) = t
+        .req(
+            "PATCH",
+            &format!("/api/v1/tasks/{tid}"),
+            Some(&admin),
+            Some(json!({"also_project_ids": ["nope"]})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+
+    // Making an "also" project the main one removes it from the extra list.
+    let (_, v, _) = t
+        .req(
+            "PATCH",
+            &format!("/api/v1/tasks/{tid}"),
+            Some(&admin),
+            Some(json!({"project_id": garden})),
+        )
+        .await;
+    assert_eq!(v["also_project_ids"], json!([house]));
+
+    // Deleting a project the task is only also in just unlinks it.
+    t.req(
+        "DELETE",
+        &format!("/api/v1/projects/{house}"),
+        Some(&admin),
+        None,
+    )
+    .await;
+    let (s, v, _) = t
+        .req("GET", &format!("/api/v1/tasks/{tid}"), Some(&admin), None)
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(v["also_project_ids"], json!([]));
+}
+
+#[tokio::test]
+async fn daily_activity_log() {
+    let t = setup().await;
+    let admin = t.admin().await;
+    let today = today_of(&t, &admin).await;
+    let (_, p, _) = t
+        .req(
+            "POST",
+            "/api/v1/projects",
+            Some(&admin),
+            Some(json!({"name": "House"})),
+        )
+        .await;
+    let (_, a, _) = t
+        .req(
+            "POST",
+            "/api/v1/tasks",
+            Some(&admin),
+            Some(json!({"title": "Fix tap", "project_id": p["id"]})),
+        )
+        .await;
+    let (_, b, _) = t
+        .req(
+            "POST",
+            "/api/v1/tasks",
+            Some(&admin),
+            Some(json!({"title": "Call bank"})),
+        )
+        .await;
+    let (_, c, _) = t
+        .req(
+            "POST",
+            "/api/v1/tasks",
+            Some(&admin),
+            Some(json!({"title": "Old idea"})),
+        )
+        .await;
+    let id = |v: &Value| v["id"].as_str().unwrap().to_string();
+    t.req(
+        "PATCH",
+        &format!("/api/v1/tasks/{}", id(&a)),
+        Some(&admin),
+        Some(json!({"status": "done"})),
+    )
+    .await;
+    // Completed then reopened: not logged as completed.
+    t.req(
+        "PATCH",
+        &format!("/api/v1/tasks/{}", id(&b)),
+        Some(&admin),
+        Some(json!({"status": "done"})),
+    )
+    .await;
+    t.req(
+        "PATCH",
+        &format!("/api/v1/tasks/{}", id(&b)),
+        Some(&admin),
+        Some(json!({"status": "open", "in_progress": true})),
+    )
+    .await;
+    t.req(
+        "PATCH",
+        &format!("/api/v1/tasks/{}", id(&c)),
+        Some(&admin),
+        Some(json!({"status": "wont_do"})),
+    )
+    .await;
+    // A focus interval (12 min, stopped early).
+    t.req(
+        "POST",
+        "/api/v1/focus",
+        Some(&admin),
+        Some(json!({"action": "start", "task_id": id(&a)})),
+    )
+    .await;
+    sqlx::query("UPDATE focus_timers SET running_since = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-12 minutes')").execute(&t.state.db.write).await.unwrap();
+    t.req(
+        "POST",
+        "/api/v1/focus",
+        Some(&admin),
+        Some(json!({"action": "stop"})),
+    )
+    .await;
+    // Planned tomorrow.
+    let tomorrow = ymd(today + chrono::Duration::days(1));
+    t.req(
+        "PUT",
+        &format!("/api/v1/days/{tomorrow}/plan"),
+        Some(&admin),
+        Some(json!({"status": "planned"})),
+    )
+    .await;
+
+    let (s, log, _) = t
+        .req(
+            "GET",
+            &format!("/api/v1/days/{}/log", ymd(today)),
+            Some(&admin),
+            None,
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    let texts: Vec<&str> = log
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|x| x["text"].as_str().unwrap())
+        .collect();
+    assert!(texts.contains(&"Added “Fix tap” (House)"), "{texts:?}");
+    assert!(texts.contains(&"Completed “Fix tap” (House)"), "{texts:?}");
+    assert!(
+        !texts.contains(&"Completed “Call bank”"),
+        "reopened completions are left out: {texts:?}"
+    );
+    assert!(texts.contains(&"Started “Call bank”"), "{texts:?}");
+    assert!(texts.contains(&"Decided not to do “Old idea”"), "{texts:?}");
+    assert!(
+        texts
+            .iter()
+            .any(|x| x.starts_with("Focused 12 min on “Fix tap”")),
+        "{texts:?}"
+    );
+    assert!(
+        texts.iter().any(|x| x.starts_with("Planned the next day")),
+        "{texts:?}"
+    );
+    let ats: Vec<&str> = log
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|x| x["at"].as_str().unwrap())
+        .collect();
+    assert!(ats.windows(2).all(|w| w[0] <= w[1]), "in time order");
+
+    // Another day is empty; another user sees nothing of it.
+    let (_, other, _) = t
+        .req(
+            "GET",
+            &format!("/api/v1/days/{tomorrow}/log"),
+            Some(&admin),
+            None,
+        )
+        .await;
+    assert!(
+        other
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|x| x["kind"] != "completed")
+    );
+    let bob = t.user(&admin, "bob").await;
+    let (_, theirs, _) = t
+        .req(
+            "GET",
+            &format!("/api/v1/days/{}/log", ymd(today)),
+            Some(&bob),
+            None,
+        )
+        .await;
+    assert_eq!(theirs, json!([]));
+}

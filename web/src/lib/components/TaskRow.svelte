@@ -13,6 +13,7 @@
     entry = null,
     showProject = false,
     handle = false,
+    dragClosed = false,
     planButton = false,
     planDate = null,
   }: {
@@ -21,6 +22,8 @@
     showProject?: boolean
     /** Show a grip: keyboard reorder (arrow keys) and immediate touch drag. */
     handle?: boolean
+    /** Allow dragging completed tasks too (the board: Done back to To do). */
+    dragClosed?: boolean
     planButton?: boolean
     planDate?: string | null
   } = $props()
@@ -40,7 +43,7 @@
   class:closed
   data-id={entry?.id ?? task.id}
   use:draggable={{
-    disabled: task.status !== 'open',
+    disabled: task.status !== 'open' && !(dragClosed && task.status === 'done'),
     item: () => ({
       kind: 'task',
       taskId: task.id,
@@ -68,7 +71,11 @@
     </span>
     <span class="meta">
       {#if statusLabel[task.status]}<span class="tag danger">{statusLabel[task.status]}</span>{/if}
-      {#if showProject && project}<span class="project" title={store.projectPath(project.id)}><i style:background={project.color ?? 'var(--faint)'}></i>{project.name}</span>{/if}
+      {#if showProject && project}
+        <span class="project" title={[project.id, ...task.also_project_ids].map((p) => store.projectPath(p)).join('\n')}>
+          <i style:background={project.color ?? 'var(--faint)'}></i>{project.name}{task.also_project_ids.length ? ` +${task.also_project_ids.length}` : ''}
+        </span>
+      {/if}
       {#if task.due_date}<span class:overdue><Icon name="calendar" size={12} />{shortDate(task.due_date, store.today)}</span>{/if}
       {#if task.estimate_min}<span><Icon name="clock" size={12} />{fmtMinutes(task.estimate_min)}</span>{/if}
       {#if task.difficulty}<span class="diff" title="Difficulty">{'●'.repeat(task.difficulty)}{'○'.repeat(3 - task.difficulty)}</span>{/if}

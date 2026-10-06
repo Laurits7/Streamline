@@ -231,6 +231,7 @@ pub async fn create(
         ext_source: None,
         ext_id: None,
         ext_url: None,
+        also_project_ids: sqlx::types::Json(vec![]),
         series_id: None,
         occurrence_key: None,
         occurrence_date: None,
@@ -291,6 +292,31 @@ pub struct PatchTask {
     task_type_id: Option<String>,
     /// Mark an open task as in progress (`true`) or not started (`false`).
     in_progress: Option<bool>,
+    /// Other projects to also list the task in (replaces the current list).
+    also_project_ids: Option<Vec<String>>,
+}
+
+/// Validate "also in" projects: visible, unique, not the main project, at most 10.
+async fn check_also(
+    conn: &mut sqlx::SqliteConnection,
+    user: &AuthUser,
+    main: &Option<String>,
+    ids: Vec<String>,
+) -> ApiResult<Vec<String>> {
+    let mut out: Vec<String> = vec![];
+    for id in ids {
+        if Some(&id) == main.as_ref() || out.contains(&id) {
+            continue;
+        }
+        crate::routes::projects::load_visible(conn, user, &id)
+            .await
+            .map_err(|_| bad("unknown project"))?;
+        out.push(id);
+    }
+    if out.len() > 10 {
+        return Err(bad("a task can be in at most 10 extra projects"));
+    }
+    Ok(out)
 }
 
 #[utoipa::path(patch, path = "/tasks/{id}", tag = "tasks", summary = "Update a task; status done completes it", params(("id" = String, Path, description = "ULID")), request_body = PatchTask, responses((status = 200, body = Task), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
@@ -312,6 +338,12 @@ pub async fn patch(
     if let Some(v) = c.project_id {
         check_project(&mut tx, &user, &v).await?;
         t.project_id = v;
+        // Becoming the main project replaces an "also in" link to it.
+        let main = t.project_id.clone();
+        t.also_project_ids.0.retain(|p| Some(p) != main.as_ref());
+    }
+    if let Some(v) = c.also_project_ids {
+        t.also_project_ids = sqlx::types::Json(check_also(&mut tx, &user, &t.project_id, v).await?);
     }
     if let Some(v) = c.position {
         check_position(&v)?;

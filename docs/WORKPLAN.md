@@ -2,8 +2,8 @@
 
 > Companion to [`SPEC.md`](SPEC.md). Section numbers like §6.2c refer to the spec.
 > Status (2026-10-06): Part A and Part C **confirmed** (see `DECISIONS.md`). **Phases 1, 2, 2a, 2b
-> and 3 are complete.** Next: the owner's follow-up requests (unplanned-banner colour, done → to do on
-> the board, tasks in several projects, daily activity log), then 2b.6a Places, then Phase 3b.
+> and 3 are complete**, plus the owner's follow-ups (orange unplanned banner, Done → To do on the board,
+> tasks in several projects, daily activity log; D-48). Next: 2b.6a Places, then Phase 3b.
 > Legend: `[x]` done · `[~]` partly done (the remaining work is noted) · `[ ]` not started.
 
 ## MVP status (2026-10-06)

@@ -149,6 +149,29 @@
         <option value="">Inbox</option>
         {#each projects as { project: p, depth } (p.id)}<option value={p.id}>{'\u00a0\u00a0\u00a0'.repeat(depth)}{p.name}</option>{/each}
       </select>
+      <div class="also">
+        <span class="muted">Also in:</span>
+        {#each task.also_project_ids as pid (pid)}
+          <span class="chip on also-chip">
+            {store.projectPath(pid)}
+            <button aria-label="Remove from {store.projectPath(pid)}" onclick={() => store.setAlsoProjects(id, task.also_project_ids.filter((x) => x !== pid))}><Icon name="x" size={12} /></button>
+          </span>
+        {/each}
+        <select
+          class="add-also"
+          value=""
+          aria-label="Also list in another project"
+          onchange={(e) => {
+            const v = (e.currentTarget as HTMLSelectElement).value
+            if (v) store.setAlsoProjects(id, [...task.also_project_ids, v])
+            ;(e.currentTarget as HTMLSelectElement).value = ''
+          }}>
+          <option value="">+ Add project</option>
+          {#each projects.filter(({ project: p }) => p.id !== task.project_id && !task.also_project_ids.includes(p.id)) as { project: p, depth } (p.id)}
+            <option value={p.id}>{'\u00a0\u00a0\u00a0'.repeat(depth)}{p.name}</option>
+          {/each}
+        </select>
+      </div>
     </section>
 
     <section>
@@ -258,6 +281,29 @@
   }
   section {
     margin-top: 20px;
+  }
+  .also {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin-top: 8px;
+    font-size: 13px;
+  }
+  .also-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding-right: 6px;
+  }
+  .also-chip button {
+    display: grid;
+    color: inherit;
+  }
+  .add-also {
+    width: auto !important;
+    padding: 4px 8px !important;
+    font-size: 13px;
   }
   .routine-box {
     display: flex;
