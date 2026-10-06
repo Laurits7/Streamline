@@ -48,6 +48,10 @@
     return { allDay: ev.allDay, rows, untimed }
   }
 
+  $effect(() => {
+    store.loadNamedays().catch(() => {})
+  })
+
   const go = (d: string | null) => router.go(d ? `/agenda/${d}` : '/agenda')
 </script>
 
@@ -73,6 +77,9 @@
         <strong>{dayLabel(date, store.today)}</strong>
         <span class="muted">{longDate(date)}</span>
       </a>
+      {#each store.occasionsOn(date) as o (o.person.id + o.kind)}
+        <div class="occasion"><Icon name="gift" size={13} /> {o.person.name}: {o.kind === 'birthday' ? 'birthday' : 'nameday'}</div>
+      {/each}
       {#each a.allDay as d (d.event.id)}
         <div class="allday" style:--cal={d.color}>{d.event.title}</div>
       {/each}
@@ -95,6 +102,7 @@
         <a class="more muted" href={date === store.today ? '/' : `/day/${date}`}>+ {a.untimed} planned without a time</a>
       {/if}
       {#if !a.allDay.length && !a.rows.length && !a.untimed}<p class="muted none">Nothing scheduled</p>{/if}
+      {#if store.namedaysOn(date).length}<p class="muted nd">Nameday: {store.namedaysOn(date).join(', ')}</p>{/if}
     </section>
   {/each}
 </div>
@@ -145,6 +153,19 @@
   }
   .dayhead span {
     font-size: 13px;
+  }
+  .occasion {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--accent);
+    margin-bottom: 4px;
+  }
+  .nd {
+    font-size: 12px;
+    margin: 6px 0 0;
   }
   .allday {
     font-size: 13px;

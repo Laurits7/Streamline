@@ -361,6 +361,8 @@
   </p>
 </section>
 
+<a class="card help-link" href="/occasions"><Icon name="gift" /><span>Namedays & birthdays</span><Icon name="right" size={16} /></a>
+
 <section class="card" id="calendar">
   <h2>Calendar</h2>
   <p class="help muted">

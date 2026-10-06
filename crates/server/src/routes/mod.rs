@@ -1,9 +1,10 @@
-mod account;
+pub(crate) mod account;
 mod calendar;
 mod days;
 pub mod focus;
 pub mod groups;
 mod log;
+mod occasions;
 pub mod places;
 mod projects;
 mod series;
@@ -40,6 +41,7 @@ use crate::AppState;
         places::list, places::create, places::patch, places::delete,
         series::list, series::all_stats, series::create, series::patch, series::delete,
         calendar::get_account, calendar::put_account, calendar::delete_account, calendar::test, calendar::sync_now, calendar::patch_calendar,
+        occasions::calendar, occasions::search, occasions::load, occasions::create_person, occasions::patch_person, occasions::delete_person, occasions::put_template,
         sync::sync, sync::events, sync::today, sync::task_types,
         projects::list, projects::create, projects::patch, projects::delete,
         tasks::list, tasks::create, tasks::get_one, tasks::patch, tasks::delete,
@@ -58,6 +60,7 @@ use crate::AppState;
         (name = "workflows", description = "Multi-step workflow templates"),
         (name = "groups", description = "Groups and shared ownership"),
         (name = "calendar", description = "Calendar account (CalDAV) and calendars"),
+        (name = "occasions", description = "Nameday calendar, people, birthdays and namedays"),
     )
 )]
 pub struct ApiDoc;
@@ -148,6 +151,17 @@ pub fn router(state: AppState) -> Router {
         .route("/calendar/test", post(calendar::test))
         .route("/calendar/sync", post(calendar::sync_now))
         .route("/calendars/{id}", patch(calendar::patch_calendar))
+        .route("/namedays", get(occasions::calendar).post(occasions::load))
+        .route("/namedays/search", get(occasions::search))
+        .route("/people", post(occasions::create_person))
+        .route(
+            "/people/{id}",
+            patch(occasions::patch_person).delete(occasions::delete_person),
+        )
+        .route(
+            "/occasion-templates/{kind}",
+            axum::routing::put(occasions::put_template),
+        )
         .route("/sync", get(sync::sync))
         .route("/events", get(sync::events))
         .route("/today", get(sync::today))

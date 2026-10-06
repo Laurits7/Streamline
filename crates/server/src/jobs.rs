@@ -14,6 +14,13 @@ pub fn spawn(state: AppState) {
             if let Err(e) = crate::routines::materialize_all(&state).await {
                 tracing::warn!("routines job failed: {e:#}");
             }
+            if let Err(e) = crate::occasions::materialize_all(&state).await {
+                tracing::warn!("occasions job failed: {e:#}");
+            }
+            {
+                let state = state.clone();
+                tokio::spawn(async move { crate::occasions::ensure_calendar(&state).await });
+            }
             if let Err(e) = crate::rollover::run_all(&state).await {
                 tracing::warn!("rollover job failed: {e:#}");
             }

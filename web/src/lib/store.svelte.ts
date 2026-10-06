@@ -8,6 +8,11 @@ import type { Calendar } from './api/types/Calendar'
 import type { CalendarAccountView } from './api/types/CalendarAccountView'
 import type { CalendarEvent } from './api/types/CalendarEvent'
 import type { DayEntry } from './api/types/DayEntry'
+import type { NamedayCalendar } from './api/types/NamedayCalendar'
+import type { NameMatch } from './api/types/NameMatch'
+import type { OccasionStep } from './api/types/OccasionStep'
+import type { OccasionTemplate } from './api/types/OccasionTemplate'
+import type { Person } from './api/types/Person'
 import type { DayPlan } from './api/types/DayPlan'
 import type { FocusSession } from './api/types/FocusSession'
 import type { FocusState } from './api/types/FocusState'
@@ -41,6 +46,7 @@ type Kind =
   | 'group'
   | 'calendar'
   | 'event'
+  | 'person'
 type Entity =
   | Task
   | Project
@@ -53,6 +59,7 @@ type Entity =
   | Group
   | Calendar
   | CalendarEvent
+  | Person
 
 export type TaskPatch = Partial<
   Pick<
@@ -102,6 +109,14 @@ const IDLE_TIMER: FocusTimer = {
 const byPosition = (a: { position: string }, b: { position: string }) =>
   a.position < b.position ? -1 : a.position > b.position ? 1 : 0
 
+/** Lowercase without accents, like the server's name search (`Tõnu` ~ "tonu"). */
+export const fold = (s: string) =>
+  s
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+
 class Store {
   me = $state<Me | null>(null)
   today = $state('')
@@ -122,6 +137,11 @@ class Store {
   calendars = new SvelteMap<string, Calendar>()
   events = new SvelteMap<string, CalendarEvent>()
   calendarAccount = $state<CalendarAccountView | null>(null)
+  people = new SvelteMap<string, Person>()
+  occasionTemplates = new SvelteMap<string, OccasionTemplate>()
+  /** The shared nameday calendar, loaded on first use: `MM-DD` → names. */
+  namedays = $state<{ label: string | null; byDate: Map<string, string[]> } | null>(null)
+  private namedaysLoading: Promise<void> | null = null
   /** Where this device is ('' = anywhere/not set). Per device, like the GPS setting (D-45). */
   currentPlace = $state(readLocal('sl.place', ''))
   /** Use GPS to set the current place (per device; needs HTTPS and permission). */
@@ -176,6 +196,9 @@ class Store {
     this.calendars.clear()
     this.events.clear()
     this.calendarAccount = null
+    this.people.clear()
+    this.occasionTemplates.clear()
+    this.namedays = null
     this.focusTimer = IDLE_TIMER
   }
 
@@ -240,7 +263,10 @@ class Store {
       this.workflows.clear()
       this.calendars.clear()
       this.events.clear()
+      this.people.clear()
     }
+    this.occasionTemplates.clear()
+    for (const x of r.occasion_templates) this.occasionTemplates.set(x.kind, x)
     this.calendarAccount = r.calendar_account
     // Groups always come complete.
     this.groups.clear()
@@ -263,6 +289,7 @@ class Store {
     for (const x of r.workflows) this.applyRemote('workflow', x)
     for (const x of r.calendars) this.applyRemote('calendar', x)
     for (const x of r.events) this.applyRemote('event', x)
+    for (const x of r.people) this.applyRemote('person', x)
     this.rev = Math.max(this.rev, r.rev)
     this.ready = true
   }
@@ -293,13 +320,20 @@ class Store {
         if (g.deleted_at || !g.members.some((m) => m.user_id === this.me?.id) && !this.me?.is_admin) this.groups.delete(g.id)
         else this.groups.set(g.id, g)
       } else if (c.kind === 'calendar_account') this.calendarAccount = c.data as CalendarAccountView | null
+      else if (c.kind === 'namedays') {
+        if (this.namedays) this.loadNamedays(true).catch(() => {})
+      } else if (c.kind === 'occasion_template') {
+        const t = c.data as OccasionTemplate
+        this.occasionTemplates.set(t.kind, t)
+      }
       else if (
         c.kind === 'focus_session' ||
         c.kind === 'series' ||
         c.kind === 'place' ||
         c.kind === 'workflow' ||
         c.kind === 'calendar' ||
-        c.kind === 'event'
+        c.kind === 'event' ||
+        c.kind === 'person'
       )
         this.applyRemote(c.kind, c.data as Entity)
       else if (c.kind === 'task' || c.kind === 'project' || c.kind === 'day_entry' || c.kind === 'day_plan')
@@ -334,6 +368,7 @@ class Store {
       group: this.groups,
       calendar: this.calendars,
       event: this.events,
+      person: this.people,
     }
     return maps[kind] as SvelteMap<string, Entity>
   }
@@ -1178,6 +1213,111 @@ class Store {
       () => this.calendars.set(id, { ...cur, ...patch }),
       async () => [['calendar', await api.patch<Calendar>(`/calendars/${id}`, patch)]],
     )
+  }
+
+  // ---- occasions -------------------------------------------------------------
+
+  /** Load the shared nameday calendar (once; `force` reloads it). */
+  loadNamedays(force = false): Promise<void> {
+    if (this.namedays && !force) return Promise.resolve()
+    if (!this.namedaysLoading || force)
+      this.namedaysLoading = api
+        .get<NamedayCalendar>('/namedays')
+        .then((c) => {
+          const byDate = new Map<string, string[]>()
+          for (const d of c.days) byDate.set(`${String(d.month).padStart(2, '0')}-${String(d.day).padStart(2, '0')}`, d.names)
+          this.namedays = { label: c.source?.label ?? null, byDate }
+        })
+        .finally(() => (this.namedaysLoading = null))
+    return this.namedaysLoading
+  }
+
+  /** Names with a nameday on a date (`YYYY-MM-DD`); 29 Feb names show on the 28th in other years. */
+  namedaysOn(date: string): string[] {
+    const byDate = this.namedays?.byDate
+    if (!byDate) return []
+    const md = date.slice(5)
+    const names = [...(byDate.get(md) ?? [])]
+    const y = Number(date.slice(0, 4))
+    const leap = (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0
+    if (md === '02-28' && !leap) names.push(...(byDate.get('02-29') ?? []))
+    return names
+  }
+
+  /** Your people whose nameday or birthday is on `date`. */
+  occasionsOn(date: string): { person: Person; kind: 'nameday' | 'birthday' }[] {
+    const today = new Set(this.namedaysOn(date).map(fold))
+    const md = date.slice(5)
+    const out: { person: Person; kind: 'nameday' | 'birthday' }[] = []
+    for (const p of this.people.values()) {
+      if (p.nameday_name && today.has(fold(p.nameday_name))) out.push({ person: p, kind: 'nameday' })
+      if (p.birthday && p.birthday.slice(-5) === md) out.push({ person: p, kind: 'birthday' })
+    }
+    return out
+  }
+
+  searchNames(q: string) {
+    return api.get<NameMatch[]>(`/namedays/search?q=${encodeURIComponent(q)}`)
+  }
+
+  peopleList(): Person[] {
+    return [...this.people.values()].sort((a, b) => a.name.localeCompare(b.name))
+  }
+
+  createPerson(input: { name: string; nameday_name?: string | null; birthday?: string | null }) {
+    const id = ulid()
+    const ts = now()
+    const p: Person = {
+      id,
+      owner_user_id: this.me?.id ?? '',
+      name: input.name,
+      nameday_name: input.nameday_name ?? null,
+      birthday: input.birthday ?? null,
+      created_at: ts,
+      updated_at: ts,
+      deleted_at: null,
+      rev: 0,
+    }
+    return this.optimistic(
+      [['person', id]],
+      () => this.people.set(id, p),
+      async () => [['person', await api.post<Person>('/people', { id, ...input })]],
+    )
+  }
+
+  updatePerson(id: string, patch: Partial<Pick<Person, 'name' | 'nameday_name' | 'birthday'>>) {
+    const cur = this.people.get(id)
+    if (!cur) return
+    return this.optimistic(
+      [['person', id]],
+      () => this.people.set(id, { ...cur, ...patch }),
+      async () => [['person', await api.patch<Person>(`/people/${id}`, patch)]],
+    )
+  }
+
+  deletePerson(id: string) {
+    if (!this.people.has(id)) return
+    return this.optimistic(
+      [['person', id]],
+      () => this.people.delete(id),
+      () => api.del(`/people/${id}`),
+    )
+  }
+
+  async updateOccasionTemplate(kind: string, patch: { enabled?: boolean; steps?: OccasionStep[] }) {
+    try {
+      const t = await api.put<OccasionTemplate>(`/occasion-templates/${kind}`, patch)
+      this.occasionTemplates.set(t.kind, t)
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : 'Could not reach the server', 'error')
+      throw e
+    }
+  }
+
+  /** Admins: download the official nameday list, or upload one. */
+  async reloadNamedays(upload?: { text: string; label: string }) {
+    await api.post('/namedays', upload ?? {})
+    await this.loadNamedays(true)
   }
 
   // ---- places ----------------------------------------------------------------

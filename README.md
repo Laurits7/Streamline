@@ -18,6 +18,9 @@ What works today:
 - **Your calendar**: connect any CalDAV calendar (Nextcloud, Fastmail, iCloud, Radicale, …;
   read-only). Events appear on the day's timeline and in a week **agenda**, and busy time is
   subtracted from the day's free time. Recurring events, exceptions and time zones are handled.
+- **Namedays and birthdays**: a shared nameday calendar (the official Estonian list is downloaded
+  on first start; admins can upload another); everyone picks their own people by searching names,
+  and gets tasks like "buy a present" → "wish a happy birthday" with lead times.
 - **Places**: give tasks a place (Home, Cottage, Town…); pick where you are, or let GPS detect it
   (HTTPS), and lists show what can be done there.
 - **Activity log**: every day records what happened (done, started, added, missed, focus time,
@@ -76,6 +79,7 @@ Set these in `docker-compose.yml` under `environment:`.
 | `COOKIE_SECURE` | `auto` | `auto`, `true` or `false`. `auto` marks cookies `Secure` only when the proxy reports HTTPS |
 | `SESSION_DAYS` | `90` | How long a login lasts |
 | `SECRET_KEY` | – | Encrypts stored passwords (e.g. your calendar's). If unset, a random key is created in `data/secret.key`; keep it with your backups |
+| `NAMEDAYS_URL` | stat.ee list | Where to download the nameday calendar on first start; `off` to never download (admins can upload a list instead) |
 | `LOG_LEVEL` | `info` | e.g. `debug`, `info,sqlx=warn` |
 | `DATA_DIR` | `/data` | Where the database lives (inside the container) |
 

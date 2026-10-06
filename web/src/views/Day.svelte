@@ -64,6 +64,11 @@
       : 0,
   )
   const dayEvents = $derived(store.dayEvents(date))
+  $effect(() => {
+    store.loadNamedays().catch(() => {})
+  })
+  const namedays = $derived(store.namedaysOn(date))
+  const mine = $derived(store.occasionsOn(date))
   const upcoming = $derived(
     open.filter((i) => i.entry.start_time && i.entry.start_time >= now).sort((a, b) => (a.entry.start_time! < b.entry.start_time! ? -1 : 1)),
   )
@@ -118,6 +123,12 @@
         <h1>{dayLabel(date, store.today)}</h1>
         <p class="muted">
           {longDate(date)}
+          {#if namedays.length || mine.length}
+            <span class="namedays" title="Namedays">
+              {#each mine as o (o.person.id + o.kind)}<strong class="occasion"><Icon name="gift" size={12} /> {o.person.name}{o.kind === 'birthday' ? ' (birthday)' : ''}</strong>{/each}
+              {#if namedays.length}<a href="/occasions">Nameday: {namedays.join(', ')}</a>{/if}
+            </span>
+          {/if}
           {#if planned}
             <a class="plan-chip done" href="/plan/{date}" title="Planned — open the planner to adjust"><Icon name="check" size={12} /> Planned</a>
           {:else if date >= store.today}
@@ -224,6 +235,22 @@
 </div>
 
 <style>
+  .namedays {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 4px 8px;
+    align-items: center;
+    font-size: 13px;
+  }
+  .namedays a {
+    color: var(--muted);
+  }
+  .occasion {
+    display: inline-flex;
+    gap: 3px;
+    align-items: center;
+    color: var(--accent);
+  }
   .allday {
     list-style: none;
     display: flex;

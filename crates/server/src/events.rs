@@ -9,7 +9,7 @@ use tokio::sync::broadcast;
 use crate::{
     models::{
         Calendar, CalendarAccountView, CalendarEvent, DayEntry, DayPlan, FocusSession, FocusTimer,
-        Group, Place, Project, Series, Task, WorkflowTemplate,
+        Group, OccasionTemplate, Person, Place, Project, Series, Task, WorkflowTemplate,
     },
     visibility,
 };
@@ -139,6 +139,31 @@ impl Change {
             kind: "calendar_account",
             data: serde_json::to_value(a).unwrap(),
             audience: vec![user_id.to_string()],
+        }
+    }
+    pub fn person(p: &Person) -> Self {
+        Self {
+            rev: p.rev,
+            kind: "person",
+            data: serde_json::to_value(p).unwrap(),
+            audience: vec![p.owner_user_id.clone()],
+        }
+    }
+    pub fn occasion_template(t: &OccasionTemplate) -> Self {
+        Self {
+            rev: t.rev,
+            kind: "occasion_template",
+            data: serde_json::to_value(t).unwrap(),
+            audience: vec![t.owner_user_id.clone()],
+        }
+    }
+    /// The instance's nameday calendar was (re)loaded: clients refetch it.
+    pub fn namedays(user_ids: Vec<String>) -> Self {
+        Self {
+            rev: 0,
+            kind: "namedays",
+            data: serde_json::Value::Null,
+            audience: user_ids,
         }
     }
     /// Something to show the user now (e.g. a planning reminder). Not part of the change feed.

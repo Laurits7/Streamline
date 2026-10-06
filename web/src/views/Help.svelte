@@ -19,6 +19,7 @@
     ['groups', 'Sharing with your household'],
     ['places', 'Places'],
     ['calendar', 'Your calendar and the agenda'],
+    ['occasions', 'Namedays and birthdays'],
     ['account', 'Account, users and API tokens'],
     ['soon', 'Coming later'],
   ]
@@ -319,6 +320,21 @@
       <li>Streamline only reads your calendar. It checks for changes every 15 minutes, or press <em>Sync now</em>.</li>
       <li>Untick a calendar to hide it, or pick another colour. If the server can't be reached, the last known events stay and Settings shows the error.</li>
       <li>Your password is stored encrypted on the server and never sent back to the browser. Other people never see your events.</li>
+    </ul>
+  </section>
+
+  <section id="occasions">
+    <h2><Icon name="gift" size={18} /> Namedays and birthdays</h2>
+    <p>
+      <a href="/occasions">Namedays &amp; birthdays</a> holds the nameday calendar (shared by everyone on this server) and
+      your own list of people. Search for a name (accents are optional: “tonu” finds Tõnu) and press <em>Add</em>, or add
+      someone with just a birthday.
+    </p>
+    <ul>
+      <li>A week ahead, tasks appear in your inbox, each due on its day. By default, birthdays get “Buy a present” two days before and “Wish them a happy birthday” on the day (which waits until the present is bought); namedays get a greeting on the day.</li>
+      <li>Change the steps under <em>What gets added</em>: titles (<code>{'{name}'}</code> becomes the person's name), how many days before, the task type, and whether a step waits for the previous one.</li>
+      <li>The day view and the agenda show each day's namedays, with your people highlighted.</li>
+      <li>Admins can re-download the official Estonian list or upload another country's list.</li>
     </ul>
   </section>
 

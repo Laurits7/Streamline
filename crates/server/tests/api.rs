@@ -3270,3 +3270,221 @@ async fn calendar_account_sync_and_privacy() {
     assert_eq!(f["calendar_account"], Value::Null);
     assert_eq!(f["calendars"], json!([]));
 }
+
+#[tokio::test]
+async fn namedays_people_and_occasion_tasks() {
+    let t = setup().await;
+    let admin = t.admin().await;
+    let anna = t.user(&admin, "anna").await;
+    let (_, today, _) = t.req("GET", "/api/v1/today", Some(&anna), None).await;
+    let today =
+        chrono::NaiveDate::parse_from_str(today["date"].as_str().unwrap(), "%Y-%m-%d").unwrap();
+    let md = |days: i64| {
+        (today + chrono::Duration::days(days))
+            .format("%m-%d")
+            .to_string()
+    };
+    let ymd = |days: i64| {
+        (today + chrono::Duration::days(days))
+            .format("%Y-%m-%d")
+            .to_string()
+    };
+
+    // Only admins load the calendar; everyone reads it.
+    let list = format!("# test\n{} Testa, Tõnu\n{} Kaarel\n", md(3), md(40));
+    let (s, _, _) = t
+        .req(
+            "POST",
+            "/api/v1/namedays",
+            Some(&anna),
+            Some(json!({"text": list})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::FORBIDDEN);
+    let (s, src, _) = t
+        .req(
+            "POST",
+            "/api/v1/namedays",
+            Some(&admin),
+            Some(json!({"text": list, "label": "Test"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{src}");
+    assert_eq!(src["count"], 3);
+    let (_, cal, _) = t.req("GET", "/api/v1/namedays", Some(&anna), None).await;
+    assert_eq!(cal["source"]["label"], "Test");
+    assert_eq!(cal["days"].as_array().unwrap().len(), 2);
+    let (_, found, _) = t
+        .req("GET", "/api/v1/namedays/search?q=tonu", Some(&anna), None)
+        .await;
+    assert_eq!(
+        found,
+        json!([{"name": "Tõnu", "dates": [md(3)]}]),
+        "accents are optional"
+    );
+    let (_, found, _) = t
+        .req("GET", "/api/v1/namedays/search?q=a", Some(&anna), None)
+        .await;
+    assert_eq!(found.as_array().unwrap().len(), 2);
+
+    // A nameday 3 days away: the greeting task exists (it appears a week ahead).
+    let (s, mari, _) = t
+        .req(
+            "POST",
+            "/api/v1/people",
+            Some(&anna),
+            Some(json!({"name": "Mari", "nameday_name": "testa"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{mari}");
+    // A birthday in 5 days with a known year: present 2 days before, then the greeting.
+    let born = format!("1990-{}", md(5));
+    let (s, jaan, _) = t
+        .req(
+            "POST",
+            "/api/v1/people",
+            Some(&anna),
+            Some(json!({"name": "Jaan", "birthday": born})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{jaan}");
+    // Nameday 40 days away: nothing yet.
+    t.req(
+        "POST",
+        "/api/v1/people",
+        Some(&anna),
+        Some(json!({"name": "Kaarel", "nameday_name": "Kaarel"})),
+    )
+    .await;
+
+    let occasion_tasks = |v: &Value| -> Vec<Value> {
+        v["tasks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|t| t["ext_source"] == "occasion" && t["deleted_at"].is_null())
+            .cloned()
+            .collect()
+    };
+    let (_, full, _) = t.req("GET", "/api/v1/sync", Some(&anna), None).await;
+    let tasks = occasion_tasks(&full);
+    let titles: Vec<_> = tasks
+        .iter()
+        .map(|t| {
+            (
+                t["title"].as_str().unwrap(),
+                t["due_date"].as_str().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(tasks.len(), 3, "{titles:?}");
+    assert!(titles.contains(&("Wish Mari a happy nameday", ymd(3).as_str())));
+    let present = tasks
+        .iter()
+        .find(|t| t["title"] == "Buy a present for Jaan")
+        .unwrap();
+    let greet = tasks
+        .iter()
+        .find(|t| t["title"] == "Wish Jaan a happy birthday")
+        .unwrap();
+    assert_eq!(present["due_date"], ymd(3));
+    assert_eq!(present["task_type_id"], "tt_deadline");
+    assert_eq!(greet["due_date"], ymd(5));
+    assert_eq!(greet["task_type_id"], "tt_expires");
+    assert_eq!(greet["blocked"], true, "waits for the present");
+    let age = (today + chrono::Duration::days(5))
+        .format("%Y")
+        .to_string()
+        .parse::<i32>()
+        .unwrap()
+        - 1990;
+    assert!(
+        greet["notes"]
+            .as_str()
+            .unwrap()
+            .contains(&format!("turns {age}")),
+        "{}",
+        greet["notes"]
+    );
+    assert_eq!(full["occasion_templates"].as_array().unwrap().len(), 2);
+    assert_eq!(full["people"].as_array().unwrap().len(), 3);
+
+    // Buying the present unblocks the greeting.
+    t.req(
+        "PATCH",
+        &format!("/api/v1/tasks/{}", present["id"].as_str().unwrap()),
+        Some(&anna),
+        Some(json!({"status": "done"})),
+    )
+    .await;
+    let (_, g, _) = t
+        .req(
+            "GET",
+            &format!("/api/v1/tasks/{}", greet["id"].as_str().unwrap()),
+            Some(&anna),
+            None,
+        )
+        .await;
+    assert_eq!(g["blocked"], false);
+
+    // No duplicates, even after deleting one.
+    t.req(
+        "DELETE",
+        &format!("/api/v1/tasks/{}", greet["id"].as_str().unwrap()),
+        Some(&anna),
+        None,
+    )
+    .await;
+    let (_, again, _) = t.req("GET", "/api/v1/sync", Some(&anna), None).await;
+    assert_eq!(occasion_tasks(&again).len(), 2);
+
+    // Bad input.
+    let (s, _, _) = t
+        .req(
+            "POST",
+            "/api/v1/people",
+            Some(&anna),
+            Some(json!({"name": "X", "birthday": "31.12"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    let (s, _, _) = t
+        .req("PUT", "/api/v1/occasion-templates/birthday", Some(&anna), Some(json!({"steps": [{"title": "x", "offset_days": -90, "task_type_id": "tt_expires"}]})))
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    let (s, tpl, _) = t
+        .req(
+            "PUT",
+            "/api/v1/occasion-templates/nameday",
+            Some(&anna),
+            Some(json!({"enabled": false})),
+        )
+        .await;
+    assert_eq!((s, &tpl["enabled"]), (StatusCode::OK, &json!(false)));
+
+    // Removing Mari removes her upcoming greeting; other people's lists are their own.
+    let (s, _, _) = t
+        .req(
+            "DELETE",
+            &format!("/api/v1/people/{}", mari["id"].as_str().unwrap()),
+            Some(&anna),
+            None,
+        )
+        .await;
+    assert_eq!(s, StatusCode::NO_CONTENT);
+    let (_, after, _) = t.req("GET", "/api/v1/sync", Some(&anna), None).await;
+    assert!(
+        !occasion_tasks(&after)
+            .iter()
+            .any(|t| t["title"] == "Wish Mari a happy nameday")
+    );
+    let ben = t.user(&admin, "ben").await;
+    let (_, b, _) = t.req("GET", "/api/v1/sync", Some(&ben), None).await;
+    assert_eq!(b["people"], json!([]));
+    let (_, bc, _) = t.req("GET", "/api/v1/namedays", Some(&ben), None).await;
+    assert_eq!(
+        bc["days"].as_array().unwrap().len(),
+        2,
+        "the calendar is shared"
+    );
+}

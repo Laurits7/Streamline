@@ -8,6 +8,8 @@ import type { FocusSession } from "./FocusSession";
 import type { FocusTimer } from "./FocusTimer";
 import type { Group } from "./Group";
 import type { Me } from "./Me";
+import type { OccasionTemplate } from "./OccasionTemplate";
+import type { Person } from "./Person";
 import type { Place } from "./Place";
 import type { Project } from "./Project";
 import type { Series } from "./Series";
@@ -24,6 +26,14 @@ calendar_account: CalendarAccountView | null, calendars: Array<Calendar>,
  * Calendar event instances (a full sync covers the last 30 days onwards).
  */
 events: Array<CalendarEvent>, 
+/**
+ * People whose namedays and birthdays matter to you.
+ */
+people: Array<Person>, 
+/**
+ * What each kind of occasion creates (always complete).
+ */
+occasion_templates: Array<OccasionTemplate>, 
 /**
  * Your groups with their members (always complete).
  */

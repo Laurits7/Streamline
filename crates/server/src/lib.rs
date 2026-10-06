@@ -12,6 +12,7 @@ pub mod events;
 pub mod jobs;
 pub mod models;
 pub mod notify;
+pub mod occasions;
 pub mod ownership;
 pub mod reminders;
 pub mod rollover;

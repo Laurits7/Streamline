@@ -4,6 +4,7 @@
 pub mod calendar;
 pub mod deps;
 pub mod focus;
+pub mod occasions;
 pub mod order;
 pub mod planning;
 pub mod recurrence;

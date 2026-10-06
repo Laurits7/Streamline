@@ -738,3 +738,81 @@ pub async fn upsert_event(conn: &mut SqliteConnection, e: &CalendarEvent) -> sql
     .await
     .map(|_| ())
 }
+
+/// Someone whose nameday and/or birthday matters to the user (SPEC §6.17).
+#[derive(Debug, Clone, Serialize, FromRow, TS, utoipa::ToSchema)]
+#[ts(export)]
+pub struct Person {
+    pub id: String,
+    pub owner_user_id: String,
+    /// How tasks address them, e.g. "Mari (sister)".
+    pub name: String,
+    /// The name as it appears in the nameday calendar.
+    pub nameday_name: Option<String>,
+    /// `YYYY-MM-DD`, or `--MM-DD` when the year isn't known.
+    pub birthday: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+    pub deleted_at: Option<String>,
+    #[ts(type = "number")]
+    pub rev: i64,
+}
+
+pub async fn upsert_person(conn: &mut SqliteConnection, p: &Person) -> sqlx::Result<()> {
+    sqlx::query(
+        "INSERT INTO people (id, owner_user_id, name, nameday_name, birthday, created_at, updated_at, deleted_at, rev)
+         VALUES (?,?,?,?,?,?,?,?,?)
+         ON CONFLICT(id) DO UPDATE SET name=excluded.name, nameday_name=excluded.nameday_name, birthday=excluded.birthday,
+           updated_at=excluded.updated_at, deleted_at=excluded.deleted_at, rev=excluded.rev",
+    )
+    .bind(&p.id).bind(&p.owner_user_id).bind(&p.name).bind(&p.nameday_name).bind(&p.birthday)
+    .bind(&p.created_at).bind(&p.updated_at).bind(&p.deleted_at).bind(p.rev)
+    .execute(conn)
+    .await
+    .map(|_| ())
+}
+
+/// One task an occasion creates.
+#[derive(Debug, Clone, Serialize, serde::Deserialize, TS, utoipa::ToSchema, PartialEq)]
+#[ts(export)]
+pub struct OccasionStep {
+    /// `{name}` is replaced by the person's name.
+    pub title: String,
+    /// Days from the occasion: −2 = two days before.
+    pub offset_days: i32,
+    pub task_type_id: String,
+    /// Waits until the previous step is done (e.g. greet after buying the present).
+    #[serde(default)]
+    pub after_previous: bool,
+}
+
+/// What a kind of occasion creates for a user.
+#[derive(Debug, Clone, Serialize, FromRow, TS, utoipa::ToSchema)]
+#[ts(export)]
+pub struct OccasionTemplate {
+    pub id: String,
+    pub owner_user_id: String,
+    /// `nameday` or `birthday`.
+    pub kind: String,
+    pub enabled: bool,
+    #[ts(as = "Vec<OccasionStep>")]
+    #[schema(value_type = Vec<OccasionStep>)]
+    pub steps: sqlx::types::Json<Vec<OccasionStep>>,
+    pub updated_at: String,
+    #[ts(type = "number")]
+    pub rev: i64,
+}
+
+pub async fn upsert_occasion_template(
+    conn: &mut SqliteConnection,
+    t: &OccasionTemplate,
+) -> sqlx::Result<()> {
+    sqlx::query(
+        "INSERT INTO occasion_templates (id, owner_user_id, kind, enabled, steps, updated_at, rev) VALUES (?,?,?,?,?,?,?)
+         ON CONFLICT(id) DO UPDATE SET enabled=excluded.enabled, steps=excluded.steps, updated_at=excluded.updated_at, rev=excluded.rev",
+    )
+    .bind(&t.id).bind(&t.owner_user_id).bind(&t.kind).bind(t.enabled).bind(&t.steps).bind(&t.updated_at).bind(t.rev)
+    .execute(conn)
+    .await
+    .map(|_| ())
+}

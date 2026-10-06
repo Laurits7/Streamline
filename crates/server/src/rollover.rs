@@ -42,7 +42,7 @@ pub async fn run_for_user(state: &AppState, user: &User) -> anyhow::Result<()> {
         "SELECT t.* FROM tasks t JOIN task_types tt ON tt.id = t.task_type_id
          WHERE (t.owner_user_id = ?1 OR t.owner_group_id IN (SELECT group_id FROM group_members WHERE user_id = ?1))
            AND t.deleted_at IS NULL AND t.status = 'open'
-           AND t.series_id IS NOT NULL AND tt.day_end_behavior = 'expire' AND t.blocked = 0
+           AND (t.series_id IS NOT NULL OR t.ext_source = 'occasion') AND tt.day_end_behavior = 'expire' AND t.blocked = 0
            AND COALESCE(t.due_date, t.occurrence_date) < ?2",
     )
     .bind(&user.id)

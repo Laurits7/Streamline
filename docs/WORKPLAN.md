@@ -4,8 +4,8 @@
 > Status (2026-10-06): Part A and Part C **confirmed** (see `DECISIONS.md`). **Phases 1, 2, 2a, 2b
 > and 3 are complete**, plus the owner's follow-ups (orange unplanned banner, Done → To do on the board,
 > tasks in several projects, daily activity log; D-48), routine versions (D-49) and 2b.6a Places (D-50).
-> Phases 3b (prerequisites, multi-step chores) and 4 (groups) are complete too. Next: Phase 5
-> (calendar / CalDAV) — 3b.6a Occasions waits for Q-24 (nameday calendar source).
+> Phases 3b (prerequisites, multi-step chores) and 4 (groups) are complete too. Phase 5 (calendar)
+> and 3b.6a Occasions (D-57) are complete. Next: 5a, 5b, 5c.
 > Legend: `[x]` done · `[~]` partly done (the remaining work is noted) · `[ ]` not started.
 
 ## MVP status (2026-10-06)
@@ -382,7 +382,7 @@ Legend: **Deliverables** = what exists afterwards · **Tests** = what must be co
 - [x] **3b.6 Routine-attached workflows**  *(needs Q-7)* (runs start on their day; per-routine override of D-7 not yet): a series can reference a template;
       each occurrence spawns an instance; policy for a still-unfinished previous instance
       (Q-7).
-- [ ] **3b.6a Occasions: birthdays and namedays** (SPEC §6.17)  *(needs Q-24)*
+- [x] **3b.6a Occasions: birthdays and namedays** (SPEC §6.17, D-57; the calendar is downloaded, not bundled)
   - Deliverables: bundled nameday calendar (data file + licence check); `people` with name(s)
     and optional birthday; "names of interest" picker; occasion templates = workflow templates
     whose steps carry a **day offset** from the occasion (e.g. buy present −2 d → greet 0 d,

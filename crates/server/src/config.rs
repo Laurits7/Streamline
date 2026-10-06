@@ -23,6 +23,8 @@ pub struct Config {
     pub session_days: i64,
     /// Key for encrypting stored credentials; if unset, `data/secret.key` is generated.
     pub secret_key: Option<String>,
+    /// Where to download the nameday calendar from (`NAMEDAYS_URL`, `off` = never).
+    pub namedays_url: Option<String>,
 }
 
 impl Config {
@@ -54,6 +56,11 @@ impl Config {
                 .context("SESSION_DAYS")?
                 .unwrap_or(90),
             secret_key: var("SECRET_KEY"),
+            namedays_url: match var("NAMEDAYS_URL").as_deref() {
+                Some("off" | "false" | "0") => None,
+                Some(u) => Some(u.to_string()),
+                None => Some(crate::occasions::STAT_EE_URL.to_string()),
+            },
         })
     }
 
@@ -69,6 +76,7 @@ impl Config {
             cookie_secure: CookieSecure::Auto,
             session_days: 90,
             secret_key: None,
+            namedays_url: None,
         }
     }
 }

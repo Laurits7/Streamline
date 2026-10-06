@@ -446,7 +446,7 @@ pub async fn revoke_token(
 
 // ---- admin: users ---------------------------------------------------------------
 
-fn require_admin(user: &AuthUser) -> ApiResult<()> {
+pub(crate) fn require_admin(user: &AuthUser) -> ApiResult<()> {
     if user.user.is_admin {
         Ok(())
     } else {
