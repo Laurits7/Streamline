@@ -5,7 +5,9 @@
 import { SvelteMap } from 'svelte/reactivity'
 import { api, ApiError } from './api/client'
 import type { DayEntry } from './api/types/DayEntry'
+import type { DayPlan } from './api/types/DayPlan'
 import type { Me } from './api/types/Me'
+import type { Notification } from './api/types/Notification'
 import type { Project } from './api/types/Project'
 import type { SyncResponse } from './api/types/SyncResponse'
 import type { Task } from './api/types/Task'
@@ -14,8 +16,8 @@ import { keyAt, keyBetween } from './order'
 import { toast } from './toast.svelte'
 import { ulid } from './ulid'
 
-type Kind = 'task' | 'project' | 'day_entry'
-type Entity = Task | Project | DayEntry
+type Kind = 'task' | 'project' | 'day_entry' | 'day_plan'
+type Entity = Task | Project | DayEntry | DayPlan
 
 export type TaskPatch = Partial<
   Pick<
@@ -50,6 +52,10 @@ class Store {
   projects = new SvelteMap<string, Project>()
   tasks = new SvelteMap<string, Task>()
   entries = new SvelteMap<string, DayEntry>()
+  dayPlans = new SvelteMap<string, DayPlan>()
+
+  /** Called for notifications pushed by the server (e.g. planning reminders). */
+  onNotification: ((n: Notification) => void) | null = null
 
   private pending = new Map<string, number>()
   private es: EventSource | null = null
@@ -85,6 +91,7 @@ class Store {
     this.projects.clear()
     this.tasks.clear()
     this.entries.clear()
+    this.dayPlans.clear()
   }
 
   private onVisible = () => {
@@ -141,6 +148,7 @@ class Store {
       this.projects.clear()
       this.tasks.clear()
       this.entries.clear()
+      this.dayPlans.clear()
     }
     this.me = r.me
     this.today = r.today
@@ -151,6 +159,7 @@ class Store {
     for (const p of r.projects) this.applyRemote('project', p)
     for (const t of r.tasks) this.applyRemote('task', t)
     for (const e of r.day_entries) this.applyRemote('day_entry', e)
+    for (const p of r.day_plans) this.applyRemote('day_plan', p)
     this.rev = Math.max(this.rev, r.rev)
     this.ready = true
   }
@@ -167,7 +176,9 @@ class Store {
     es.addEventListener('change', (ev) => {
       const c = JSON.parse((ev as MessageEvent).data) as { kind: string; data: unknown }
       if (c.kind === 'me') this.me = c.data as Me
-      else if (c.kind === 'task' || c.kind === 'project' || c.kind === 'day_entry') this.applyRemote(c.kind, c.data as Entity)
+      else if (c.kind === 'notification') this.onNotification?.(c.data as Notification)
+      else if (c.kind === 'task' || c.kind === 'project' || c.kind === 'day_entry' || c.kind === 'day_plan')
+        this.applyRemote(c.kind, c.data as Entity)
     })
     es.addEventListener('resync', () => this.sync().catch(() => {}))
     es.onerror = () => {
@@ -186,10 +197,8 @@ class Store {
   }
 
   private map(kind: Kind): SvelteMap<string, Entity> {
-    return (kind === 'task' ? this.tasks : kind === 'project' ? this.projects : this.entries) as SvelteMap<
-      string,
-      Entity
-    >
+    const maps = { task: this.tasks, project: this.projects, day_entry: this.entries, day_plan: this.dayPlans }
+    return maps[kind] as SvelteMap<string, Entity>
   }
 
   private applyRemote(kind: Kind, e: Entity) {
@@ -625,9 +634,79 @@ class Store {
     )
   }
 
+  // ---- planning ritual -------------------------------------------------------
+
+  /** The planning record of a day (undefined = unplanned). */
+  planFor(date: string): DayPlan | undefined {
+    for (const p of this.dayPlans.values()) if (p.date === date) return p
+    return undefined
+  }
+
+  isPlanned(date: string): boolean {
+    return this.planFor(date)?.status === 'planned'
+  }
+
+  /** Save wizard progress (`draft`) or confirm the plan (`planned`). Planned stays planned. */
+  setPlan(date: string, status: 'draft' | 'planned', step: number) {
+    const cur = this.planFor(date)
+    const ts = now()
+    const next: DayPlan = cur
+      ? {
+          ...cur,
+          status: status === 'planned' || cur.status !== 'planned' ? status : 'planned',
+          step,
+          planned_at: cur.planned_at ?? (status === 'planned' ? ts : null),
+          updated_at: ts,
+        }
+      : {
+          id: ulid(),
+          user_id: this.me?.id ?? '',
+          date,
+          status,
+          step,
+          planned_at: status === 'planned' ? ts : null,
+          created_at: ts,
+          updated_at: ts,
+          deleted_at: null,
+          rev: 0,
+        }
+    this.optimistic(
+      [['day_plan', next.id]],
+      () => this.dayPlans.set(next.id, next),
+      async () => [['day_plan', await api.put<DayPlan>(`/days/${date}/plan`, { id: next.id, status, step })]],
+    )
+  }
+
+  /** Mark a day as unplanned again. */
+  clearPlan(date: string) {
+    const cur = this.planFor(date)
+    if (!cur) return
+    this.optimistic(
+      [['day_plan', cur.id]],
+      () => this.dayPlans.delete(cur.id),
+      () => api.del(`/days/${date}/plan`),
+    )
+  }
+
   // ---- account --------------------------------------------------------------
 
-  async updateMe(patch: Partial<Pick<Me, 'display_name' | 'timezone' | 'day_end' | 'locale' | 'week_start'>>) {
+  async updateMe(
+    patch: Partial<
+      Pick<
+        Me,
+        | 'display_name'
+        | 'timezone'
+        | 'day_end'
+        | 'locale'
+        | 'week_start'
+        | 'plan_mode'
+        | 'plan_time_evening'
+        | 'plan_time_morning'
+        | 'day_window_start'
+        | 'day_window_end'
+      >
+    >,
+  ) {
     try {
       this.me = await api.patch<Me>('/me', patch)
       await this.sync()

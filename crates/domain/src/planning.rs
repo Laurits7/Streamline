@@ -129,6 +129,24 @@ pub fn free_minutes(start: NaiveTime, end: NaiveTime, busy: &[(NaiveTime, u32)])
     (we - ws) - busy_total
 }
 
+/// The part of the window `[start, end)` that is still ahead at local time `now`
+/// (for today's free time). `None` = the window is over. Windows past midnight are
+/// returned unchanged.
+pub fn remaining_window(
+    start: NaiveTime,
+    end: NaiveTime,
+    now: NaiveTime,
+) -> Option<(NaiveTime, NaiveTime)> {
+    if end <= start {
+        return Some((start, end));
+    }
+    if now >= end {
+        None
+    } else {
+        Some((start.max(now), end))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -221,6 +239,23 @@ mod tests {
         assert_eq!(free_minutes(w.0, w.1, &[(t("06:00"), 60)]), 840);
         // Fully booked never goes negative.
         assert_eq!(free_minutes(w.0, w.1, &[(t("08:00"), 900)]), 0);
+    }
+
+    #[test]
+    fn remaining_part_of_today() {
+        let w = (t("08:00"), t("22:00"));
+        assert_eq!(remaining_window(w.0, w.1, t("07:00")), Some(w));
+        assert_eq!(
+            remaining_window(w.0, w.1, t("14:05")),
+            Some((t("14:05"), t("22:00")))
+        );
+        assert_eq!(remaining_window(w.0, w.1, t("22:00")), None);
+        // Scheduled blocks before now no longer count against what's left.
+        let (s, e) = remaining_window(w.0, w.1, t("14:00")).unwrap();
+        assert_eq!(
+            free_minutes(s, e, &[(t("10:00"), 60), (t("15:00"), 30)]),
+            450
+        );
     }
 
     #[test]

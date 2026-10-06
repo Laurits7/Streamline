@@ -1,8 +1,8 @@
 # Streamline: Work Plan
 
 > Companion to [`SPEC.md`](SPEC.md). Section numbers like §6.2c refer to the spec.
-> Status (2026-10-06): Part A and Part C **confirmed** (see `DECISIONS.md`). **Phases 1 and 2
-> are complete.** Next: Phase 2a (planning ritual) — or Phase 3 (recurrence) if prioritised.
+> Status (2026-10-06): Part A and Part C **confirmed** (see `DECISIONS.md`). **Phases 1, 2 and 2a
+> are complete.** Next: Phase 2b (views and focus) or Phase 3 (recurrence), owner's choice.
 > Legend: `[x]` done · `[~]` partly done (the remaining work is noted) · `[ ]` not started.
 
 ## MVP status (2026-10-06)
@@ -267,21 +267,21 @@ Legend: **Deliverables** = what exists afterwards · **Tests** = what must be co
 
 ### Phase 2a: Planning ritual, basic (§6.2d)
 
-- [ ] **2a.1 Plan status and preferences**  *(needs Q-8, Q-9)*
+- [x] **2a.1 Plan status and preferences**  *(needs Q-8, Q-9)* (`day_plans` draft/planned, plan mode and times, available-day window; free time = window minus scheduled, for today only what's left)
   - Deliverables: `day_plan_status(user, date, planned_at)`; preferences (evening / morning /
     both, planning time); API to mark a day planned or unplanned; free-time calculation
     (day window minus fixed items; calendar events join in Phase 5).
-- [ ] **2a.2 Planning wizard**
+- [x] **2a.2 Planning wizard** (`/plan/<date>`, 5 steps, resumes from the server-side draft step, lazy-loaded)
   - Deliverables: a 5-step full-screen flow (Review → Look ahead → Pick → Arrange →
     Confirm), each step one screen with a sticky "Next"; a running total of planned time vs.
     free time with a non-blocking overbooking warning; it resumes where the user left off if
     interrupted. The Review step uses the outcomes logged by the rollover engine.
   - Done when: a plan for a typical day can be made in under 2 minutes on a phone.
-- [ ] **2a.3 Reminders (in-app) and fallback**  *(needs Q-5)*
+- [x] **2a.3 Reminders (in-app) and fallback**  *(needs Q-5)* (`notify` module, reminder job once per kind and day, toast + dismissible banner)
   - Deliverables: notification abstraction (`Notifier` trait: in-app via SSE now, with Web
     Push and ntfy added in Phase 6); a reminder job at the planning time; an "Unplanned: plan
     your day" banner in the Today view; the fallback Today view needs no plan.
-- [ ] **2a.4 Phase gate**
+- [x] **2a.4 Phase gate** (2026-10-06: tests green, measurements logged, browser run of the full ritual on desktop and phone)
 
 ---
 

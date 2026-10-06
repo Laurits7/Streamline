@@ -638,7 +638,11 @@ async fn planning_state_and_free_time() {
         assert_eq!(s, StatusCode::BAD_REQUEST, "{bad}");
     }
     let (_, v, _) = t.req("GET", "/api/v1/today", Some(&admin), None).await;
-    let day = v["date"].as_str().unwrap().to_string();
+    // Free time is measured on a future day (today only counts what's left of it).
+    let day = (chrono::NaiveDate::parse_from_str(v["date"].as_str().unwrap(), "%Y-%m-%d").unwrap()
+        + chrono::Duration::days(1))
+    .format("%Y-%m-%d")
+    .to_string();
 
     // Unplanned day: no plan, the whole 14 h window is free.
     let (_, dv, _) = t

@@ -3,6 +3,8 @@
   import type { DayEntry } from '../lib/api/types/DayEntry'
   import type { Task } from '../lib/api/types/Task'
   import Icon from '../lib/components/Icon.svelte'
+  import PlanBanner from '../lib/components/PlanBanner.svelte'
+  import { dayLoad } from '../lib/planning'
   import QuickAdd from '../lib/components/QuickAdd.svelte'
   import TaskRow from '../lib/components/TaskRow.svelte'
   import Timeline from '../lib/components/Timeline.svelte'
@@ -35,6 +37,7 @@
       .sort((a, b) => (a.due_date! < b.due_date! ? -1 : 1)),
   )
 
+  const planned = $derived(store.isPlanned(date))
   const doneCount = $derived(closed.filter((i) => i.task.status === 'done').length)
   const minutesLeft = $derived(open.reduce((s, i) => s + (i.entry.duration_min ?? i.task.estimate_min ?? 0), 0))
 
@@ -44,6 +47,10 @@
     const t = setInterval(() => (now = nowHHMM(store.me?.timezone ?? 'UTC')), 30_000)
     return () => clearInterval(t)
   })
+  // For today only the rest of the day counts as free.
+  const free = $derived(
+    store.me ? dayLoad(store.me, store.dayEntries(date), (id) => store.tasks.get(id), isToday ? now : undefined).free : 0,
+  )
   const upcoming = $derived(
     open.filter((i) => i.entry.start_time && i.entry.start_time >= now).sort((a, b) => (a.entry.start_time! < b.entry.start_time! ? -1 : 1)),
   )
@@ -79,10 +86,18 @@
 
 <div class="day" class:wide>
   <div class="main-col">
+    {#if isToday}<PlanBanner />{/if}
     <header class="head">
       <div class="title">
         <h1>{dayLabel(date, store.today)}</h1>
-        <p class="muted">{longDate(date)}</p>
+        <p class="muted">
+          {longDate(date)}
+          {#if planned}
+            <a class="plan-chip done" href="/plan/{date}" title="Planned — open the planner to adjust"><Icon name="check" size={12} /> Planned</a>
+          {:else if date >= store.today}
+            <a class="plan-chip" href="/plan/{date}">Plan this day</a>
+          {/if}
+        </p>
       </div>
       <nav class="daynav" aria-label="Change day">
         <button class="icon-btn" onclick={() => go(addDays(date, -1))} aria-label="Previous day"><Icon name="left" /></button>
@@ -94,7 +109,7 @@
     {#if items.length}
       <div class="progress" aria-label="{doneCount} of {items.length} done">
         <div class="bar"><div style:width="{(doneCount / items.length) * 100}%"></div></div>
-        <span class="muted">{doneCount}/{items.length} done{minutesLeft ? ` · ${fmtMinutes(minutesLeft)} left` : ''}</span>
+        <span class="muted">{doneCount}/{items.length} done{minutesLeft ? ` · ${fmtMinutes(minutesLeft)} left` : ''}{date >= store.today ? ` · ${fmtMinutes(free)} free` : ''}</span>
       </div>
     {/if}
 
@@ -189,6 +204,21 @@
   }
   .title p {
     margin: 2px 0 0;
+  }
+  .plan-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: 8px;
+    padding: 1px 8px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    background: var(--surface-2);
+    color: var(--accent);
+  }
+  .plan-chip.done {
+    background: var(--accent-soft);
   }
   .daynav {
     display: flex;

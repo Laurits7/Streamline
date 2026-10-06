@@ -168,6 +168,46 @@
 </section>
 
 <section class="card">
+  <h2>Daily planning</h2>
+  <label>
+    <span>When do you plan?</span>
+    <select value={me.plan_mode} onchange={(e) => store.updateMe({ plan_mode: (e.currentTarget as HTMLSelectElement).value as 'evening' | 'morning' | 'both' })}>
+      <option value="evening">In the evening: plan tomorrow</option>
+      <option value="morning">In the morning: plan today</option>
+      <option value="both">Both: plan in the evening, check in the morning</option>
+    </select>
+  </label>
+  <div class="grid2">
+    {#if me.plan_mode !== 'morning'}
+      <label>
+        <span>Evening reminder</span>
+        <input type="time" value={me.plan_time_evening} onchange={(e) => store.updateMe({ plan_time_evening: (e.currentTarget as HTMLInputElement).value })} />
+      </label>
+    {/if}
+    {#if me.plan_mode !== 'evening'}
+      <label>
+        <span>Morning reminder</span>
+        <input type="time" value={me.plan_time_morning} onchange={(e) => store.updateMe({ plan_time_morning: (e.currentTarget as HTMLInputElement).value })} />
+      </label>
+    {/if}
+  </div>
+  <div class="grid2">
+    <label>
+      <span>My day starts</span>
+      <input type="time" value={me.day_window_start} onchange={(e) => store.updateMe({ day_window_start: (e.currentTarget as HTMLInputElement).value })} />
+    </label>
+    <label>
+      <span>My day ends</span>
+      <input type="time" value={me.day_window_end} onchange={(e) => store.updateMe({ day_window_end: (e.currentTarget as HTMLInputElement).value })} />
+    </label>
+  </div>
+  <p class="help muted">
+    You get one reminder at the planning time (in the app; phone notifications come later), and Today shows a
+    banner until the day is planned. “My day” is the time counted as free when planning.
+  </p>
+</section>
+
+<section class="card">
   <h2>Password</h2>
   <form onsubmit={changePassword}>
     <div class="grid2">

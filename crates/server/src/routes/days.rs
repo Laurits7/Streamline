@@ -46,8 +46,14 @@ fn entry_minutes(e: &DayEntry, t: Option<&Task>, default: i32) -> u32 {
         .max(0) as u32
 }
 
-/// Free time and planned time for a day (SPEC §6.2d, step "Pick").
-pub fn day_load(user: &User, entries: &[DayEntry], tasks: &[Task]) -> (u32, u32) {
+/// Free time and planned time for a day (SPEC §6.2d, step "Pick"). For today, pass the
+/// current local time as `now` so only the rest of the day counts as free.
+pub fn day_load(
+    user: &User,
+    entries: &[DayEntry],
+    tasks: &[Task],
+    now: Option<chrono::NaiveTime>,
+) -> (u32, u32) {
     use streamline_domain::time::parse_hhmm;
     let task = |id: &str| tasks.iter().find(|t| t.id == id);
     let busy: Vec<_> = entries
@@ -61,7 +67,13 @@ pub fn day_load(user: &User, entries: &[DayEntry], tasks: &[Task]) -> (u32, u32)
         .collect();
     let start = parse_hhmm(&user.day_window_start).unwrap_or_default();
     let end = parse_hhmm(&user.day_window_end).unwrap_or_default();
-    let free = streamline_domain::planning::free_minutes(start, end, &busy);
+    let window = match now {
+        Some(now) => streamline_domain::planning::remaining_window(start, end, now),
+        None => Some((start, end)),
+    };
+    let free = window.map_or(0, |(s, e)| {
+        streamline_domain::planning::free_minutes(s, e, &busy)
+    });
     let planned = entries
         .iter()
         .filter(|e| e.start_time.is_none())
@@ -115,7 +127,14 @@ pub async fn get_day(
     .fetch_all(db)
     .await?;
     let plan = load_plan(&mut *state.db.read.acquire().await?, user.id(), &date).await?;
-    let (free_min, planned_min) = day_load(&user.user, &entries, &tasks);
+    let today = rollover::today_for(&user.user)
+        .format("%Y-%m-%d")
+        .to_string();
+    let now = (date == today).then(|| {
+        let tz = streamline_domain::time::parse_tz(&user.user.timezone).unwrap_or(chrono_tz::UTC);
+        chrono::Utc::now().with_timezone(&tz).time()
+    });
+    let (free_min, planned_min) = day_load(&user.user, &entries, &tasks, now);
     Ok(Json(DayView {
         date,
         today: rollover::today_for(&user.user)
@@ -131,6 +150,8 @@ pub async fn get_day(
 
 #[derive(Deserialize, utoipa::ToSchema)]
 pub struct PutPlan {
+    /// Client-chosen ULID, used if the day has no plan record yet.
+    id: Option<String>,
     /// `draft` (wizard in progress) or `planned` (confirmed).
     status: String,
     /// Wizard step to resume at.
@@ -164,7 +185,7 @@ pub async fn put_plan(
             p
         }
         None => DayPlan {
-            id: crate::util::new_id(),
+            id: id_or_new(c.id.clone())?,
             user_id: user.id().into(),
             date: date.clone(),
             status: c.status.clone(),

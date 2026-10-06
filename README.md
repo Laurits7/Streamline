@@ -3,7 +3,7 @@
 A self-hosted todo list and day planner for a household. One small container, one data
 folder, and it works from any phone, tablet or computer on your network.
 
-> **Status: Phases 1 and 2 done (foundation and day plan).** See [`docs/WORKPLAN.md`](docs/WORKPLAN.md)
+> **Status: Phases 1, 2 and 2a done (foundation, day plan, planning ritual).** See [`docs/WORKPLAN.md`](docs/WORKPLAN.md)
 > for what's built and what's next, and [`docs/SPEC.md`](docs/SPEC.md) for the full vision.
 
 What works today:
@@ -17,6 +17,9 @@ What works today:
     block's bottom edge to change its duration, and drag a block back into the plan to unschedule it.
 - **Projects, subprojects (any depth) and inbox**: quick-add, complete with undo, archive.
 - **Built-in help** at `/help` (sidebar, or Settings on a phone).
+- **Daily planning ritual**: a five-step planner (review → look ahead → pick → arrange →
+  confirm) for tomorrow in the evening or today in the morning, with planned vs. free time,
+  an overbooking warning, a reminder at your planning time and a banner until the day is planned.
 - **Pull tasks into a day** from the ready stack, give them a time and duration, or move them to
   another day.
 - **Task details**: notes, due date, estimate, difficulty, importance and urgency, and task type.

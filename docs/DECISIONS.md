@@ -54,6 +54,12 @@ Any of them can be revisited when the chunk that implements it starts.
 - **D-40 · 2026-10-06 · Sync queue**: `store.sync()` runs syncs one at a time and in order. Repeated delta requests merge, but a full reload never merges into a pending delta. Responses that arrive after sign-out are dropped (found by the new store tests).
 - **D-41 · 2026-10-06 · Places belong to tasks** (owner): a project's place is only a default; tasks such as "buy a garden hose" for the country home can be done elsewhere. Spec §6.16, plan 2b.6a (details in Q-25, not yet confirmed).
 - **D-42 · 2026-10-06 · Occasions** (owner): the full nameday calendar is included; the user selects names of interest; each occasion has its own lead times and dependencies (e.g. buy present 2 days before → say happy birthday); task type per occasion kind with a good default. Spec §6.17, plan 3b.6a (details in Q-24, not yet confirmed).
+- **D-43 · 2026-10-06 · Planning ritual details** (Phase 2a):
+  - **Plan state:** a `day_plans` record per day. `draft` remembers the wizard step, so planning resumes on any device; `planned` is confirmed. No record means unplanned. Going back into the wizard keeps a planned day planned.
+  - **Free time:** a new per-user "my day" window (default 08:00–22:00) minus scheduled tasks (duration, else estimate, else 30 min). For today, only the remaining part of the window counts. "Planned" is the estimates of open, unscheduled tasks; tasks without an estimate are reported, not guessed. The rules live in `domain::planning`, mirrored in `web/src/lib/planning.ts` and tested against the same cases.
+  - **Reminders:** one per kind and target day (`reminder_log`), skipped when the day is already planned. A planning time before the day end (e.g. 00:30) counts for the same logical evening. Reminders are delivered in-app through `notify`, the single place where Web Push and ntfy attach later.
+  - **Prompts on Today:** evening (tomorrow unplanned after the evening time) beats morning (today unplanned after the morning time), which beats a gentle "today isn't planned yet". Dismissing is per day and per browser.
+  - **Wizard bundle:** loaded on demand (5 KB gzip), like Help.
 
 ## Resource log
 
@@ -61,3 +67,4 @@ Any of them can be revisited when the chunk that implements it starts.
 |---|---|---|---|---|---|
 | MVP (Phase 1 + core of 2) | 7.0 MB | 4.6 MiB (after browser smoke test) | 41 KB (36.2 JS + 4.6 CSS + 0.4 HTML) | not measured | 2026-10-06 |
 | End of Phase 2 | 7.5 MB | 3.6–4.1 MiB (fresh container, 20 s) | 48.0 KB initial (+4.0 KB lazy Help) | not measured | 2026-10-06 |
+| End of Phase 2a | 7.6 MB | 4.0 MiB (fresh container, 20 s) | 51.2 KB initial (+4.5 Help, +5.4 Plan lazy) | not measured | 2026-10-06 |

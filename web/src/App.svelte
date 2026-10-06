@@ -13,6 +13,7 @@
   import Projects from './views/Projects.svelte'
   import Settings from './views/Settings.svelte'
   import TaskList from './views/TaskList.svelte'
+  import { toast } from './lib/toast.svelte'
 
   let phase = $state<'loading' | 'login' | 'setup' | 'app' | 'error'>('loading')
 
@@ -47,6 +48,9 @@
     phase = 'login'
   }
 
+  // Reminders and other notifications pushed by the server.
+  store.onNotification = (n) => toast(n.title, 'info', { label: 'Plan now', run: () => router.go(n.url) })
+
   $effect(() => {
     boot()
     return onUnauthorized(() => {
@@ -67,7 +71,7 @@
   const active = (name: string, id?: string) =>
     route.name === name && (!id || (route.name === 'project' && route.id === id)) ? 'page' : undefined
   const todayActive = $derived(route.name === 'today' || route.name === 'day' ? 'page' : undefined)
-  const isDayRoute = $derived(route.name === 'today' || route.name === 'day')
+  const isDayRoute = $derived(route.name === 'today' || route.name === 'day' || route.name === 'plan')
 
   // Navigation links double as drop targets for tasks.
   const toProject = (projectId: string | null) => ({
@@ -132,6 +136,8 @@
         <Day />
       {:else if route.name === 'day'}
         <Day date={route.date} />
+      {:else if route.name === 'plan'}
+        {#await import('./views/Plan.svelte') then m}{#key route.date}<m.default date={route.date} />{/key}{/await}
       {:else if route.name === 'inbox'}
         <TaskList />
       {:else if route.name === 'projects'}

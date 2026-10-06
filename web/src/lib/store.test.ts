@@ -9,7 +9,10 @@ import { store } from './store.svelte'
 import { toasts } from './toast.svelte'
 
 const TS = '2026-10-06T08:00:00.000Z'
-const ME = { id: 'U1', username: 'me', display_name: 'Me', is_admin: true, timezone: 'UTC', day_end: '04:00', locale: '', week_start: 1 }
+const ME = {
+  id: 'U1', username: 'me', display_name: 'Me', is_admin: true, timezone: 'UTC', day_end: '04:00', locale: '', week_start: 1,
+  plan_mode: 'evening' as const, plan_time_evening: '21:00', plan_time_morning: '07:30', day_window_start: '08:00', day_window_end: '22:00',
+}
 
 const task = (id: string, extra: Partial<Task> = {}): Task => ({
   id,
@@ -94,7 +97,7 @@ function mockApi(handler: Handler) {
 }
 
 function syncResponse(data: Partial<SyncResponse> = {}): SyncResponse {
-  return { rev: 10, full: true, me: ME, today: '2026-10-06', task_types: [], projects: [], tasks: [], day_entries: [], ...data }
+  return { rev: 10, full: true, me: ME, today: '2026-10-06', task_types: [], projects: [], tasks: [], day_entries: [], day_plans: [], ...data }
 }
 
 /** Load the store with a full sync of the given data. */
@@ -256,5 +259,38 @@ describe('project tree', () => {
     store.deleteProject('Paper')
     expect([...store.projects.keys()]).toEqual(['Garden'])
     expect(store.tasks.size).toBe(0)
+  })
+})
+
+describe('planning state', () => {
+  it('starts a draft, confirms, and keeps a planned day planned when the wizard is reopened', async () => {
+    await load()
+    const sent: unknown[] = []
+    mockApi((_m, _p, body) => {
+      sent.push(body)
+      return new Promise(() => {})
+    })
+    store.setPlan('2026-10-07', 'draft', 2)
+    const id = store.planFor('2026-10-07')!.id
+    expect(store.planFor('2026-10-07')).toMatchObject({ status: 'draft', step: 2 })
+    expect(calls[0]).toMatchObject({ method: 'PUT', path: '/days/2026-10-07/plan', body: { id, status: 'draft', step: 2 } })
+    store.setPlan('2026-10-07', 'planned', 4)
+    expect(store.isPlanned('2026-10-07')).toBe(true)
+    expect(store.planFor('2026-10-07')?.planned_at).toBeTruthy()
+    store.setPlan('2026-10-07', 'draft', 1)
+    expect(store.planFor('2026-10-07')).toMatchObject({ id, status: 'planned', step: 1 })
+    store.clearPlan('2026-10-07')
+    expect(store.planFor('2026-10-07')).toBeUndefined()
+  })
+
+  it('passes server notifications to the app', async () => {
+    await load()
+    const got: unknown[] = []
+    store.onNotification = (n) => got.push(n)
+    const es = { listeners: {} as Record<string, (e: MessageEvent) => void>, addEventListener(t: string, f: (e: MessageEvent) => void) { this.listeners[t] = f }, close() {} }
+    vi.stubGlobal('EventSource', function () { return es })
+    ;(store as unknown as { connect: () => void }).connect()
+    es.listeners.change({ data: JSON.stringify({ kind: 'notification', data: { kind: 'plan_evening', title: 'Time to plan tomorrow', body: '', url: '/plan/2026-10-07' } }) } as MessageEvent)
+    expect(got).toEqual([{ kind: 'plan_evening', title: 'Time to plan tomorrow', body: '', url: '/plan/2026-10-07' }])
   })
 })

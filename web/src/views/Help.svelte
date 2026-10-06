@@ -6,6 +6,7 @@
   const sections = [
     ['start', 'Getting started'],
     ['today', 'The Today view'],
+    ['planning', 'Planning your day'],
     ['dnd', 'Drag and drop'],
     ['tasks', 'Tasks and their details'],
     ['dayend', 'What happens at the end of the day'],
@@ -52,6 +53,28 @@
       for today.
     </p>
     <p>Use the arrows next to the date to look at, and plan, other days.</p>
+  </section>
+
+  <section id="planning">
+    <h2><Icon name="calendar" size={18} /> Planning your day</h2>
+    <p>
+      A few minutes of planning makes a day calmer. Streamline guides you through it in five short steps, either in
+      the evening for tomorrow or in the morning for today (choose in <a href="/settings">Settings</a>):
+    </p>
+    <ol>
+      <li><strong>Review</strong>: what got done, what was missed and what's still open. Finish, move, unplan or drop the open ones.</li>
+      <li><strong>Look ahead</strong>: what's already scheduled for the day and what's due.</li>
+      <li><strong>Pick</strong>: add tasks from your projects. The bar compares planned time (from estimates) with your free time and warns when the day is overbooked.</li>
+      <li><strong>Arrange</strong>: drag to set the order, and drop tasks on the timeline to give them a time.</li>
+      <li><strong>Confirm</strong>: mark the day as planned.</li>
+    </ol>
+    <p>
+      At your planning time you get one reminder, and Today shows a banner until the day is planned (you can dismiss
+      it). If you stop halfway, the planner picks up where you left off, on any device. Planned days show
+      <em>✓ Planned</em> next to the date; tap it to adjust. Skipping planning is fine: Today still shows everything
+      that's scheduled, due or carried over.
+    </p>
+    <p class="muted">“Free time” is the part of the day you set in Settings (e.g. 08:00–22:00) minus scheduled tasks.</p>
   </section>
 
   <section id="dnd">
@@ -156,7 +179,6 @@
     <h2>Coming later</h2>
     <p class="muted">Planned, roughly in this order:</p>
     <ul>
-      <li>A short guided “plan tomorrow” ritual each evening, with a reminder.</li>
       <li>Kanban board, an urgent/important matrix, and a focus view with a Pomodoro timer.</li>
       <li>Repeating tasks and routines (daily, weekly, “twice a week”).</li>
       <li>Multi-step chores (e.g. laundry: wash → dry → fold) where the next step appears when the previous one is done.</li>
