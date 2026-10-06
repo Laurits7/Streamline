@@ -3,8 +3,11 @@
 A self-hosted todo list and day planner for a household. One small container, one data
 folder, and it works from any phone, tablet or computer on your network.
 
-> **Status: Phases 1–4 done (foundation, day plan, planning ritual, views and focus, routines, prerequisites and multi-step chores, household groups).** See [`docs/WORKPLAN.md`](docs/WORKPLAN.md)
-> for what's built and what's next, and [`docs/SPEC.md`](docs/SPEC.md) for the full vision.
+> **Version 1.0.** Everything in [`docs/SPEC.md`](docs/SPEC.md) up to the v1.0 phase is built: day
+> planning, routines, multi-step chores, household groups, your calendar, namedays and birthdays,
+> time blocks, journal and tracking, goals, an installable app with notifications, and backups.
+> What changed per phase is in [`CHANGELOG.md`](CHANGELOG.md); decisions are in
+> [`docs/DECISIONS.md`](docs/DECISIONS.md), and later plans in [`docs/WORKPLAN.md`](docs/WORKPLAN.md).
 
 What works today:
 
@@ -97,21 +100,41 @@ Set these in `docker-compose.yml` under `environment:`.
 
 ### HTTPS / reverse proxy
 
-Plain HTTP on your LAN works. To use HTTPS (needed later for installing it as an app and for
-push notifications), put it behind a proxy and set `TRUST_PROXY: "true"`. Caddy example:
+Plain HTTP on your LAN works for everything except installing it as an app, push notifications
+and GPS places, which browsers only allow over HTTPS. Put Streamline behind a proxy that
+provides HTTPS and set `TRUST_PROXY: "true"` (and optionally `PUBLIC_URL`). Live sync uses
+server-sent events, so the proxy must not buffer responses.
+
+**Caddy** (automatic certificates):
 
 ```
-todo.example.home {
+todo.example.org {
     reverse_proxy streamline:3000 {
         flush_interval -1   # deliver live-sync events immediately
     }
 }
 ```
 
-A complete, tested setup (Streamline + Caddy, automatic or internal certificates) is in
+A complete, tested setup (Streamline + Caddy, public or internal certificates) is in
 [`docs/examples/caddy`](docs/examples/caddy).
 
-Tailscale: `tailscale serve --bg 3000` on the host also works (set `TRUST_PROXY: "true"`).
+**Traefik** (labels on the `streamline` service; assumes an existing Traefik with a
+`websecure` entrypoint and a certificate resolver named `le`):
+
+```yaml
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.streamline.rule=Host(`todo.example.org`)
+      - traefik.http.routers.streamline.entrypoints=websecure
+      - traefik.http.routers.streamline.tls.certresolver=le
+      - traefik.http.services.streamline.loadbalancer.server.port=3000
+```
+
+Traefik streams server-sent events without extra settings.
+
+**Tailscale** (private, nothing exposed to the internet): on the host, `tailscale serve --bg 3000`
+gives `https://<machine>.<tailnet>.ts.net` with a valid certificate on every device in your
+tailnet. Set `TRUST_PROXY: "true"`. This is the easiest way to get notifications on your phone.
 
 ### Install it on your phone, notifications
 
@@ -143,11 +166,16 @@ To restore: stop the container, copy the backup to `data/streamline.db`, delete
 
 ### Updating
 
+Make a backup first (**Settings → Backups → Back up now**, or copy `data/`), then:
+
 ```sh
 git pull && docker compose up -d --build
 ```
 
-Database migrations run automatically on startup.
+With the prebuilt image: `docker compose pull && docker compose up -d`. Pin a version with
+`image: ghcr.io/laurits7/streamline:1.0.0` instead of `latest` if you prefer to update on your own
+schedule. Database migrations run automatically on startup; going back to an older version after a
+migration means restoring the backup.
 
 ### Raspberry Pi (arm64)
 
