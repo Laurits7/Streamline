@@ -2839,3 +2839,78 @@ async fn group_changes_stream_to_members_only() {
         "a non-member doesn't"
     );
 }
+
+#[tokio::test]
+async fn shared_fixed_time_routines_land_on_every_members_timeline() {
+    let t = setup().await;
+    let admin = t.admin().await;
+    let anna = t.user(&admin, "anna").await;
+    let ben = t.user(&admin, "ben").await;
+    let (_, me_ben, _) = t.req("GET", "/api/v1/me", Some(&ben), None).await;
+    let (_, fam, _) = t
+        .req(
+            "POST",
+            "/api/v1/groups",
+            Some(&anna),
+            Some(json!({"name": "Family"})),
+        )
+        .await;
+    let gid = fam["id"].as_str().unwrap().to_string();
+    t.req(
+        "POST",
+        &format!("/api/v1/groups/{gid}/members"),
+        Some(&anna),
+        Some(json!({"user_id": me_ben["id"]})),
+    )
+    .await;
+    let (_, walk, _) = t
+        .req("POST", "/api/v1/series", Some(&anna), Some(json!({"title": "Walk the dog", "mode": "anchored", "rrule": "FREQ=DAILY", "start_time": "07:30", "owner_group_id": gid})))
+        .await;
+    let (_, today, _) = t.req("GET", "/api/v1/today", Some(&anna), None).await;
+    let day = today["date"].as_str().unwrap().to_string();
+    let entry_of = |v: &Value| {
+        v["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|e| e["start_time"] == "07:30")
+            .cloned()
+    };
+    let (_, a_day, _) = t
+        .req("GET", &format!("/api/v1/days/{day}"), Some(&anna), None)
+        .await;
+    let (_, b_day, _) = t
+        .req("GET", &format!("/api/v1/days/{day}"), Some(&ben), None)
+        .await;
+    let (a, b) = (
+        entry_of(&a_day).expect("on Anna's timeline"),
+        entry_of(&b_day).expect("on Ben's timeline"),
+    );
+    assert_eq!(a["task_id"], b["task_id"], "one shared occurrence");
+    assert_ne!(a["id"], b["id"], "each member has their own entry");
+    assert!(
+        b_day["tasks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|x| x["series_id"] == walk["id"])
+    );
+    // Ben walks the dog: done for both.
+    t.req(
+        "PATCH",
+        &format!("/api/v1/tasks/{}", a["task_id"].as_str().unwrap()),
+        Some(&ben),
+        Some(json!({"status": "done"})),
+    )
+    .await;
+    let (_, task, _) = t
+        .req(
+            "GET",
+            &format!("/api/v1/tasks/{}", a["task_id"].as_str().unwrap()),
+            Some(&anna),
+            None,
+        )
+        .await;
+    assert_eq!(task["status"], "done");
+    assert_eq!(task["completed_by"], me_ben["id"]);
+}

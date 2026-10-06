@@ -269,6 +269,7 @@
       <li>Everyone in the group sees shared things, and <strong>anyone can complete them</strong> — it shows who did (“✓ Anna”).</li>
       <li>Changes appear instantly for everyone: when someone takes out the garbage, it disappears from your list too.</li>
       <li>Repeating chores (bins out every Tuesday) have one shared occurrence, not one each.</li>
+      <li>A shared routine with a fixed time (walk the dog at 7:30) lands on every member's timeline at that time. Whoever does it ticks it off, and it leaves everyone else's day at once.</li>
       <li>Each person plans their own day: you can put a shared chore on your plan without it landing on anyone else's.</li>
       <li>Your day plans, focus time, activity log and notes are never shared.</li>
     </ul>

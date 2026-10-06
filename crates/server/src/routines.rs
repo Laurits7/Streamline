@@ -120,32 +120,43 @@ pub async fn materialize_series(
         let t = occurrence_task(conn, s, &o, "open", rev).await?;
         upsert_task(conn, &t).await?;
         changes.push(Change::task(&t));
-        // Fixed-time routines are planned on their day's timeline right away.
-        if s.mode == "anchored"
-            && let Some(user_id) = &s.owner_user_id
-        {
-            let last: Option<String> = sqlx::query_scalar(
-                "SELECT MAX(position) FROM day_entries WHERE user_id = ? AND date = ? AND deleted_at IS NULL",
-            )
-            .bind(user_id)
-            .bind(fmt(o.date))
-            .fetch_one(&mut *conn)
-            .await?;
-            let e = DayEntry {
-                id: new_id(),
-                user_id: user_id.clone(),
-                date: fmt(o.date),
-                task_id: t.id.clone(),
-                position: key_after(last.as_deref()),
-                start_time: s.start_time.clone(),
-                duration_min: s.duration_min,
-                created_at: ts.clone(),
-                updated_at: ts,
-                deleted_at: None,
-                rev,
+        // Fixed-time routines are planned on their day's timeline right away: on the
+        // owner's, or for a shared routine on every member's (each gets their own entry).
+        if s.mode == "anchored" {
+            let people: Vec<String> = match (&s.owner_user_id, &s.owner_group_id) {
+                (Some(u), _) => vec![u.clone()],
+                (None, Some(g)) => {
+                    sqlx::query_scalar("SELECT user_id FROM group_members WHERE group_id = ?")
+                        .bind(g)
+                        .fetch_all(&mut *conn)
+                        .await?
+                }
+                _ => vec![],
             };
-            upsert_entry(conn, &e).await?;
-            changes.push(Change::entry(&e));
+            for user_id in people {
+                let last: Option<String> = sqlx::query_scalar(
+                    "SELECT MAX(position) FROM day_entries WHERE user_id = ? AND date = ? AND deleted_at IS NULL",
+                )
+                .bind(&user_id)
+                .bind(fmt(o.date))
+                .fetch_one(&mut *conn)
+                .await?;
+                let e = DayEntry {
+                    id: new_id(),
+                    user_id,
+                    date: fmt(o.date),
+                    task_id: t.id.clone(),
+                    position: key_after(last.as_deref()),
+                    start_time: s.start_time.clone(),
+                    duration_min: s.duration_min,
+                    created_at: ts.clone(),
+                    updated_at: ts.clone(),
+                    deleted_at: None,
+                    rev,
+                };
+                upsert_entry(conn, &e).await?;
+                changes.push(Change::entry(&e));
+            }
         }
     }
     Ok(changes)

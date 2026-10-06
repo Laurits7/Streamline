@@ -27,7 +27,9 @@
     store
       .dayEntries(date)
       .map((entry) => ({ entry, task: store.tasks.get(entry.task_id) }))
-      .filter((i): i is Item => !!i.task),
+      .filter((i): i is Item => !!i.task)
+      // A shared task someone else finished (e.g. the group's dog walk) leaves my day.
+      .filter((i) => !(i.task.owner_group_id && i.task.status === 'done' && i.task.completed_by && i.task.completed_by !== store.me?.id)),
   )
   const open = $derived(items.filter((i) => i.task.status === 'open'))
   const timed = $derived(items.filter((i) => i.entry.start_time))
