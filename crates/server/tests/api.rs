@@ -1261,7 +1261,7 @@ async fn routine_day_end_rules_and_streaks() {
     let laundry_occ = occurrences(&t, &admin, laundry["id"].as_str().unwrap()).await;
 
     // Pretend today's vitamins were yesterday's and never planned, and the laundry week ended.
-    sqlx::query("UPDATE tasks SET occurrence_date = ? WHERE id = ?")
+    sqlx::query("UPDATE tasks SET occurrence_date = ?1, due_date = ?1 WHERE id = ?2")
         .bind(ymd(yesterday))
         .bind(vit_occ[0]["id"].as_str().unwrap())
         .execute(&t.state.db.write)
