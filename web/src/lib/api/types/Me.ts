@@ -19,4 +19,12 @@ plan_mode: 'evening' | 'morning' | 'both', plan_time_evening: string, plan_time_
 /**
  * The part of the day counted as available time (`HH:MM`).
  */
-day_window_start: string, day_window_end: string, };
+day_window_start: string, day_window_end: string, 
+/**
+ * Free-form UI preferences (e.g. each view's filters), shared across devices.
+ */
+prefs: Record<string, unknown>, 
+/**
+ * Pomodoro lengths in minutes, and how many work intervals until a long break.
+ */
+focus_work_min: number, focus_short_break_min: number, focus_long_break_min: number, focus_long_every: number, };

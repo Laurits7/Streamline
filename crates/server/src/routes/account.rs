@@ -142,6 +142,10 @@ pub struct PatchMe {
     plan_time_morning: Option<String>,
     day_window_start: Option<String>,
     day_window_end: Option<String>,
+    focus_work_min: Option<i32>,
+    focus_short_break_min: Option<i32>,
+    focus_long_break_min: Option<i32>,
+    focus_long_every: Option<i32>,
 }
 
 #[utoipa::path(patch, path = "/me", tag = "account", summary = "Update profile and preferences", request_body = PatchMe, responses((status = 200, body = Me), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
@@ -203,13 +207,44 @@ pub async fn patch_me(
             *field = v;
         }
     }
+    for (value, field, name, hi) in [
+        (
+            p.focus_work_min,
+            &mut u.focus_work_min,
+            "focus_work_min",
+            180,
+        ),
+        (
+            p.focus_short_break_min,
+            &mut u.focus_short_break_min,
+            "focus_short_break_min",
+            60,
+        ),
+        (
+            p.focus_long_break_min,
+            &mut u.focus_long_break_min,
+            "focus_long_break_min",
+            120,
+        ),
+        (
+            p.focus_long_every,
+            &mut u.focus_long_every,
+            "focus_long_every",
+            12,
+        ),
+    ] {
+        if let Some(v) = value {
+            crate::util::check_range(name, Some(v), 1, hi)?;
+            *field = v;
+        }
+    }
     if u.day_window_start == u.day_window_end {
         return Err(bad("the available part of the day can't be empty"));
     }
     let mut tx = state.db.write.begin().await?;
     let rev = crate::db::next_rev(&mut tx).await?;
     sqlx::query(
-        "UPDATE users SET display_name = ?, timezone = ?, day_end = ?, locale = ?, week_start = ?, plan_mode = ?, plan_time_evening = ?, plan_time_morning = ?, day_window_start = ?, day_window_end = ?, updated_at = ?, rev = ? WHERE id = ?",
+        "UPDATE users SET display_name = ?, timezone = ?, day_end = ?, locale = ?, week_start = ?, plan_mode = ?, plan_time_evening = ?, plan_time_morning = ?, day_window_start = ?, day_window_end = ?, focus_work_min = ?, focus_short_break_min = ?, focus_long_break_min = ?, focus_long_every = ?, updated_at = ?, rev = ? WHERE id = ?",
     )
         .bind(&u.display_name)
         .bind(&u.timezone)
@@ -221,12 +256,63 @@ pub async fn patch_me(
     .bind(&u.plan_time_morning)
     .bind(&u.day_window_start)
     .bind(&u.day_window_end)
+    .bind(u.focus_work_min)
+    .bind(u.focus_short_break_min)
+    .bind(u.focus_long_break_min)
+    .bind(u.focus_long_every)
         .bind(now())
         .bind(rev)
         .bind(&u.id)
         .execute(&mut *tx)
         .await?;
     tx.commit().await?;
+    let me = Me::from(&u);
+    state
+        .bus
+        .publish([Change::me(&u.id, serde_json::to_value(&me)?)]);
+    Ok(Json(me))
+}
+
+/// Merge UI preferences: top-level keys in the body replace stored ones; `null` removes a key.
+#[utoipa::path(patch, path = "/me/prefs", tag = "account", summary = "Merge UI preferences (null removes a key)", request_body = Object, responses((status = 200, body = Me), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
+pub async fn patch_prefs(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Json(patch): Json<serde_json::Map<String, serde_json::Value>>,
+) -> ApiResult<Json<Me>> {
+    let mut tx = state.db.write.begin().await?;
+    // Re-read inside the transaction so concurrent merges don't lose keys.
+    let stored: String = sqlx::query_scalar("SELECT prefs FROM users WHERE id = ?")
+        .bind(user.id())
+        .fetch_one(&mut *tx)
+        .await?;
+    let mut prefs: serde_json::Map<String, serde_json::Value> =
+        serde_json::from_str(&stored).unwrap_or_default();
+    for (k, v) in patch {
+        if k.len() > 100 {
+            return Err(bad("preference keys are at most 100 characters"));
+        }
+        if v.is_null() {
+            prefs.remove(&k);
+        } else {
+            prefs.insert(k, v);
+        }
+    }
+    let json = serde_json::Value::Object(prefs).to_string();
+    if json.len() > 64 * 1024 {
+        return Err(bad("preferences are limited to 64 KB"));
+    }
+    let rev = crate::db::next_rev(&mut tx).await?;
+    sqlx::query("UPDATE users SET prefs = ?, updated_at = ?, rev = ? WHERE id = ?")
+        .bind(&json)
+        .bind(now())
+        .bind(rev)
+        .bind(user.id())
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    let mut u = user.user;
+    u.prefs = json;
     let me = Me::from(&u);
     state
         .bus

@@ -19,7 +19,7 @@ use crate::{
     auth::AuthUser,
     db::current_rev,
     error::ApiResult,
-    models::{DayEntry, DayPlan, Me, Project, Task, TaskType},
+    models::{DayEntry, DayPlan, FocusSession, FocusTimer, Me, Project, Task, TaskType},
     rollover,
 };
 
@@ -45,6 +45,11 @@ pub struct SyncResponse {
     pub tasks: Vec<Task>,
     pub day_entries: Vec<DayEntry>,
     pub day_plans: Vec<DayPlan>,
+    pub focus_timer: FocusTimer,
+    pub focus_sessions: Vec<FocusSession>,
+    /// The server's clock (Unix ms), so clients can correct for clock differences.
+    #[ts(type = "number")]
+    pub server_now: i64,
 }
 
 #[utoipa::path(get, path = "/sync", tag = "sync", summary = "Everything visible to you, or only what changed after `since`", params(SyncQuery), responses((status = 200, body = SyncResponse), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
@@ -111,6 +116,18 @@ pub async fn sync(
     .fetch_all(db)
     .await?;
 
+    let focus_sessions = sqlx::query_as(
+        "SELECT * FROM focus_sessions WHERE user_id = ?1 AND (
+            ?2 = 0 AND deleted_at IS NULL AND started_at >= ?3
+            OR ?2 > 0 AND rev > ?2)",
+    )
+    .bind(user.id())
+    .bind(since)
+    .bind(&cutoff_ts)
+    .fetch_all(db)
+    .await?;
+    let focus_timer = crate::routes::focus::current(&state, user.id()).await?;
+
     Ok(Json(SyncResponse {
         rev,
         full,
@@ -121,6 +138,9 @@ pub async fn sync(
         tasks,
         day_entries,
         day_plans,
+        focus_timer,
+        focus_sessions,
+        server_now: chrono::Utc::now().timestamp_millis(),
     }))
 }
 

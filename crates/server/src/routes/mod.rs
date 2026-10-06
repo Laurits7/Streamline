@@ -1,5 +1,6 @@
 mod account;
 mod days;
+pub mod focus;
 mod projects;
 mod sync;
 mod tasks;
@@ -27,6 +28,7 @@ use crate::AppState;
         account::patch_me, account::change_password, account::list_tokens, account::create_token,
         account::revoke_token, account::list_users, account::create_user, account::patch_user,
         account::delete_user,
+        account::patch_prefs, focus::get_focus, focus::post_focus,
         sync::sync, sync::events, sync::today, sync::task_types,
         projects::list, projects::create, projects::patch, projects::delete,
         tasks::list, tasks::create, tasks::get_one, tasks::patch, tasks::delete,
@@ -39,6 +41,7 @@ use crate::AppState;
         (name = "projects", description = "Projects and subprojects"),
         (name = "tasks", description = "Tasks"),
         (name = "days", description = "The day plan"),
+        (name = "focus", description = "Focus (Pomodoro) timer"),
     )
 )]
 pub struct ApiDoc;
@@ -99,6 +102,8 @@ pub fn router(state: AppState) -> Router {
             "/users/{id}",
             patch(account::patch_user).delete(account::delete_user),
         )
+        .route("/me/prefs", patch(account::patch_prefs))
+        .route("/focus", get(focus::get_focus).post(focus::post_focus))
         .route("/sync", get(sync::sync))
         .route("/events", get(sync::events))
         .route("/today", get(sync::today))

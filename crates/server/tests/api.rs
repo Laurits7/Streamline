@@ -816,3 +816,253 @@ async fn planning_reminders_fire_once_and_skip_planned_days() {
         ["plan_morning"]
     );
 }
+
+#[tokio::test]
+async fn focus_timer_lifecycle() {
+    let t = setup().await;
+    let admin = t.admin().await;
+    let (_, task, _) = t
+        .req(
+            "POST",
+            "/api/v1/tasks",
+            Some(&admin),
+            Some(json!({"title": "Write report", "estimate_min": 60})),
+        )
+        .await;
+    let tid = task["id"].as_str().unwrap().to_string();
+
+    let (_, v, _) = t.req("GET", "/api/v1/focus", Some(&admin), None).await;
+    assert_eq!(v["timer"]["phase"], "idle");
+    assert!(v["server_now"].as_i64().unwrap() > 0);
+
+    // Start: work runs; the task becomes "in progress".
+    let (s, v, _) = t
+        .req(
+            "POST",
+            "/api/v1/focus",
+            Some(&admin),
+            Some(json!({"action": "start", "task_id": tid})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(
+        (
+            v["timer"]["phase"].as_str(),
+            v["timer"]["length_min"].as_i64()
+        ),
+        (Some("work"), Some(25))
+    );
+    assert!(v["timer"]["running_since_ms"].is_number());
+    let (_, task, _) = t
+        .req("GET", &format!("/api/v1/tasks/{tid}"), Some(&admin), None)
+        .await;
+    assert!(task["started_at"].is_string());
+
+    // Pretend 26 minutes passed: syncing completes the work interval and starts the break.
+    sqlx::query("UPDATE focus_timers SET running_since = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-26 minutes')")
+        .execute(&t.state.db.write)
+        .await
+        .unwrap();
+    let (_, v, _) = t
+        .req(
+            "POST",
+            "/api/v1/focus",
+            Some(&admin),
+            Some(json!({"action": "sync"})),
+        )
+        .await;
+    assert_eq!(v["timer"]["phase"], "short_break");
+    assert_eq!(v["timer"]["cycle_done"], 1);
+    let (_, task, _) = t
+        .req("GET", &format!("/api/v1/tasks/{tid}"), Some(&admin), None)
+        .await;
+    assert_eq!(
+        task["actual_min"], 25,
+        "completed work counts as actual time"
+    );
+    let (_, sync, _) = t.req("GET", "/api/v1/sync", Some(&admin), None).await;
+    let sessions = sync["focus_sessions"].as_array().unwrap();
+    assert_eq!(sessions.len(), 1);
+    assert_eq!(
+        (
+            sessions[0]["kind"].as_str(),
+            sessions[0]["minutes"].as_i64(),
+            sessions[0]["completed"].as_bool()
+        ),
+        (Some("work"), Some(25), Some(true))
+    );
+    assert_eq!(sync["focus_timer"]["phase"], "short_break");
+
+    // Pause/resume/skip/stop.
+    let (_, v, _) = t
+        .req(
+            "POST",
+            "/api/v1/focus",
+            Some(&admin),
+            Some(json!({"action": "pause"})),
+        )
+        .await;
+    assert!(v["timer"]["running_since_ms"].is_null());
+    let (_, v, _) = t
+        .req(
+            "POST",
+            "/api/v1/focus",
+            Some(&admin),
+            Some(json!({"action": "skip"})),
+        )
+        .await;
+    assert_eq!(
+        (
+            v["timer"]["phase"].as_str(),
+            v["timer"]["running_since_ms"].is_null()
+        ),
+        (Some("work"), true)
+    );
+    let (_, v, _) = t
+        .req(
+            "POST",
+            "/api/v1/focus",
+            Some(&admin),
+            Some(json!({"action": "resume"})),
+        )
+        .await;
+    assert!(v["timer"]["running_since_ms"].is_number());
+    let (_, v, _) = t
+        .req(
+            "POST",
+            "/api/v1/focus",
+            Some(&admin),
+            Some(json!({"action": "stop"})),
+        )
+        .await;
+    assert_eq!(v["timer"]["phase"], "idle");
+
+    // Validation and privacy.
+    let (s, _, _) = t
+        .req(
+            "POST",
+            "/api/v1/focus",
+            Some(&admin),
+            Some(json!({"action": "dance"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    let bob = t.user(&admin, "bob").await;
+    let (s, _, _) = t
+        .req(
+            "POST",
+            "/api/v1/focus",
+            Some(&bob),
+            Some(json!({"action": "start", "task_id": tid})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    let (_, v, _) = t.req("GET", "/api/v1/focus", Some(&bob), None).await;
+    assert_eq!(v["timer"]["phase"], "idle", "each user has their own timer");
+}
+
+#[tokio::test]
+async fn in_progress_prefs_and_focus_settings() {
+    let t = setup().await;
+    let admin = t.admin().await;
+    let (_, task, _) = t
+        .req(
+            "POST",
+            "/api/v1/tasks",
+            Some(&admin),
+            Some(json!({"title": "Paint fence"})),
+        )
+        .await;
+    let tid = task["id"].as_str().unwrap().to_string();
+    let (_, v, _) = t
+        .req(
+            "PATCH",
+            &format!("/api/v1/tasks/{tid}"),
+            Some(&admin),
+            Some(json!({"in_progress": true})),
+        )
+        .await;
+    assert!(v["started_at"].is_string());
+    t.req(
+        "PATCH",
+        &format!("/api/v1/tasks/{tid}"),
+        Some(&admin),
+        Some(json!({"status": "done"})),
+    )
+    .await;
+    let (_, v, _) = t
+        .req(
+            "PATCH",
+            &format!("/api/v1/tasks/{tid}"),
+            Some(&admin),
+            Some(json!({"status": "open"})),
+        )
+        .await;
+    assert!(v["started_at"].is_null(), "reopening starts over");
+
+    // Preferences merge by top-level key; null removes.
+    t.req(
+        "PATCH",
+        "/api/v1/me/prefs",
+        Some(&admin),
+        Some(json!({"view:all": {"view": "board", "group": "status"}, "x": 1})),
+    )
+    .await;
+    let (_, me, _) = t
+        .req(
+            "PATCH",
+            "/api/v1/me/prefs",
+            Some(&admin),
+            Some(json!({"x": null, "view:inbox": {"view": "matrix"}})),
+        )
+        .await;
+    assert_eq!(
+        me["prefs"],
+        json!({"view:all": {"view": "board", "group": "status"}, "view:inbox": {"view": "matrix"}})
+    );
+    let big = "x".repeat(70 * 1024);
+    let (s, _, _) = t
+        .req(
+            "PATCH",
+            "/api/v1/me/prefs",
+            Some(&admin),
+            Some(json!({"big": big})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+
+    // Pomodoro settings.
+    let (_, me, _) = t
+        .req(
+            "PATCH",
+            "/api/v1/me",
+            Some(&admin),
+            Some(json!({"focus_work_min": 50, "focus_long_every": 3})),
+        )
+        .await;
+    assert_eq!(
+        (
+            me["focus_work_min"].as_i64(),
+            me["focus_long_every"].as_i64()
+        ),
+        (Some(50), Some(3))
+    );
+    let (s, _, _) = t
+        .req(
+            "PATCH",
+            "/api/v1/me",
+            Some(&admin),
+            Some(json!({"focus_work_min": 0})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    let (_, v, _) = t
+        .req(
+            "POST",
+            "/api/v1/focus",
+            Some(&admin),
+            Some(json!({"action": "start"})),
+        )
+        .await;
+    assert_eq!(v["timer"]["length_min"], 50);
+}

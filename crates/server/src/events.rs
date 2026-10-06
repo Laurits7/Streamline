@@ -7,7 +7,7 @@ use serde::Serialize;
 use tokio::sync::broadcast;
 
 use crate::{
-    models::{DayEntry, DayPlan, Project, Task},
+    models::{DayEntry, DayPlan, FocusSession, FocusTimer, Project, Task},
     visibility,
 };
 
@@ -51,6 +51,22 @@ impl Change {
             kind: "day_plan",
             data: serde_json::to_value(p).unwrap(),
             audience: vec![p.user_id.clone()],
+        }
+    }
+    pub fn focus_timer(user_id: &str, t: &FocusTimer) -> Self {
+        Self {
+            rev: t.rev,
+            kind: "focus_timer",
+            data: serde_json::to_value(t).unwrap(),
+            audience: vec![user_id.to_string()],
+        }
+    }
+    pub fn focus_session(s: &FocusSession) -> Self {
+        Self {
+            rev: s.rev,
+            kind: "focus_session",
+            data: serde_json::to_value(s).unwrap(),
+            audience: vec![s.user_id.clone()],
         }
     }
     /// Something to show the user now (e.g. a planning reminder). Not part of the change feed.

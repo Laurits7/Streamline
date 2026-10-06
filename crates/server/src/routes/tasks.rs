@@ -225,6 +225,7 @@ pub async fn create(
         actual_min: 0,
         task_type_id,
         carry_count: 0,
+        started_at: None,
         completed_at: None,
         completed_by: None,
         ext_source: None,
@@ -284,6 +285,8 @@ pub struct PatchTask {
     #[serde(default, deserialize_with = "double_option")]
     urgency: Option<Option<i32>>,
     task_type_id: Option<String>,
+    /// Mark an open task as in progress (`true`) or not started (`false`).
+    in_progress: Option<bool>,
 }
 
 #[utoipa::path(patch, path = "/tasks/{id}", tag = "tasks", summary = "Update a task; status done completes it", params(("id" = String, Path, description = "ULID")), request_body = PatchTask, responses((status = 200, body = Task), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
@@ -348,6 +351,7 @@ pub async fn patch(
             "open" => {
                 t.completed_at = None;
                 t.completed_by = None;
+                t.started_at = None;
                 "reopened".to_string()
             }
             other => {
@@ -358,6 +362,13 @@ pub async fn patch(
         };
         t.status = status;
         log_task_event(&mut tx, &t.id, Some(user.id()), &kind, None).await?;
+    }
+    if let Some(p) = c.in_progress {
+        t.started_at = if p {
+            Some(t.started_at.clone().unwrap_or_else(now))
+        } else {
+            None
+        };
     }
     t.updated_at = now();
     t.rev = next_rev(&mut tx).await?;

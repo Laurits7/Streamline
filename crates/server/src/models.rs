@@ -22,6 +22,23 @@ pub struct User {
     pub plan_time_morning: String,
     pub day_window_start: String,
     pub day_window_end: String,
+    pub prefs: String,
+    pub focus_work_min: i32,
+    pub focus_short_break_min: i32,
+    pub focus_long_break_min: i32,
+    pub focus_long_every: i32,
+}
+
+impl User {
+    pub fn focus_settings(&self) -> streamline_domain::focus::Settings {
+        let clamp = |v: i32, hi: i32| v.clamp(1, hi) as u32;
+        streamline_domain::focus::Settings {
+            work_min: clamp(self.focus_work_min, 180),
+            short_break_min: clamp(self.focus_short_break_min, 60),
+            long_break_min: clamp(self.focus_long_break_min, 120),
+            long_every: clamp(self.focus_long_every, 12),
+        }
+    }
 }
 
 /// The signed-in user as seen by themselves (and by admins in the user list).
@@ -46,6 +63,15 @@ pub struct Me {
     /// The part of the day counted as available time (`HH:MM`).
     pub day_window_start: String,
     pub day_window_end: String,
+    /// Free-form UI preferences (e.g. each view's filters), shared across devices.
+    #[ts(type = "Record<string, unknown>")]
+    #[schema(value_type = Object)]
+    pub prefs: serde_json::Value,
+    /// Pomodoro lengths in minutes, and how many work intervals until a long break.
+    pub focus_work_min: i32,
+    pub focus_short_break_min: i32,
+    pub focus_long_break_min: i32,
+    pub focus_long_every: i32,
 }
 
 impl From<&User> for Me {
@@ -64,6 +90,11 @@ impl From<&User> for Me {
             plan_time_morning: u.plan_time_morning.clone(),
             day_window_start: u.day_window_start.clone(),
             day_window_end: u.day_window_end.clone(),
+            prefs: serde_json::from_str(&u.prefs).unwrap_or_else(|_| serde_json::json!({})),
+            focus_work_min: u.focus_work_min,
+            focus_short_break_min: u.focus_short_break_min,
+            focus_long_break_min: u.focus_long_break_min,
+            focus_long_every: u.focus_long_every,
         }
     }
 }
@@ -126,6 +157,8 @@ pub struct Task {
     pub actual_min: i32,
     pub task_type_id: String,
     pub carry_count: i32,
+    /// Set when work on the task began ("in progress" while the task is open).
+    pub started_at: Option<String>,
     pub completed_at: Option<String>,
     pub completed_by: Option<String>,
     pub ext_source: Option<String>,
@@ -161,6 +194,46 @@ pub struct DayEntry {
     pub position: String,
     pub start_time: Option<String>,
     pub duration_min: Option<i32>,
+    pub created_at: String,
+    pub updated_at: String,
+    pub deleted_at: Option<String>,
+    #[ts(type = "number")]
+    pub rev: i64,
+}
+
+/// The user's focus timer as clients see it. Remaining time at `now` (ms) is
+/// `length_min * 60000 - elapsed_ms - (running_since_ms ? now - running_since_ms : 0)`.
+#[derive(Debug, Clone, Serialize, TS, utoipa::ToSchema)]
+#[ts(export)]
+pub struct FocusTimer {
+    pub task_id: Option<String>,
+    #[ts(type = "'idle' | 'work' | 'short_break' | 'long_break'")]
+    pub phase: String,
+    /// Unix ms when the clock last started; `null` = paused or waiting to start.
+    #[ts(type = "number | null")]
+    pub running_since_ms: Option<i64>,
+    #[ts(type = "number")]
+    pub elapsed_ms: i64,
+    pub length_min: i32,
+    /// Completed work intervals since the last long break.
+    pub cycle_done: i32,
+    #[ts(type = "number")]
+    pub rev: i64,
+}
+
+#[derive(Debug, Clone, Serialize, FromRow, TS, utoipa::ToSchema)]
+#[ts(export)]
+pub struct FocusSession {
+    pub id: String,
+    pub user_id: String,
+    pub task_id: Option<String>,
+    #[ts(type = "'work' | 'break'")]
+    pub kind: String,
+    pub started_at: String,
+    pub ended_at: String,
+    pub minutes: i32,
+    /// Ran its full length (vs skipped or stopped early).
+    pub completed: bool,
     pub created_at: String,
     pub updated_at: String,
     pub deleted_at: Option<String>,
@@ -217,22 +290,22 @@ pub async fn upsert_project(conn: &mut SqliteConnection, p: &Project) -> sqlx::R
 pub async fn upsert_task(conn: &mut SqliteConnection, t: &Task) -> sqlx::Result<()> {
     sqlx::query(
         "INSERT INTO tasks (id, owner_user_id, owner_group_id, assignee_user_id, project_id, title, notes, status, position,
-           due_date, estimate_min, difficulty, importance, urgency, actual_min, task_type_id, carry_count, completed_at,
+           due_date, estimate_min, difficulty, importance, urgency, actual_min, task_type_id, carry_count, started_at, completed_at,
            completed_by, ext_source, ext_id, ext_url, created_at, updated_at, deleted_at, rev)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
          ON CONFLICT(id) DO UPDATE SET owner_user_id=excluded.owner_user_id, owner_group_id=excluded.owner_group_id,
            assignee_user_id=excluded.assignee_user_id, project_id=excluded.project_id, title=excluded.title,
            notes=excluded.notes, status=excluded.status, position=excluded.position, due_date=excluded.due_date,
            estimate_min=excluded.estimate_min, difficulty=excluded.difficulty, importance=excluded.importance,
            urgency=excluded.urgency, actual_min=excluded.actual_min, task_type_id=excluded.task_type_id,
-           carry_count=excluded.carry_count, completed_at=excluded.completed_at, completed_by=excluded.completed_by,
+           carry_count=excluded.carry_count, started_at=excluded.started_at, completed_at=excluded.completed_at, completed_by=excluded.completed_by,
            ext_source=excluded.ext_source, ext_id=excluded.ext_id, ext_url=excluded.ext_url,
            updated_at=excluded.updated_at, deleted_at=excluded.deleted_at, rev=excluded.rev",
     )
     .bind(&t.id).bind(&t.owner_user_id).bind(&t.owner_group_id).bind(&t.assignee_user_id).bind(&t.project_id)
     .bind(&t.title).bind(&t.notes).bind(&t.status).bind(&t.position).bind(&t.due_date).bind(t.estimate_min)
     .bind(t.difficulty).bind(t.importance).bind(t.urgency).bind(t.actual_min).bind(&t.task_type_id)
-    .bind(t.carry_count).bind(&t.completed_at).bind(&t.completed_by).bind(&t.ext_source).bind(&t.ext_id)
+    .bind(t.carry_count).bind(&t.started_at).bind(&t.completed_at).bind(&t.completed_by).bind(&t.ext_source).bind(&t.ext_id)
     .bind(&t.ext_url).bind(&t.created_at).bind(&t.updated_at).bind(&t.deleted_at).bind(t.rev)
     .execute(conn)
     .await
