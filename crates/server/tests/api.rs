@@ -786,7 +786,7 @@ async fn planning_reminders_fire_once_and_skip_planned_days() {
     assert!(sent[0].url.starts_with("/plan/") && !sent[0].url.ends_with(&today));
     let ev = events.try_recv().unwrap();
     assert_eq!(ev.kind, "notification");
-    assert_eq!(ev.audience, [user.id.clone()]);
+    assert_eq!(ev.audience, std::slice::from_ref(&user.id));
 
     // Never twice.
     assert!(
