@@ -265,7 +265,7 @@
       occurrence. A task's place can differ from its project's: “buy a garden hose” for the cottage is done in town.
     </p>
     <p>
-      Choose where you are with the 📍 switcher (sidebar, or next to the date on a phone). The ready stack, planner,
+      Choose where you are in <a href="/settings">Settings</a> (<em>I'm currently at</em>). The ready stack, planner,
       All tasks, board and matrix then show only what can be done there, plus tasks without a place. Project pages and
       your day plan always show everything.
     </p>

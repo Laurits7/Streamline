@@ -13,7 +13,6 @@
   import WorkflowSheet from './lib/components/WorkflowSheet.svelte'
   import StartWorkflowSheet from './lib/components/StartWorkflowSheet.svelte'
   import PlaceTracker from './lib/components/PlaceTracker.svelte'
-  import PlaceSwitcher from './lib/components/PlaceSwitcher.svelte'
   import { droppable, type DragItem } from './lib/dnd.svelte'
   import { match, router } from './lib/router.svelte'
   import { store } from './lib/store.svelte'
@@ -136,7 +135,6 @@
         Streamline
         <span class="live" class:on={store.live} title={store.live ? 'Live sync connected' : 'Reconnecting…'}></span>
       </div>
-      <div class="place"><PlaceSwitcher /></div>
       <nav aria-label="Main">
         <a href="/" class="drop-zone" draggable="false" aria-current={todayActive} use:droppable={toToday}><Icon name="sun" /> Today</a>
         <a href="/inbox" class="drop-zone" draggable="false" aria-current={active('inbox')} use:droppable={toProject(null)}><Icon name="inbox" /> Inbox</a>
@@ -292,9 +290,6 @@
     font-weight: 750;
     font-size: 17px;
     padding: 4px 10px 18px;
-  }
-  .place {
-    padding: 0 6px 12px;
   }
   .live {
     width: 7px;

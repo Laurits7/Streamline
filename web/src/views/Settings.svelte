@@ -3,6 +3,7 @@
   import type { ApiToken } from '../lib/api/types/ApiToken'
   import type { Me } from '../lib/api/types/Me'
   import Icon from '../lib/components/Icon.svelte'
+  import PlaceSwitcher from '../lib/components/PlaceSwitcher.svelte'
   import { store } from '../lib/store.svelte'
   import { toast } from '../lib/toast.svelte'
 
@@ -225,6 +226,12 @@
     Where tasks are done (e.g. Home, Cottage, Town). Pick where you are with the 📍 switcher and lists show only what
     can be done there (plus tasks without a place).
   </p>
+  {#if store.placeList().length}
+    <div class="where">
+      <span>I'm currently at</span>
+      <PlaceSwitcher />
+    </div>
+  {/if}
   {#each store.placeList() as p (p.id)}
     <div class="line">
       <div>
@@ -381,6 +388,13 @@
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
     gap: 0 12px;
+  }
+  .where {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+    font-size: 14px;
   }
   .place-name {
     padding: 4px 8px !important;
