@@ -3156,6 +3156,48 @@ async fn calendar_account_sync_and_privacy() {
         "a forced sync rewrites nothing that didn't change"
     );
 
+    // A task scheduled on top of an event: the next sync tells the user, once.
+    let (_, task, _) = t
+        .req(
+            "POST",
+            "/api/v1/tasks",
+            Some(&anna),
+            Some(json!({"title": "Gym", "estimate_min": 30})),
+        )
+        .await;
+    t.req(
+        "POST",
+        &format!("/api/v1/days/{}/entries", tomorrow.format("%Y-%m-%d")),
+        Some(&anna),
+        Some(json!({"task_id": task["id"], "start_time": tomorrow.format("%H:%M").to_string()})),
+    )
+    .await;
+    let mut rx = t.state.bus.subscribe();
+    t.req("POST", "/api/v1/calendar/sync", Some(&anna), None)
+        .await;
+    t.req("POST", "/api/v1/calendar/sync", Some(&anna), None)
+        .await;
+    let mut notes = vec![];
+    while let Ok(c) = rx.try_recv() {
+        if c.kind == "notification" {
+            notes.push(c.data.clone());
+        }
+    }
+    // Gym overlaps both 09:00 events; the second sync repeats nothing.
+    assert_eq!(notes.len(), 2, "{notes:?}");
+    assert!(
+        notes
+            .iter()
+            .all(|n| n["kind"] == "conflict" && n["body"].as_str().unwrap().contains("Gym"))
+    );
+    t.req(
+        "DELETE",
+        &format!("/api/v1/tasks/{}", task["id"].as_str().unwrap()),
+        Some(&anna),
+        None,
+    )
+    .await;
+
     // One event edited, the series deleted: only the edited one is fetched.
     {
         let mut d = dav.lock().unwrap();
@@ -3486,5 +3528,233 @@ async fn namedays_people_and_occasion_tasks() {
         bc["days"].as_array().unwrap().len(),
         2,
         "the calendar is shared"
+    );
+}
+
+#[tokio::test]
+async fn day_templates_blocks_conflicts_and_suggestions() {
+    let t = setup().await;
+    let admin = t.admin().await;
+    let a = t.user(&admin, "anna").await;
+    let (_, today, _) = t.req("GET", "/api/v1/today", Some(&a), None).await;
+    let today =
+        chrono::NaiveDate::parse_from_str(today["date"].as_str().unwrap(), "%Y-%m-%d").unwrap();
+    let day = |n: i64| {
+        (today + chrono::Duration::days(n))
+            .format("%Y-%m-%d")
+            .to_string()
+    };
+
+    let blocks = json!([
+        {"title": "Deep work", "start": "08:00", "end": "12:00", "energy": "hard"},
+        {"title": "Admin", "start": "13:00", "end": "15:00", "energy": "easy"}
+    ]);
+    let (s, _, _) = t
+        .req("POST", "/api/v1/day-templates", Some(&a), Some(json!({"name": "Bad", "blocks": [{"title": "x", "start": "12:00", "end": "11:00", "energy": null}]})))
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    let (s, work, _) = t
+        .req(
+            "POST",
+            "/api/v1/day-templates",
+            Some(&a),
+            Some(json!({"name": "Workday", "weekdays": [1, 2, 3, 4, 5, 6, 7], "blocks": blocks})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{work}");
+    // A weekend template takes Saturday and Sunday away from "Workday".
+    let (_, weekend, _) = t
+        .req("POST", "/api/v1/day-templates", Some(&a), Some(json!({"name": "Weekend", "weekdays": [6, 7], "blocks": [{"title": "Chores", "start": "10:00", "end": "12:00", "energy": null}]})))
+        .await;
+    let (_, full, _) = t.req("GET", "/api/v1/sync", Some(&a), None).await;
+    let tpls = full["day_templates"].as_array().unwrap();
+    assert_eq!(
+        tpls.iter().find(|x| x["id"] == work["id"]).unwrap()["weekdays"],
+        json!([1, 2, 3, 4, 5])
+    );
+    let blocks_on = |v: &Value, d: &str| -> Vec<Value> {
+        v["time_blocks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|b| b["date"] == d && b["deleted_at"].is_null())
+            .cloned()
+            .collect()
+    };
+    // The next 8 days got their weekday's blocks.
+    for n in 0..8 {
+        let d = today + chrono::Duration::days(n);
+        let expected = if chrono::Datelike::weekday(&d).number_from_monday() >= 6 {
+            1
+        } else {
+            2
+        };
+        assert_eq!(blocks_on(&full, &day(n)).len(), expected, "day {n}");
+    }
+    let _ = weekend;
+
+    // Edits stick: a deleted block doesn't come back.
+    let first = blocks_on(&full, &day(1))[0]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    t.req(
+        "DELETE",
+        &format!("/api/v1/time-blocks/{first}"),
+        Some(&a),
+        None,
+    )
+    .await;
+    let (_, again, _) = t.req("GET", "/api/v1/sync", Some(&a), None).await;
+    assert_eq!(
+        blocks_on(&again, &day(1)).len(),
+        blocks_on(&full, &day(1)).len() - 1
+    );
+
+    // Applying: clear, re-apply, and applying the same template again changes nothing.
+    let d3 = day(3);
+    let (_, none, _) = t
+        .req(
+            "POST",
+            &format!("/api/v1/days/{d3}/apply-template"),
+            Some(&a),
+            Some(json!({"template_id": null})),
+        )
+        .await;
+    assert_eq!(none, json!([]));
+    let (_, b1, _) = t
+        .req(
+            "POST",
+            &format!("/api/v1/days/{d3}/apply-template"),
+            Some(&a),
+            Some(json!({"template_id": work["id"]})),
+        )
+        .await;
+    let (_, b2, _) = t
+        .req(
+            "POST",
+            &format!("/api/v1/days/{d3}/apply-template"),
+            Some(&a),
+            Some(json!({"template_id": work["id"]})),
+        )
+        .await;
+    assert_eq!(b1.as_array().unwrap().len(), 2);
+    assert_eq!(b1, b2, "idempotent");
+
+    // Conflicts: two tasks overlapping each other on day 3; a task inside a block is fine.
+    let mk = |title: &str, extra: Value| {
+        let mut body = json!({"title": title});
+        body.as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
+        body
+    };
+    let (_, ta, _) = t
+        .req(
+            "POST",
+            "/api/v1/tasks",
+            Some(&a),
+            Some(mk("Write", json!({"estimate_min": 60}))),
+        )
+        .await;
+    let (_, tb, _) = t
+        .req(
+            "POST",
+            "/api/v1/tasks",
+            Some(&a),
+            Some(mk("Call", json!({}))),
+        )
+        .await;
+    t.req(
+        "POST",
+        &format!("/api/v1/days/{d3}/entries"),
+        Some(&a),
+        Some(json!({"task_id": ta["id"], "start_time": "09:00"})),
+    )
+    .await;
+    let (_, eb, _) = t
+        .req(
+            "POST",
+            &format!("/api/v1/days/{d3}/entries"),
+            Some(&a),
+            Some(json!({"task_id": tb["id"], "start_time": "09:30", "duration_min": 30})),
+        )
+        .await;
+    let (_, dv, _) = t
+        .req("GET", &format!("/api/v1/days/{d3}"), Some(&a), None)
+        .await;
+    assert_eq!(dv["blocks"].as_array().unwrap().len(), 2);
+    let c = dv["conflicts"].as_array().unwrap();
+    assert_eq!(c.len(), 1, "{c:?}");
+    assert_eq!(
+        (
+            c[0]["a_kind"].as_str(),
+            c[0]["b_kind"].as_str(),
+            c[0]["minutes"].as_i64()
+        ),
+        (Some("task"), Some("task"), Some(30))
+    );
+    assert_eq!(c[0]["b"], eb["id"]);
+
+    // Suggest times for the unscheduled planned tasks: hard → deep work, easy → admin.
+    let (_, hard, _) = t
+        .req(
+            "POST",
+            "/api/v1/tasks",
+            Some(&a),
+            Some(mk("Design", json!({"difficulty": 3, "estimate_min": 60}))),
+        )
+        .await;
+    let (_, easy, _) = t
+        .req(
+            "POST",
+            "/api/v1/tasks",
+            Some(&a),
+            Some(mk("Email", json!({"difficulty": 1, "estimate_min": 30}))),
+        )
+        .await;
+    for id in [&hard["id"], &easy["id"]] {
+        t.req(
+            "POST",
+            &format!("/api/v1/days/{d3}/entries"),
+            Some(&a),
+            Some(json!({"task_id": id})),
+        )
+        .await;
+    }
+    let (s, plan, _) = t
+        .req(
+            "POST",
+            &format!("/api/v1/days/{d3}/suggest"),
+            Some(&a),
+            None,
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{plan}");
+    let sug = plan["suggestions"].as_array().unwrap();
+    let of = |id: &Value| sug.iter().find(|s| &s["task_id"] == id).unwrap().clone();
+    // 08:00 is free (Write/Call are 09:00–10:00): Design fits 08:00–09:00.
+    assert_eq!(of(&hard["id"])["start_time"], "08:00");
+    assert!(
+        of(&hard["id"])["reasons"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|r| r["code"] == "hard_in_hard_block")
+    );
+    assert_eq!(of(&easy["id"])["start_time"], "13:00");
+    assert_eq!(plan["unplaced"], json!([]));
+    // Nothing was saved.
+    let (_, dv2, _) = t
+        .req("GET", &format!("/api/v1/days/{d3}"), Some(&a), None)
+        .await;
+    assert_eq!(
+        dv2["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|e| e["start_time"].is_null())
+            .count(),
+        2
     );
 }

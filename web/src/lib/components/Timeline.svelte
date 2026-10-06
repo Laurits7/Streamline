@@ -11,15 +11,21 @@
   import { draggable, droppable, type DragItem } from '../dnd.svelte'
   import { store } from '../store.svelte'
   import { ui } from '../ui.svelte'
+  import BlockSheet from './BlockSheet.svelte'
   import Check from './Check.svelte'
 
   type Item = { entry: DayEntry; task: Task }
-  let {
-    date,
-    items,
-    events = [],
-    now = null,
-  }: { date: string; items: Item[]; events?: DayEvent[]; now?: string | null } = $props()
+  let { date, items, now = null }: { date: string; items: Item[]; now?: string | null } = $props()
+  const events = $derived(store.dayEvents(date).timed)
+  const timeBlocks = $derived(store.blocksOn(date))
+  // Tasks and events are marked only for clashes involving a task; blocks for any (D-58).
+  const dayConflicts = $derived(store.dayConflicts(date))
+  const clashes = $derived(
+    new Set(dayConflicts.filter((c) => c.aKind === 'task' || c.bKind === 'task').flatMap((c) => [c.a, c.b])),
+  )
+  const blockClashes = $derived(new Set(dayConflicts.flatMap((c) => [c.a, c.b])))
+  let editingBlock = $state<string | null>(null)
+  let moving = $state<{ id: string; start: number; end: number } | null>(null)
 
   const PX = 0.9 // pixels per minute (54 px per hour)
   const SNAP = 15
@@ -98,6 +104,38 @@
     else store.plan(item.taskId, date, { startTime: time })
   }
 
+  // Time blocks: drag the label to move (a click opens the editor), drag the handle to resize.
+  function blockDrag(e: PointerEvent, id: string, start: number, end: number, mode: 'move' | 'resize') {
+    e.preventDefault()
+    e.stopPropagation()
+    const el = e.currentTarget as HTMLElement
+    el.setPointerCapture(e.pointerId)
+    const y0 = e.clientY
+    let moved = false
+    const move = (ev: PointerEvent) => {
+      const delta = Math.round((ev.clientY - y0) / PX / SNAP) * SNAP
+      if (Math.abs(ev.clientY - y0) > 4) moved = true
+      if (mode === 'move') {
+        const s = Math.max(0, Math.min(1440 - (end - start), start + delta))
+        moving = { id, start: s, end: s + (end - start) }
+      } else moving = { id, start, end: Math.max(start + SNAP, Math.min(1440, end + delta)) }
+    }
+    const up = () => {
+      el.removeEventListener('pointermove', move)
+      el.removeEventListener('pointerup', up)
+      el.removeEventListener('pointercancel', up)
+      if (!moved && mode === 'move') editingBlock = id
+      else if (moving && (moving.start !== start || moving.end !== end)) {
+        store.updateBlock(id, { start_time: hhmm(moving.start), end_time: hhmm(Math.min(moving.end, 1439)) })
+        announce(`Block moved to ${hhmm(moving.start)}–${hhmm(moving.end)}`)
+      }
+      moving = null
+    }
+    el.addEventListener('pointermove', move)
+    el.addEventListener('pointerup', up)
+    el.addEventListener('pointercancel', up)
+  }
+
   function startResize(e: PointerEvent, b: Block) {
     e.preventDefault()
     e.stopPropagation()
@@ -148,6 +186,38 @@
       {#each Array.from({ length: 24 }, (_, h) => h) as h (h)}
         <div class="hour" style:top="{h * 60 * PX}px"><span>{String(h).padStart(2, '0')}:00</span></div>
       {/each}
+      <div class="bands">
+        {#each timeBlocks as tb (tb.id)}
+          {@const s = moving?.id === tb.id ? moving.start : toMin(tb.start_time)}
+          {@const en = moving?.id === tb.id ? moving.end : toMin(tb.end_time)}
+          <div class="band" class:clash={blockClashes.has(tb.id)} style:top="{s * PX}px" style:height="{(en - s) * PX}px">
+            <button
+              class="band-label"
+              data-nodrag
+              title="{tb.title} · {hhmm(s)}–{hhmm(en)}. Drag to move, click to edit."
+              onpointerdown={(e) => blockDrag(e, tb.id, toMin(tb.start_time), toMin(tb.end_time), 'move')}
+              onkeydown={(e) => e.key === 'Enter' && (editingBlock = tb.id)}>
+              {tb.title}{tb.energy ? ` · ${tb.energy}` : ''}
+            </button>
+            <div
+              class="band-resize"
+              data-nodrag
+              role="slider"
+              tabindex="0"
+              aria-label="End of {tb.title}"
+              aria-valuenow={en}
+              aria-valuetext={hhmm(en)}
+              onpointerdown={(e) => blockDrag(e, tb.id, toMin(tb.start_time), toMin(tb.end_time), 'resize')}
+              onkeydown={(e) => {
+                if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return
+                e.preventDefault()
+                const end = Math.max(s + SNAP, Math.min(1439, en + (e.key === 'ArrowDown' ? SNAP : -SNAP)))
+                store.updateBlock(tb.id, { end_time: hhmm(end) })
+              }}>
+            </div>
+          </div>
+        {/each}
+      </div>
       <div class="lanes">
         {#if preview}
           <div class="preview" style:top="{preview.start * PX}px" style:height="{Math.max(preview.dur, SNAP) * PX}px">
@@ -159,6 +229,7 @@
             class="event"
             class:short={ev.dur < 40}
             class:free={!ev.event.busy}
+            class:clash={clashes.has(ev.event.id)}
             style:--cal={ev.color}
             style:top="{ev.start * PX}px"
             style:height="{Math.max(ev.dur, SNAP) * PX - 2}px"
@@ -173,6 +244,7 @@
           <div
             class="block"
             class:done={b.task.status !== 'open'}
+            class:clash={clashes.has(b.entry.id)}
             class:short={b.dur < 40}
             style:top="{b.start * PX}px"
             style:height="{Math.max(b.dur, SNAP) * PX - 2}px"
@@ -196,7 +268,7 @@
               class="body"
               title="{b.task.title} · {b.entry.start_time}–{hhmm(Math.min(b.start + b.dur, 1440))}"
               onclick={() => (ui.editing = b.task.id)}>
-              <span class="title">{b.task.title}</span>
+              <span class="title">{#if clashes.has(b.entry.id)}<span class="warn" aria-label="Overlaps">⚠</span> {/if}{b.task.title}</span>
               <span class="time">{b.entry.start_time}–{hhmm(Math.min(b.start + b.dur, 1440))} · {fmtMinutes(b.dur)}</span>
             </button>
             {#if b.task.status === 'open'}
@@ -224,7 +296,73 @@
   </div>
 </div>
 
+{#if editingBlock}<BlockSheet id={editingBlock} onclose={() => (editingBlock = null)} />{/if}
+
 <style>
+  .bands {
+    position: absolute;
+    inset: 0 8px 0 48px;
+    pointer-events: none;
+  }
+  .band {
+    position: absolute;
+    left: 0;
+    right: 0;
+    background: color-mix(in srgb, var(--accent) 6%, transparent);
+    border-left: 3px dashed color-mix(in srgb, var(--accent) 45%, transparent);
+    border-radius: 4px;
+  }
+  .band.clash {
+    border-left-color: var(--danger);
+  }
+  .band-label {
+    pointer-events: auto;
+    position: absolute;
+    right: 4px;
+    top: 2px;
+    max-width: 45%;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--accent);
+    background: var(--surface);
+    border-radius: 999px;
+    padding: 1px 8px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: grab;
+    touch-action: none;
+    z-index: 2;
+  }
+  .band-resize {
+    pointer-events: auto;
+    position: absolute;
+    right: 4px;
+    bottom: 0;
+    width: 36px;
+    height: 8px;
+    cursor: ns-resize;
+    touch-action: none;
+    z-index: 2;
+  }
+  .band-resize::after {
+    content: '';
+    position: absolute;
+    left: 6px;
+    right: 6px;
+    bottom: 2px;
+    height: 3px;
+    border-radius: 2px;
+    background: color-mix(in srgb, var(--accent) 50%, transparent);
+  }
+  .block.clash,
+  .event.clash {
+    outline: 2px solid var(--danger);
+    outline-offset: -2px;
+  }
+  .warn {
+    color: var(--danger);
+  }
   .timeline {
     overflow: hidden;
   }

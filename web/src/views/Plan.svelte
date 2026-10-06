@@ -17,8 +17,56 @@
   import { dayLoad } from '../lib/planning'
   import { router } from '../lib/router.svelte'
   import { store } from '../lib/store.svelte'
+  import type { SuggestedPlan } from '../lib/api/types/SuggestedPlan'
 
   let { date }: { date: string } = $props()
+
+  // "Suggest times" (Arrange step): the server proposes, the user picks what to keep.
+  let suggestion = $state<SuggestedPlan | null>(null)
+  let picked = $state<Record<string, boolean>>({})
+  let suggesting = $state(false)
+  async function suggestTimes() {
+    suggesting = true
+    try {
+      suggestion = await store.suggestPlan(date)
+      picked = Object.fromEntries(suggestion.suggestions.map((x) => [x.task_id, true]))
+    } catch {
+      suggestion = null
+    } finally {
+      suggesting = false
+    }
+  }
+  function applySuggestion() {
+    for (const x of suggestion?.suggestions ?? []) {
+      if (!picked[x.task_id]) continue
+      const entry = store.dayEntries(date).find((e) => e.task_id === x.task_id)
+      if (!entry) continue
+      const estimated = store.tasks.get(x.task_id)?.estimate_min != null
+      store.updateEntry(entry.id, { start_time: x.start_time, ...(estimated ? {} : { duration_min: x.duration_min }) })
+    }
+    suggestion = null
+  }
+  const endOf = (start: string, min: number) => {
+    const m = Number(start.slice(0, 2)) * 60 + Number(start.slice(3, 5)) + min
+    return `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
+  }
+  function reasonText(r: { code: string; days?: number }, blockId: string | null): string {
+    const block = blockId ? store.timeBlocks.get(blockId)?.title : null
+    switch (r.code) {
+      case 'overdue': return 'overdue'
+      case 'due_today': return 'due today'
+      case 'due_tomorrow': return 'due tomorrow'
+      case 'due_soon': return `due in ${r.days} days`
+      case 'expires_today': return 'only doable today'
+      case 'urgent': return 'urgent'
+      case 'important': return 'important'
+      case 'hard_in_hard_block': return `hard → ${block ?? 'hard block'}`
+      case 'easy_in_easy_block': return `easy → ${block ?? 'easy block'}`
+      case 'earliest_free_time': return 'first free time'
+      case 'estimate_assumed': return 'no estimate, 30 min assumed'
+      default: return r.code
+    }
+  }
 
   const STEPS = ['Review', 'Look ahead', 'Pick', 'Arrange', 'Confirm']
   // Start where planning was left off (read once; the view is re-created per date).
@@ -256,7 +304,41 @@
   {:else if step === 3}
     <section>
       <h2>Arrange {label}</h2>
-      <p class="muted hint">Drag to set the order. Drop tasks on the timeline to give them a time.</p>
+      <p class="muted hint">Drag to set the order. Drop tasks on the timeline to give them a time, or let Streamline suggest times.</p>
+      <div class="suggest">
+        <button class="btn" onclick={suggestTimes} disabled={suggesting || !flexible.length}>
+          <Icon name="zap" size={16} /> {suggesting ? 'Thinking…' : 'Suggest times'}
+        </button>
+        {#if !store.blocksOn(date).length}<span class="muted small">Tip: time blocks (Blocks… on the timeline) let it match hard and easy work to the right time.</span>{/if}
+      </div>
+      {#if suggestion}
+        <div class="card suggestion">
+          {#if suggestion.suggestions.length}
+            <ul>
+              {#each suggestion.suggestions as x (x.task_id)}
+                <li>
+                  <label>
+                    <input type="checkbox" bind:checked={picked[x.task_id]} />
+                    <span class="when">{x.start_time}–{endOf(x.start_time, x.duration_min)}</span>
+                    <span class="what">{store.tasks.get(x.task_id)?.title}</span>
+                  </label>
+                  <span class="why muted">{x.reasons.map((r) => reasonText(r, x.block_id)).join(' · ')}</span>
+                </li>
+              {/each}
+            </ul>
+          {/if}
+          {#each suggestion.unplaced as u (u.task_id)}
+            <p class="unplaced">
+              <strong>{store.tasks.get(u.task_id)?.title}</strong>:
+              {u.reason.code === 'blocked' ? 'waiting for a prerequisite' : `no free ${fmtMinutes(u.reason.minutes)} left`}
+            </p>
+          {/each}
+          <div class="row">
+            {#if suggestion.suggestions.length}<button class="btn primary" onclick={applySuggestion}>Use selected</button>{/if}
+            <button class="btn" onclick={() => (suggestion = null)}>Dismiss</button>
+          </div>
+        </div>
+      {/if}
       <div class="sticky"><LoadBar {date} /></div>
       <div class="arrange" class:wide>
         <div>
@@ -325,6 +407,53 @@
 </div>
 
 <style>
+  .suggest {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+    align-items: center;
+    margin-bottom: 12px;
+  }
+  .suggestion {
+    padding: 12px 14px;
+    margin-bottom: 14px;
+  }
+  .suggestion ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .suggestion li {
+    padding: 6px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .suggestion label {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .suggestion .when {
+    font-variant-numeric: tabular-nums;
+    font-size: 13px;
+    color: var(--muted);
+    min-width: 92px;
+  }
+  .suggestion .what {
+    font-weight: 600;
+  }
+  .suggestion .why {
+    display: block;
+    font-size: 12px;
+    margin-left: 26px;
+  }
+  .unplaced {
+    font-size: 13px;
+    color: var(--warn);
+    margin: 8px 0 0;
+  }
+  .small {
+    font-size: 12px;
+  }
   .wizard {
     max-width: 900px;
     padding-bottom: 80px;

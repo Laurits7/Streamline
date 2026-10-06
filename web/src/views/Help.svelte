@@ -7,6 +7,7 @@
     ['start', 'Getting started'],
     ['today', 'The Today view'],
     ['planning', 'Planning your day'],
+    ['blocks', 'Time blocks, overlaps and suggested times'],
     ['dnd', 'Drag and drop'],
     ['routines', 'Routines and repeating tasks'],
     ['steps', 'Prerequisites and multi-step chores'],
@@ -305,6 +306,23 @@
     </ul>
   </section>
 
+  <section id="blocks">
+    <h2><Icon name="zap" size={18} /> Time blocks, overlaps and suggested times</h2>
+    <p>
+      Split your days into <strong>time blocks</strong> with a theme: “Deep work” in the morning for hard tasks, “Admin” after
+      lunch for easy ones. Make <strong>day templates</strong> in <a href="/settings">Settings</a> and give each the weekdays
+      it's for; the coming week's days get their blocks automatically. On the timeline, drag a block's label to move it,
+      drag the little bar at its bottom right to resize it, or click the label to edit it. The <em>Blocks…</em> menu
+      above the timeline switches a day to another template, adds a block, or removes them all. A day you've changed by
+      hand keeps your changes.
+    </p>
+    <ul>
+      <li><strong>Overlaps:</strong> when a scheduled task overlaps a calendar event or another task, it's outlined in red and a banner offers <em>Move to free time</em>, <em>Shorten</em> or <em>Unschedule</em>. If a calendar change causes an overlap today or tomorrow, you get a notification.</li>
+      <li><strong>Suggest times:</strong> in the planner's <em>Arrange</em> step, Streamline proposes times for the tasks you picked: overdue and due-soon first, then urgent and important; hard tasks in “hard” blocks, easy ones in “easy” blocks; always in free time. Each suggestion says why. Untick what you don't want and press <em>Use selected</em>.</li>
+      <li>All-day events don't block time unless you tick <em>all-day = busy</em> for that calendar in Settings.</li>
+    </ul>
+  </section>
+
   <section id="calendar">
     <h2><Icon name="calendar" size={18} /> Your calendar and the agenda</h2>
     <p>
@@ -342,7 +360,6 @@
     <h2>Coming later</h2>
     <p class="muted">Planned, roughly in this order:</p>
     <ul>
-      <li>Overlap warnings when a task is scheduled on top of a calendar event, and day templates with time blocks.</li>
       <li>Daily reflection, mood and other trackers, and long-term goals.</li>
     </ul>
   </section>

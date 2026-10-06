@@ -1,4 +1,5 @@
 pub(crate) mod account;
+mod blocks;
 mod calendar;
 mod days;
 pub mod focus;
@@ -42,6 +43,7 @@ use crate::AppState;
         series::list, series::all_stats, series::create, series::patch, series::delete,
         calendar::get_account, calendar::put_account, calendar::delete_account, calendar::test, calendar::sync_now, calendar::patch_calendar,
         occasions::calendar, occasions::search, occasions::load, occasions::create_person, occasions::patch_person, occasions::delete_person, occasions::put_template,
+        blocks::create_template, blocks::patch_template, blocks::delete_template, blocks::apply_template, blocks::create_block, blocks::patch_block, blocks::delete_block, blocks::suggest,
         sync::sync, sync::events, sync::today, sync::task_types,
         projects::list, projects::create, projects::patch, projects::delete,
         tasks::list, tasks::create, tasks::get_one, tasks::patch, tasks::delete,
@@ -161,6 +163,18 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/occasion-templates/{kind}",
             axum::routing::put(occasions::put_template),
+        )
+        .route("/day-templates", post(blocks::create_template))
+        .route(
+            "/day-templates/{id}",
+            patch(blocks::patch_template).delete(blocks::delete_template),
+        )
+        .route("/days/{date}/apply-template", post(blocks::apply_template))
+        .route("/days/{date}/blocks", post(blocks::create_block))
+        .route("/days/{date}/suggest", post(blocks::suggest))
+        .route(
+            "/time-blocks/{id}",
+            patch(blocks::patch_block).delete(blocks::delete_block),
         )
         .route("/sync", get(sync::sync))
         .route("/events", get(sync::events))

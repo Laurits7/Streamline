@@ -20,9 +20,9 @@ use crate::{
     db::current_rev,
     error::ApiResult,
     models::{
-        Calendar, CalendarAccountView, CalendarEvent, DayEntry, DayPlan, FocusSession, FocusTimer,
-        Group, Me, OccasionTemplate, Person, Place, Project, Series, Task, TaskType,
-        WorkflowTemplate,
+        Calendar, CalendarAccountView, CalendarEvent, DayEntry, DayPlan, DayTemplate, FocusSession,
+        FocusTimer, Group, Me, OccasionTemplate, Person, Place, Project, Series, Task, TaskType,
+        TimeBlock, WorkflowTemplate,
     },
     rollover,
 };
@@ -59,6 +59,9 @@ pub struct SyncResponse {
     pub calendars: Vec<Calendar>,
     /// Calendar event instances (a full sync covers the last 30 days onwards).
     pub events: Vec<CalendarEvent>,
+    pub day_templates: Vec<DayTemplate>,
+    /// Time blocks (a full sync covers the last 30 days onwards).
+    pub time_blocks: Vec<TimeBlock>,
     /// People whose namedays and birthdays matter to you.
     pub people: Vec<Person>,
     /// What each kind of occasion creates (always complete).
@@ -78,6 +81,7 @@ pub async fn sync(
 ) -> ApiResult<Json<SyncResponse>> {
     crate::routines::materialize_user(&state, &user.user).await?;
     crate::occasions::materialize_user(&state, &user.user).await?;
+    crate::blocks::materialize_user(&state, &user.user).await?;
     rollover::run_for_user(&state, &user.user).await?;
     let since = q.since.unwrap_or(0).max(0);
     let full = since == 0;
@@ -194,6 +198,21 @@ pub async fn sync(
     .fetch_all(db)
     .await?;
 
+    let day_templates = sqlx::query_as(
+        "SELECT * FROM day_templates WHERE owner_user_id = ?1 AND (?2 = 0 AND deleted_at IS NULL OR ?2 > 0 AND rev > ?2) ORDER BY position",
+    )
+    .bind(user.id())
+    .bind(since)
+    .fetch_all(db)
+    .await?;
+    let time_blocks = sqlx::query_as(
+        "SELECT * FROM time_blocks WHERE user_id = ?1 AND (?2 = 0 AND deleted_at IS NULL AND date >= ?3 OR ?2 > 0 AND rev > ?2)",
+    )
+    .bind(user.id())
+    .bind(since)
+    .bind(&cutoff_date)
+    .fetch_all(db)
+    .await?;
     let people = sqlx::query_as(
         "SELECT * FROM people WHERE owner_user_id = ?1 AND (?2 = 0 AND deleted_at IS NULL OR ?2 > 0 AND rev > ?2)",
     )
@@ -227,6 +246,8 @@ pub async fn sync(
         calendar_account,
         calendars,
         events,
+        day_templates,
+        time_blocks,
         people,
         occasion_templates,
         groups,

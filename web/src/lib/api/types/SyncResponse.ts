@@ -4,6 +4,7 @@ import type { CalendarAccountView } from "./CalendarAccountView";
 import type { CalendarEvent } from "./CalendarEvent";
 import type { DayEntry } from "./DayEntry";
 import type { DayPlan } from "./DayPlan";
+import type { DayTemplate } from "./DayTemplate";
 import type { FocusSession } from "./FocusSession";
 import type { FocusTimer } from "./FocusTimer";
 import type { Group } from "./Group";
@@ -15,6 +16,7 @@ import type { Project } from "./Project";
 import type { Series } from "./Series";
 import type { Task } from "./Task";
 import type { TaskType } from "./TaskType";
+import type { TimeBlock } from "./TimeBlock";
 import type { WorkflowTemplate } from "./WorkflowTemplate";
 
 export type SyncResponse = { rev: number, full: boolean, me: Me, today: string, task_types: Array<TaskType>, projects: Array<Project>, tasks: Array<Task>, day_entries: Array<DayEntry>, day_plans: Array<DayPlan>, focus_timer: FocusTimer, focus_sessions: Array<FocusSession>, series: Array<Series>, places: Array<Place>, workflows: Array<WorkflowTemplate>, 
@@ -25,7 +27,11 @@ calendar_account: CalendarAccountView | null, calendars: Array<Calendar>,
 /**
  * Calendar event instances (a full sync covers the last 30 days onwards).
  */
-events: Array<CalendarEvent>, 
+events: Array<CalendarEvent>, day_templates: Array<DayTemplate>, 
+/**
+ * Time blocks (a full sync covers the last 30 days onwards).
+ */
+time_blocks: Array<TimeBlock>, 
 /**
  * People whose namedays and birthdays matter to you.
  */

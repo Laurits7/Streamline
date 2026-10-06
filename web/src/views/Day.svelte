@@ -16,6 +16,7 @@
   import { keyAt } from '../lib/order'
   import { router } from '../lib/router.svelte'
   import { store } from '../lib/store.svelte'
+  import { toast } from '../lib/toast.svelte'
   import { ui } from '../lib/ui.svelte'
 
   let { date: dateProp = null }: { date?: string | null } = $props()
@@ -69,6 +70,29 @@
   })
   const namedays = $derived(store.namedaysOn(date))
   const mine = $derived(store.occasionsOn(date))
+  // Only clashes involving a scheduled task are alerts; a block overlapping an event just
+  // has less room (its edge turns red on the timeline) (D-58).
+  const conflicts = $derived(store.dayConflicts(date).filter((c) => c.aKind === 'task' || c.bKind === 'task'))
+
+  function blocksMenu(value: string) {
+    if (value === 'add') {
+      const startH = isToday ? Math.min(22, Number(now.slice(0, 2)) + 1) : 9
+      store.createBlock(date, {
+        title: 'Focus',
+        start_time: `${String(startH).padStart(2, '0')}:00`,
+        end_time: `${String(startH + 1).padStart(2, '0')}:00`,
+        energy: null,
+      })
+    } else if (value === 'none') store.applyTemplate(date, null)
+    else if (value) store.applyTemplate(date, value)
+  }
+  function fixMove(entryId: string) {
+    const t = store.moveToFreeTime(entryId)
+    toast(t ? `Moved to ${t}` : 'No free time left today', t ? 'info' : 'error')
+  }
+  function fixShorten(entryId: string) {
+    if (!store.shortenToFit(entryId)) toast("Can't shorten it to fit: it starts during the other item", 'error')
+  }
   const upcoming = $derived(
     open.filter((i) => i.entry.start_time && i.entry.start_time >= now).sort((a, b) => (a.entry.start_time! < b.entry.start_time! ? -1 : 1)),
   )
@@ -103,7 +127,19 @@
 {#snippet timeline()}
   <h2 class="section-title">
     <Icon name="clock" size={14} /> Timeline
-    <span class="hint">drag tasks onto a time</span>
+    <select
+      class="blocks-menu"
+      aria-label="Time blocks"
+      value=""
+      onchange={(e) => {
+        blocksMenu((e.currentTarget as HTMLSelectElement).value)
+        ;(e.currentTarget as HTMLSelectElement).value = ''
+      }}>
+      <option value="">Blocks…</option>
+      {#each store.templateList() as t (t.id)}<option value={t.id}>Use “{t.name}”</option>{/each}
+      <option value="add">+ Add a block</option>
+      {#if store.blocksOn(date).length}<option value="none">Remove all blocks</option>{/if}
+    </select>
   </h2>
   {#if dayEvents.allDay.length}
     <ul class="allday" aria-label="All-day events">
@@ -112,7 +148,7 @@
       {/each}
     </ul>
   {/if}
-  <Timeline {date} items={timed} events={dayEvents.timed} now={isToday ? now : null} />
+  <Timeline {date} items={timed} now={isToday ? now : null} />
 {/snippet}
 
 <div class="day" class:wide>
@@ -147,6 +183,27 @@
       <div class="progress" aria-label="{doneCount} of {items.length} done">
         <div class="bar"><div style:width="{(doneCount / items.length) * 100}%"></div></div>
         <span class="muted">{doneCount}/{items.length} done{minutesLeft ? ` · ${fmtMinutes(minutesLeft)} left` : ''}{date >= store.today ? ` · ${fmtMinutes(free)} free` : ''}</span>
+      </div>
+    {/if}
+
+    {#if conflicts.length}
+      <div class="conflicts card" role="alert">
+        <strong><Icon name="clock" size={14} /> {conflicts.length === 1 ? 'An overlap' : `${conflicts.length} overlaps`}</strong>
+        <ul>
+          {#each conflicts as c (c.a + c.b)}
+            {@const entry = c.aKind === 'task' ? c.a : c.bKind === 'task' ? c.b : null}
+            <li>
+              <span>“{store.itemTitle(c.a)}” and “{store.itemTitle(c.b)}” overlap by {fmtMinutes(c.minutes)}</span>
+              {#if entry}
+                <span class="fixes">
+                  <button class="btn small" onclick={() => fixMove(entry)}>Move to free time</button>
+                  <button class="btn small" onclick={() => fixShorten(entry)}>Shorten</button>
+                  <button class="btn small" onclick={() => store.updateEntry(entry, { start_time: null })}>Unschedule</button>
+                </span>
+              {:else}<span class="muted small">Move or resize the block on the timeline.</span>{/if}
+            </li>
+          {/each}
+        </ul>
       </div>
     {/if}
 
@@ -235,6 +292,41 @@
 </div>
 
 <style>
+  .blocks-menu {
+    margin-left: auto;
+    width: auto;
+    font-size: 12px;
+    padding: 2px 6px;
+    text-transform: none;
+    letter-spacing: 0;
+  }
+  .conflicts {
+    border-left: 4px solid var(--danger);
+    background: var(--danger-soft);
+    padding: 10px 14px;
+    margin-bottom: 14px;
+    font-size: 14px;
+  }
+  .conflicts ul {
+    list-style: none;
+    margin: 6px 0 0;
+    padding: 0;
+  }
+  .conflicts li {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 10px;
+    align-items: center;
+    padding: 4px 0;
+  }
+  .fixes {
+    display: inline-flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .small {
+    font-size: 12px;
+  }
   .namedays {
     display: inline-flex;
     flex-wrap: wrap;
@@ -370,13 +462,6 @@
     margin-left: auto;
     text-transform: none;
     letter-spacing: 0;
-  }
-  .hint {
-    text-transform: none;
-    letter-spacing: 0;
-    font-weight: 400;
-    color: var(--faint);
-    margin-left: auto;
   }
   .toggle {
     width: 100%;

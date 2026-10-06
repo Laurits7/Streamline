@@ -8,8 +8,9 @@ use tokio::sync::broadcast;
 
 use crate::{
     models::{
-        Calendar, CalendarAccountView, CalendarEvent, DayEntry, DayPlan, FocusSession, FocusTimer,
-        Group, OccasionTemplate, Person, Place, Project, Series, Task, WorkflowTemplate,
+        Calendar, CalendarAccountView, CalendarEvent, DayEntry, DayPlan, DayTemplate, FocusSession,
+        FocusTimer, Group, OccasionTemplate, Person, Place, Project, Series, Task, TimeBlock,
+        WorkflowTemplate,
     },
     visibility,
 };
@@ -139,6 +140,22 @@ impl Change {
             kind: "calendar_account",
             data: serde_json::to_value(a).unwrap(),
             audience: vec![user_id.to_string()],
+        }
+    }
+    pub fn day_template(t: &DayTemplate) -> Self {
+        Self {
+            rev: t.rev,
+            kind: "day_template",
+            data: serde_json::to_value(t).unwrap(),
+            audience: vec![t.owner_user_id.clone()],
+        }
+    }
+    pub fn time_block(b: &TimeBlock) -> Self {
+        Self {
+            rev: b.rev,
+            kind: "time_block",
+            data: serde_json::to_value(b).unwrap(),
+            audience: vec![b.user_id.clone()],
         }
     }
     pub fn person(p: &Person) -> Self {

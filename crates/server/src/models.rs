@@ -668,6 +668,8 @@ pub struct Calendar {
     pub color: Option<String>,
     pub user_color: Option<String>,
     pub enabled: bool,
+    /// All-day events block the whole day.
+    pub all_day_busy: bool,
     #[serde(skip)]
     #[ts(skip)]
     pub ctag: Option<String>,
@@ -683,14 +685,14 @@ pub struct Calendar {
 
 pub async fn upsert_calendar(conn: &mut SqliteConnection, c: &Calendar) -> sqlx::Result<()> {
     sqlx::query(
-        "INSERT INTO calendars (id, account_id, user_id, href, name, color, user_color, enabled, ctag, expanded_for, created_at, updated_at, deleted_at, rev)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        "INSERT INTO calendars (id, account_id, user_id, href, name, color, user_color, enabled, ctag, expanded_for, created_at, updated_at, deleted_at, rev, all_day_busy)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
          ON CONFLICT(id) DO UPDATE SET name=excluded.name, color=excluded.color, user_color=excluded.user_color,
-           enabled=excluded.enabled, ctag=excluded.ctag, expanded_for=excluded.expanded_for,
+           enabled=excluded.enabled, all_day_busy=excluded.all_day_busy, ctag=excluded.ctag, expanded_for=excluded.expanded_for,
            updated_at=excluded.updated_at, deleted_at=excluded.deleted_at, rev=excluded.rev",
     )
     .bind(&c.id).bind(&c.account_id).bind(&c.user_id).bind(&c.href).bind(&c.name).bind(&c.color).bind(&c.user_color)
-    .bind(c.enabled).bind(&c.ctag).bind(&c.expanded_for).bind(&c.created_at).bind(&c.updated_at).bind(&c.deleted_at).bind(c.rev)
+    .bind(c.enabled).bind(&c.ctag).bind(&c.expanded_for).bind(&c.created_at).bind(&c.updated_at).bind(&c.deleted_at).bind(c.rev).bind(c.all_day_busy)
     .execute(conn)
     .await
     .map(|_| ())
@@ -812,6 +814,88 @@ pub async fn upsert_occasion_template(
          ON CONFLICT(id) DO UPDATE SET enabled=excluded.enabled, steps=excluded.steps, updated_at=excluded.updated_at, rev=excluded.rev",
     )
     .bind(&t.id).bind(&t.owner_user_id).bind(&t.kind).bind(t.enabled).bind(&t.steps).bind(&t.updated_at).bind(t.rev)
+    .execute(conn)
+    .await
+    .map(|_| ())
+}
+
+/// A block of a day template.
+#[derive(Debug, Clone, Serialize, serde::Deserialize, TS, utoipa::ToSchema, PartialEq)]
+#[ts(export)]
+pub struct TemplateBlock {
+    /// The block's theme, e.g. "Deep work: hard tasks".
+    pub title: String,
+    /// `HH:MM`
+    pub start: String,
+    pub end: String,
+    /// `hard`, `medium` or `easy`: what kind of task the planner puts here.
+    pub energy: Option<String>,
+}
+
+/// A reusable layout of time blocks (SPEC §6.8).
+#[derive(Debug, Clone, Serialize, FromRow, TS, utoipa::ToSchema)]
+#[ts(export)]
+pub struct DayTemplate {
+    pub id: String,
+    pub owner_user_id: String,
+    pub name: String,
+    /// ISO weekdays it applies to automatically: 1 = Monday … 7 = Sunday.
+    #[ts(as = "Vec<i32>")]
+    #[schema(value_type = Vec<i32>)]
+    pub weekdays: sqlx::types::Json<Vec<i32>>,
+    #[ts(as = "Vec<TemplateBlock>")]
+    #[schema(value_type = Vec<TemplateBlock>)]
+    pub blocks: sqlx::types::Json<Vec<TemplateBlock>>,
+    pub position: String,
+    pub created_at: String,
+    pub updated_at: String,
+    pub deleted_at: Option<String>,
+    #[ts(type = "number")]
+    pub rev: i64,
+}
+
+pub async fn upsert_day_template(conn: &mut SqliteConnection, t: &DayTemplate) -> sqlx::Result<()> {
+    sqlx::query(
+        "INSERT INTO day_templates (id, owner_user_id, name, weekdays, blocks, position, created_at, updated_at, deleted_at, rev)
+         VALUES (?,?,?,?,?,?,?,?,?,?)
+         ON CONFLICT(id) DO UPDATE SET name=excluded.name, weekdays=excluded.weekdays, blocks=excluded.blocks, position=excluded.position,
+           updated_at=excluded.updated_at, deleted_at=excluded.deleted_at, rev=excluded.rev",
+    )
+    .bind(&t.id).bind(&t.owner_user_id).bind(&t.name).bind(&t.weekdays).bind(&t.blocks).bind(&t.position)
+    .bind(&t.created_at).bind(&t.updated_at).bind(&t.deleted_at).bind(t.rev)
+    .execute(conn)
+    .await
+    .map(|_| ())
+}
+
+/// A time block on one day.
+#[derive(Debug, Clone, Serialize, FromRow, TS, utoipa::ToSchema)]
+#[ts(export)]
+pub struct TimeBlock {
+    pub id: String,
+    pub user_id: String,
+    pub date: String,
+    pub title: String,
+    pub start_time: String,
+    pub end_time: String,
+    pub energy: Option<String>,
+    pub template_id: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+    pub deleted_at: Option<String>,
+    #[ts(type = "number")]
+    pub rev: i64,
+}
+
+pub async fn upsert_time_block(conn: &mut SqliteConnection, b: &TimeBlock) -> sqlx::Result<()> {
+    sqlx::query(
+        "INSERT INTO time_blocks (id, user_id, date, title, start_time, end_time, energy, template_id, created_at, updated_at, deleted_at, rev)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+         ON CONFLICT(id) DO UPDATE SET title=excluded.title, start_time=excluded.start_time, end_time=excluded.end_time, energy=excluded.energy,
+           updated_at=excluded.updated_at, deleted_at=excluded.deleted_at, rev=excluded.rev",
+    )
+    .bind(&b.id).bind(&b.user_id).bind(&b.date).bind(&b.title).bind(&b.start_time).bind(&b.end_time).bind(&b.energy)
+    .bind(&b.template_id).bind(&b.created_at).bind(&b.updated_at).bind(&b.deleted_at).bind(b.rev)
     .execute(conn)
     .await
     .map(|_| ())

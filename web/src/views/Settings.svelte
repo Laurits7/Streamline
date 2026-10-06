@@ -1,6 +1,8 @@
 <script lang="ts">
   import { api, ApiError } from '../lib/api/client'
   import type { ApiToken } from '../lib/api/types/ApiToken'
+  import type { DayTemplate } from '../lib/api/types/DayTemplate'
+  import type { TemplateBlock } from '../lib/api/types/TemplateBlock'
   import type { Me } from '../lib/api/types/Me'
   import type { UserSummary } from '../lib/api/types/UserSummary'
   import Icon from '../lib/components/Icon.svelte'
@@ -42,6 +44,29 @@
       { enableHighAccuracy: true, timeout: 20_000 },
     )
   }
+  // Day templates
+  const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+  function newTemplate() {
+    store.createTemplate(store.dayTemplates.size ? 'New template' : 'Workday', store.dayTemplates.size ? [] : [1, 2, 3, 4, 5], [
+      { title: 'Deep work', start: '09:00', end: '12:00', energy: 'hard' },
+      { title: 'Admin and errands', start: '13:00', end: '15:00', energy: 'easy' },
+    ])
+  }
+  function setBlocks(t: DayTemplate, i: number, patch: Partial<TemplateBlock> | null) {
+    const blocks =
+      patch === null ? t.blocks.filter((_, j) => j !== i) : t.blocks.map((b, j) => (j === i ? { ...b, ...patch } : b))
+    store.updateTemplate(t.id, { blocks })
+  }
+  function addTemplateBlock(t: DayTemplate) {
+    const last = t.blocks.at(-1)
+    const start = last && last.end < '22:00' ? last.end : '09:00'
+    const h = Math.min(23, Number(start.slice(0, 2)) + 1)
+    store.updateTemplate(t.id, { blocks: [...t.blocks, { title: 'Chores', start, end: `${String(h).padStart(2, '0')}:${start.slice(3)}`, energy: null }] })
+  }
+  function toggleDay(t: DayTemplate, d: number) {
+    store.updateTemplate(t.id, { weekdays: t.weekdays.includes(d) ? t.weekdays.filter((x) => x !== d) : [...t.weekdays, d].sort() })
+  }
+
   const err = (e: unknown) => toast(e instanceof ApiError ? e.message : 'Something went wrong', 'error')
 
   // Calendar (CalDAV). The password is write-only: the server never sends it back.
@@ -266,6 +291,44 @@
   </p>
 </section>
 
+<section class="card" id="templates">
+  <h2>Day templates</h2>
+  <p class="help muted">
+    Split days into time blocks with a theme (deep work, admin, chores…). A template is used automatically on its
+    weekdays; any day can also use another template, or have its blocks changed, from the timeline's <em>Blocks…</em>
+    menu. <em>Suggest times</em> in the planner puts hard tasks in “hard” blocks and easy ones in “easy” blocks.
+  </p>
+  {#each store.templateList() as t (t.id)}
+    <div class="group card">
+      <div class="line top">
+        <input class="place-name" type="text" value={t.name} aria-label="Template name" onchange={(e) => store.updateTemplate(t.id, { name: (e.currentTarget as HTMLInputElement).value })} />
+        <button class="btn small danger" onclick={() => confirm(`Delete “${t.name}”? Days that used it keep their blocks.`) && store.deleteTemplate(t.id)}>Delete</button>
+      </div>
+      <div class="days" role="group" aria-label="Weekdays for {t.name}">
+        {#each WEEKDAYS as d, i (d)}
+          <button class="chip" class:on={t.weekdays.includes(i + 1)} aria-pressed={t.weekdays.includes(i + 1)} onclick={() => toggleDay(t, i + 1)}>{d}</button>
+        {/each}
+      </div>
+      {#each t.blocks as b, i (i)}
+        <div class="tblock">
+          <input type="text" value={b.title} aria-label="Block theme" onchange={(e) => setBlocks(t, i, { title: (e.currentTarget as HTMLInputElement).value })} />
+          <input type="time" value={b.start} aria-label="From" onchange={(e) => setBlocks(t, i, { start: (e.currentTarget as HTMLInputElement).value })} />
+          <input type="time" value={b.end} aria-label="To" onchange={(e) => setBlocks(t, i, { end: (e.currentTarget as HTMLInputElement).value })} />
+          <select value={b.energy ?? ''} aria-label="Kind of work" onchange={(e) => setBlocks(t, i, { energy: (e.currentTarget as HTMLSelectElement).value || null })}>
+            <option value="">Any work</option>
+            <option value="hard">Hard tasks</option>
+            <option value="medium">Medium tasks</option>
+            <option value="easy">Easy tasks</option>
+          </select>
+          <button class="icon-btn" aria-label="Remove block" onclick={() => setBlocks(t, i, null)}><Icon name="x" size={14} /></button>
+        </div>
+      {/each}
+      <button class="btn small" onclick={() => addTemplateBlock(t)}><Icon name="plus" size={14} /> Block</button>
+    </div>
+  {/each}
+  <button class="btn" onclick={newTemplate}><Icon name="plus" size={16} /> New template</button>
+</section>
+
 <section class="card">
   <h2>Groups</h2>
   <p class="help muted">
@@ -404,6 +467,10 @@
         <label class="check plain">
           <input type="checkbox" checked={c.enabled} onchange={(e) => store.updateCalendar(c.id, { enabled: (e.currentTarget as HTMLInputElement).checked })} />
           {c.name}
+        </label>
+        <label class="check plain small" title="Count all-day events of this calendar as busy for the whole day">
+          <input type="checkbox" checked={c.all_day_busy} onchange={(e) => store.updateCalendarAllDay(c.id, (e.currentTarget as HTMLInputElement).checked)} />
+          all-day = busy
         </label>
         <input
           class="swatch"
@@ -635,6 +702,39 @@
   }
   .small {
     font-size: 12px;
+  }
+  .days {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin: 4px 0 10px;
+  }
+  .chip {
+    font-size: 12px;
+    padding: 3px 9px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    color: var(--muted);
+  }
+  .chip.on {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--accent-text);
+  }
+  .tblock {
+    display: grid;
+    grid-template-columns: minmax(120px, 1fr) 124px 124px minmax(110px, 140px) 28px;
+    gap: 6px;
+    align-items: center;
+    margin-bottom: 6px;
+  }
+  @media (max-width: 560px) {
+    .tblock {
+      grid-template-columns: 1fr 1fr;
+    }
+    .tblock input[type='text'] {
+      grid-column: 1 / -1;
+    }
   }
   .cal-status {
     font-size: 13px;

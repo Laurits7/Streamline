@@ -5,7 +5,7 @@
 > and 3 are complete**, plus the owner's follow-ups (orange unplanned banner, Done → To do on the board,
 > tasks in several projects, daily activity log; D-48), routine versions (D-49) and 2b.6a Places (D-50).
 > Phases 3b (prerequisites, multi-step chores) and 4 (groups) are complete too. Phase 5 (calendar)
-> and 3b.6a Occasions (D-57) are complete. Next: 5a, 5b, 5c.
+> and 3b.6a Occasions (D-57) are complete. Phase 5a (conflicts, blocks, planner) too. Next: 5b, 5c.
 > Legend: `[x]` done · `[~]` partly done (the remaining work is noted) · `[ ]` not started.
 
 ## MVP status (2026-10-06)
@@ -447,17 +447,17 @@ Legend: **Deliverables** = what exists afterwards · **Tests** = what must be co
 
 ### Phase 5a: Conflicts and block planning (§6.8, §6.11)
 
-- [ ] **5a.1 Conflict detection**: `domain::conflicts`, a pure interval-overlap function
+- [x] **5a.1 Conflict detection**: `domain::conflicts`, a pure interval-overlap function
       returning conflict pairs (task↔event, task↔task, block↔event); included in the day
       aggregate; alert banner and inline markers; quick fixes (move to next free slot, shorten,
       unschedule); notification through the `Notifier`.
       Tests: touching vs. overlapping edges, all-day events (ignored or blocking: configurable
       per calendar), midnight and day-end crossings.
-- [ ] **5a.2 Time blocks and day-plan templates**: `time_blocks`, `day_plan_templates`,
+- [x] **5a.2 Time blocks and day-plan templates**: `time_blocks`, `day_plan_templates`,
       template blocks, weekday assignment; applying a template to a date (idempotent,
       editable afterwards); block view UI; drag tasks into blocks and resize/move blocks
       (with a menu alternative).
-- [ ] **5a.3 Auto-suggest planner**  *(needs Q-19)*
+- [x] **5a.3 Auto-suggest planner**  *(needs Q-19)*
   - Deliverables: `domain::planner::suggest(blocks, events, ready_tasks, prefs) -> Plan`.
     Stable sort by a documented score (deadline proximity, urgency/importance, difficulty
     matched to block theme), greedy fit into free time inside blocks, never overlapping
@@ -466,7 +466,7 @@ Legend: **Deliverables** = what exists afterwards · **Tests** = what must be co
     Integrated as an option in the wizard's Arrange step: accept all / accept some / reject.
   - Tests: golden tests (fixed inputs → exact plan); never places on an event; respects
     readiness and task types; overbooked input → leftovers listed with a reason.
-- [ ] **5a.4 Phase gate**
+- [x] **5a.4 Phase gate** (D-58)
 
 ---
 

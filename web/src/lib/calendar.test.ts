@@ -39,6 +39,7 @@ const cal: Calendar = {
   color: '#3b82f6',
   user_color: null,
   enabled: true,
+  all_day_busy: false,
   created_at: '',
   updated_at: '',
   deleted_at: null,

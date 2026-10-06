@@ -2,6 +2,7 @@
 //! embedded web app, in one binary.
 
 pub mod auth;
+pub mod blocks;
 pub mod caldav;
 pub mod calsync;
 pub mod config;

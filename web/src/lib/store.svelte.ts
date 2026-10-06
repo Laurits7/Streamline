@@ -8,6 +8,10 @@ import type { Calendar } from './api/types/Calendar'
 import type { CalendarAccountView } from './api/types/CalendarAccountView'
 import type { CalendarEvent } from './api/types/CalendarEvent'
 import type { DayEntry } from './api/types/DayEntry'
+import type { DayTemplate } from './api/types/DayTemplate'
+import type { SuggestedPlan } from './api/types/SuggestedPlan'
+import type { TemplateBlock } from './api/types/TemplateBlock'
+import type { TimeBlock } from './api/types/TimeBlock'
 import type { NamedayCalendar } from './api/types/NamedayCalendar'
 import type { NameMatch } from './api/types/NameMatch'
 import type { OccasionStep } from './api/types/OccasionStep'
@@ -29,6 +33,7 @@ import type { SyncResponse } from './api/types/SyncResponse'
 import type { Task } from './api/types/Task'
 import type { TaskType } from './api/types/TaskType'
 import { busyIntervals, eventsOn } from './calendar'
+import { findConflicts, nextFreeSlot, type Conflict, type Item } from './conflicts'
 import { isBlocked } from './deps'
 import { keyAt, keyBetween } from './order'
 import { toast } from './toast.svelte'
@@ -47,6 +52,8 @@ type Kind =
   | 'calendar'
   | 'event'
   | 'person'
+  | 'day_template'
+  | 'time_block'
 type Entity =
   | Task
   | Project
@@ -60,6 +67,8 @@ type Entity =
   | Calendar
   | CalendarEvent
   | Person
+  | DayTemplate
+  | TimeBlock
 
 export type TaskPatch = Partial<
   Pick<
@@ -138,6 +147,8 @@ class Store {
   events = new SvelteMap<string, CalendarEvent>()
   calendarAccount = $state<CalendarAccountView | null>(null)
   people = new SvelteMap<string, Person>()
+  dayTemplates = new SvelteMap<string, DayTemplate>()
+  timeBlocks = new SvelteMap<string, TimeBlock>()
   occasionTemplates = new SvelteMap<string, OccasionTemplate>()
   /** The shared nameday calendar, loaded on first use: `MM-DD` → names. */
   namedays = $state<{ label: string | null; byDate: Map<string, string[]> } | null>(null)
@@ -197,6 +208,8 @@ class Store {
     this.events.clear()
     this.calendarAccount = null
     this.people.clear()
+    this.dayTemplates.clear()
+    this.timeBlocks.clear()
     this.occasionTemplates.clear()
     this.namedays = null
     this.focusTimer = IDLE_TIMER
@@ -264,6 +277,8 @@ class Store {
       this.calendars.clear()
       this.events.clear()
       this.people.clear()
+      this.dayTemplates.clear()
+      this.timeBlocks.clear()
     }
     this.occasionTemplates.clear()
     for (const x of r.occasion_templates) this.occasionTemplates.set(x.kind, x)
@@ -290,6 +305,8 @@ class Store {
     for (const x of r.calendars) this.applyRemote('calendar', x)
     for (const x of r.events) this.applyRemote('event', x)
     for (const x of r.people) this.applyRemote('person', x)
+    for (const x of r.day_templates) this.applyRemote('day_template', x)
+    for (const x of r.time_blocks) this.applyRemote('time_block', x)
     this.rev = Math.max(this.rev, r.rev)
     this.ready = true
   }
@@ -333,7 +350,9 @@ class Store {
         c.kind === 'workflow' ||
         c.kind === 'calendar' ||
         c.kind === 'event' ||
-        c.kind === 'person'
+        c.kind === 'person' ||
+        c.kind === 'day_template' ||
+        c.kind === 'time_block'
       )
         this.applyRemote(c.kind, c.data as Entity)
       else if (c.kind === 'task' || c.kind === 'project' || c.kind === 'day_entry' || c.kind === 'day_plan')
@@ -369,6 +388,8 @@ class Store {
       calendar: this.calendars,
       event: this.events,
       person: this.people,
+      day_template: this.dayTemplates,
+      time_block: this.timeBlocks,
     }
     return maps[kind] as SvelteMap<string, Entity>
   }
@@ -1179,8 +1200,179 @@ class Store {
   }
 
   /** Busy calendar time on a day, for free-time math. */
-  dayBusy(date: string) {
-    return busyIntervals(this.dayEvents(date).timed)
+  dayBusy(date: string): [string, number][] {
+    const ev = this.dayEvents(date)
+    const allDay = ev.allDay.some((d) => this.calendars.get(d.event.calendar_id)?.all_day_busy)
+    return allDay ? [['00:00', 1440]] : busyIntervals(ev.timed)
+  }
+
+  // ---- blocks, templates and conflicts --------------------------------------
+
+  blocksOn(date: string): TimeBlock[] {
+    return [...this.timeBlocks.values()]
+      .filter((b) => b.date === date)
+      .sort((a, b) => (a.start_time < b.start_time ? -1 : a.start_time > b.start_time ? 1 : 0))
+  }
+
+  templateList(): DayTemplate[] {
+    return [...this.dayTemplates.values()].sort(byPosition)
+  }
+
+  /** Everything that takes time on a day, for conflict checks (ids: entry, event, block). */
+  dayItems(date: string): Item[] {
+    const m = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5))
+    const items: Item[] = []
+    for (const e of this.dayEntries(date)) {
+      const t = this.tasks.get(e.task_id)
+      if (!e.start_time || !t || t.status !== 'open') continue
+      const start = m(e.start_time)
+      items.push({ id: e.id, kind: 'task', start, end: Math.min(1440, start + (e.duration_min ?? t.estimate_min ?? 30)) })
+    }
+    const ev = this.dayEvents(date)
+    for (const d of ev.timed) if (d.event.busy) items.push({ id: d.event.id, kind: 'event', start: d.start, end: d.start + d.dur })
+    for (const d of ev.allDay)
+      if (this.calendars.get(d.event.calendar_id)?.all_day_busy) items.push({ id: d.event.id, kind: 'event', start: 0, end: 1440 })
+    for (const b of this.blocksOn(date)) items.push({ id: b.id, kind: 'block', start: m(b.start_time), end: m(b.end_time) })
+    return items
+  }
+
+  dayConflicts(date: string): Conflict[] {
+    return findConflicts(this.dayItems(date))
+  }
+
+  /** What an item of `dayItems` is called. */
+  itemTitle(id: string): string {
+    const e = this.entries.get(id)
+    if (e) return this.tasks.get(e.task_id)?.title ?? ''
+    return this.events.get(id)?.title ?? this.timeBlocks.get(id)?.title ?? ''
+  }
+
+  /** Quick fix: move a scheduled entry to the next free time of the day (null = no room). */
+  moveToFreeTime(entryId: string): string | null {
+    const e = this.entries.get(entryId)
+    if (!e?.start_time || !this.me) return null
+    const items = this.dayItems(e.date)
+    const self = items.find((i) => i.id === entryId)
+    if (!self) return null
+    const busy = items.filter((i) => i.kind !== 'block' && i.id !== entryId).map((i): [number, number] => [i.start, i.end])
+    const m = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5))
+    const ws = m(this.me.day_window_start)
+    const we = m(this.me.day_window_end) > ws ? m(this.me.day_window_end) : 1440
+    const slot = nextFreeSlot(busy, self.end - self.start, self.start, [ws, we])
+    if (slot === null) return null
+    const time = `${String(Math.floor(slot / 60)).padStart(2, '0')}:${String(slot % 60).padStart(2, '0')}`
+    this.updateEntry(entryId, { start_time: time })
+    return time
+  }
+
+  /** Quick fix: end the entry where the next overlapping item starts (false = can't). */
+  shortenToFit(entryId: string): boolean {
+    const e = this.entries.get(entryId)
+    if (!e?.start_time) return false
+    const items = this.dayItems(e.date)
+    const self = items.find((i) => i.id === entryId)
+    if (!self) return false
+    const next = items
+      .filter((i) => i.id !== entryId && i.kind !== 'block' && i.start > self.start && i.start < self.end)
+      .sort((a, b) => a.start - b.start)[0]
+    const blocking = items.some((i) => i.id !== entryId && i.kind !== 'block' && i.start <= self.start && i.end > self.start)
+    if (!next || blocking) return false
+    this.updateEntry(entryId, { duration_min: next.start - self.start })
+    return true
+  }
+
+  createTemplate(name: string, weekdays: number[], blocks: TemplateBlock[]) {
+    const id = ulid()
+    const ts = now()
+    const t: DayTemplate = {
+      id,
+      owner_user_id: this.me?.id ?? '',
+      name,
+      weekdays,
+      blocks,
+      position: keyBetween(this.templateList().at(-1)?.position, null),
+      created_at: ts,
+      updated_at: ts,
+      deleted_at: null,
+      rev: 0,
+    }
+    return this.optimistic(
+      [['day_template', id]],
+      () => this.dayTemplates.set(id, t),
+      async () => [['day_template', await api.post<DayTemplate>('/day-templates', { id, name, weekdays, blocks })]],
+    )
+  }
+
+  updateTemplate(id: string, patch: Partial<Pick<DayTemplate, 'name' | 'weekdays' | 'blocks'>>) {
+    const cur = this.dayTemplates.get(id)
+    if (!cur) return
+    return this.optimistic(
+      [['day_template', id]],
+      () => this.dayTemplates.set(id, { ...cur, ...patch }),
+      async () => [['day_template', await api.patch<DayTemplate>(`/day-templates/${id}`, patch)]],
+    )
+  }
+
+  deleteTemplate(id: string) {
+    if (!this.dayTemplates.has(id)) return
+    return this.optimistic(
+      [['day_template', id]],
+      () => this.dayTemplates.delete(id),
+      () => api.del(`/day-templates/${id}`),
+    )
+  }
+
+  async applyTemplate(date: string, templateId: string | null) {
+    try {
+      await api.post(`/days/${date}/apply-template`, { template_id: templateId })
+      await this.sync()
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : 'Could not reach the server', 'error')
+    }
+  }
+
+  createBlock(date: string, b: { title: string; start_time: string; end_time: string; energy: string | null }) {
+    const id = ulid()
+    const ts = now()
+    const block: TimeBlock = { id, user_id: this.me?.id ?? '', date, template_id: null, created_at: ts, updated_at: ts, deleted_at: null, rev: 0, ...b }
+    return this.optimistic(
+      [['time_block', id]],
+      () => this.timeBlocks.set(id, block),
+      async () => [['time_block', await api.post<TimeBlock>(`/days/${date}/blocks`, { id, ...b })]],
+    )
+  }
+
+  updateBlock(id: string, patch: Partial<Pick<TimeBlock, 'title' | 'start_time' | 'end_time' | 'energy'>>) {
+    const cur = this.timeBlocks.get(id)
+    if (!cur) return
+    return this.optimistic(
+      [['time_block', id]],
+      () => this.timeBlocks.set(id, { ...cur, ...patch }),
+      async () => [['time_block', await api.patch<TimeBlock>(`/time-blocks/${id}`, patch)]],
+    )
+  }
+
+  deleteBlock(id: string) {
+    if (!this.timeBlocks.has(id)) return
+    return this.optimistic(
+      [['time_block', id]],
+      () => this.timeBlocks.delete(id),
+      () => api.del(`/time-blocks/${id}`),
+    )
+  }
+
+  suggestPlan(date: string) {
+    return api.post<SuggestedPlan>(`/days/${date}/suggest`, {})
+  }
+
+  updateCalendarAllDay(id: string, all_day_busy: boolean) {
+    const cur = this.calendars.get(id)
+    if (!cur) return
+    return this.optimistic(
+      [['calendar', id]],
+      () => this.calendars.set(id, { ...cur, all_day_busy }),
+      async () => [['calendar', await api.patch<Calendar>(`/calendars/${id}`, { all_day_busy })]],
+    )
   }
 
   /** Connect or update the calendar account; the server syncs before answering. */

@@ -85,6 +85,11 @@ pub async fn sync_account(
         .fetch_one(&mut *tx)
         .await?;
     tx.commit().await?;
+    if result.is_ok()
+        && let Err(e) = crate::blocks::notify_new_conflicts(state, &user).await
+    {
+        tracing::warn!("conflict check failed: {e:#}");
+    }
     if updated.deleted_at.is_none() {
         state.bus.publish([Change::calendar_account(
             &updated.user_id,
@@ -144,6 +149,7 @@ async fn run(
                 color: None,
                 user_color: None,
                 enabled: true,
+                all_day_busy: false,
                 ctag: None,
                 expanded_for: None,
                 created_at: ts.clone(),

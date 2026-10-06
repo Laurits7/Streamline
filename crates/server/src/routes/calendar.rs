@@ -217,6 +217,8 @@ pub async fn sync_now(
 #[derive(Deserialize, utoipa::ToSchema)]
 pub struct PatchCalendar {
     enabled: Option<bool>,
+    /// All-day events of this calendar block the whole day (free time and overlaps).
+    all_day_busy: Option<bool>,
     /// `#rrggbb`, or null for the server's colour.
     #[serde(default, deserialize_with = "double_option")]
     user_color: Option<Option<String>>,
@@ -248,6 +250,9 @@ pub async fn patch_calendar(
             return Err(bad("colour must look like #3b82f6"));
         }
         cal.user_color = color;
+    }
+    if let Some(v) = c.all_day_busy {
+        cal.all_day_busy = v;
     }
     let turned_on = c.enabled == Some(true) && !cal.enabled;
     if let Some(on) = c.enabled

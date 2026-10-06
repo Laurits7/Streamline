@@ -2317,6 +2317,7 @@ dependencies = [
  "chrono-tz",
  "ical",
  "rrule",
+ "serde",
 ]
 
 [[package]]

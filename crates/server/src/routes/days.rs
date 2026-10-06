@@ -16,7 +16,8 @@ use crate::{
     error::{ApiResult, AppError},
     events::Change,
     models::{
-        CalendarEvent, DayEntry, DayPlan, Task, User, log_task_event, upsert_day_plan, upsert_entry,
+        CalendarEvent, DayEntry, DayPlan, Task, TimeBlock, User, log_task_event, upsert_day_plan,
+        upsert_entry,
     },
     rollover,
     util::{check_hhmm, check_position, check_range, double_option, id_or_new, now, parse_date},
@@ -36,11 +37,39 @@ pub struct DayView {
     pub plan: Option<DayPlan>,
     /// Calendar events on the date: timed ones overlapping it (local time) and all-day ones.
     pub events: Vec<CalendarEvent>,
+    /// The day's time blocks.
+    pub blocks: Vec<TimeBlock>,
+    /// Overlapping items: scheduled tasks, busy events and blocks (tasks inside blocks are fine).
+    pub conflicts: Vec<ConflictView>,
     /// Minutes of the user's available window not taken by scheduled (timed) tasks or
     /// busy calendar events.
     pub free_min: u32,
     /// Estimated minutes of open planned tasks without a time.
     pub planned_min: u32,
+}
+
+/// Two overlapping items of a day. Ids are day entry ids (`task`), event ids (`event`)
+/// or time block ids (`block`).
+#[derive(Serialize, TS, utoipa::ToSchema)]
+#[ts(export)]
+pub struct ConflictView {
+    pub a: String,
+    /// `task`, `event` or `block`.
+    pub a_kind: String,
+    pub b: String,
+    pub b_kind: String,
+    /// Overlap in minutes.
+    pub minutes: u32,
+}
+
+fn kind_name(k: streamline_domain::conflicts::Kind) -> String {
+    use streamline_domain::conflicts::Kind;
+    match k {
+        Kind::Task => "task",
+        Kind::Event => "event",
+        Kind::Block => "block",
+    }
+    .into()
 }
 
 /// Minutes a planned task takes: its slot's duration, else the estimate, else `default`.
@@ -169,19 +198,36 @@ pub async fn get_day(
     .bind(&date)
     .fetch_all(db)
     .await?;
-    let spans: Vec<_> = events
-        .iter()
-        .filter(|e| e.busy && !e.all_day)
-        .filter_map(|e| {
-            let p = |s: &Option<String>| {
-                chrono::DateTime::parse_from_rfc3339(s.as_deref()?)
-                    .ok()
-                    .map(|t| t.to_utc())
-            };
-            Some((p(&e.start_at)?, p(&e.end_at)?))
+    let mut conn = state.db.read.acquire().await?;
+    let busy: Vec<(chrono::NaiveTime, u32)> =
+        crate::blocks::busy_events(&mut conn, &user.user, day)
+            .await?
+            .into_iter()
+            .filter_map(|(_, s, e)| {
+                Some((
+                    chrono::NaiveTime::from_hms_opt(s / 60 % 24, s % 60, 0)?,
+                    e - s,
+                ))
+            })
+            .collect();
+    let blocks: Vec<TimeBlock> = sqlx::query_as(
+        "SELECT * FROM time_blocks WHERE user_id = ? AND date = ? AND deleted_at IS NULL ORDER BY start_time",
+    )
+    .bind(user.id())
+    .bind(&date)
+    .fetch_all(&mut *conn)
+    .await?;
+    let conflicts = crate::blocks::day_conflicts(&mut conn, &user.user, day)
+        .await?
+        .into_iter()
+        .map(|c| ConflictView {
+            a: c.a,
+            a_kind: kind_name(c.a_kind),
+            b: c.b,
+            b_kind: kind_name(c.b_kind),
+            minutes: c.minutes,
         })
         .collect();
-    let busy = streamline_domain::calendar::busy_on(day, tz, &spans);
     let (free_min, planned_min) = day_load(&user.user, &entries, &tasks, now, &busy);
     Ok(Json(DayView {
         date,
@@ -192,6 +238,8 @@ pub async fn get_day(
         tasks,
         plan,
         events,
+        blocks,
+        conflicts,
         free_min,
         planned_min,
     }))
