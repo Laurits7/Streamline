@@ -275,6 +275,10 @@ pub struct SeriesStats {
     /// Flexible routines: completed / total in the current window.
     pub window_done: u32,
     pub window_total: u32,
+    /// Scheduled routines: done this week / occurrences the schedule has this week
+    /// (skipped, deleted or missed ones count as not done, e.g. "worked out 3 of 4").
+    pub week_done: u32,
+    pub week_total: u32,
 }
 
 /// A flexible routine's occurrence: its status and the end of its window.
@@ -306,6 +310,41 @@ pub async fn stats(state: &AppState, user: &User, s: &Series) -> anyhow::Result<
         q = q.bind(id);
     }
     let rows = q.fetch_all(&state.db.read).await?;
+
+    // This week's score for scheduled routines: total from the schedule (from the first
+    // version's start), done from what was actually completed.
+    let (mut week_done, mut week_total) = (0, 0);
+    if s.mode != "flexible"
+        && let Some(sched) = schedule(s)
+    {
+        let (ws, we) = week(today, user.week_start as u32);
+        let mut first_start = date(&s.dtstart);
+        for id in ids.iter().skip(1) {
+            let d: Option<String> = sqlx::query_scalar("SELECT dtstart FROM series WHERE id = ?")
+                .bind(id)
+                .fetch_optional(&state.db.read)
+                .await?;
+            if let Some(d) = d.as_deref().and_then(date) {
+                first_start = Some(first_start.map_or(d, |f| f.min(d)));
+            }
+        }
+        if let Some(start) = first_start {
+            week_total = plan_occurrences(
+                &sched,
+                start,
+                s.until.as_deref().and_then(date),
+                ws,
+                we,
+                user.week_start as u32,
+            )
+            .map(|o| o.len() as u32)
+            .unwrap_or(0);
+        }
+        week_done = rows
+            .iter()
+            .filter(|(st, d, _)| st == "done" && date(d).is_some_and(|d| d >= ws && d <= we))
+            .count() as u32;
+    }
     let (mut window_done, mut window_total) = (0, 0);
     let outcomes: Vec<Outcome> = if s.mode == "flexible" {
         // One outcome per window: done when every slot is done.
@@ -364,7 +403,14 @@ pub async fn stats(state: &AppState, user: &User, s: &Series) -> anyhow::Result<
         next_date,
         window_done,
         window_total,
+        week_done,
+        week_total,
     })
+}
+
+/// The week containing `day`.
+pub fn week(day: NaiveDate, week_start: u32) -> (NaiveDate, NaiveDate) {
+    window_bounds(day, Window::Week, week_start)
 }
 
 /// The window containing `today` for a flexible routine's window kind (for rolling over).

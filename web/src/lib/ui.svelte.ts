@@ -6,6 +6,9 @@ export const ui = $state({
   pullFor: null as string | null,
   /** Routine being edited: an id, 'new', or null. */
   routine: null as string | null,
+  /** Workflow template being edited ('new' or an id), or started. */
+  workflow: null as string | null,
+  startWorkflow: null as string | null,
 })
 
 // Collapsed projects in project trees (remembered in this browser only).

@@ -102,7 +102,29 @@
           {#if series}<button class="btn small" onclick={() => { ui.routine = series.id; ui.editing = null }}>Edit routine</button>{/if}
         </div>
       </div>
+      {#if task.status === 'open'}
+        <label class="move-day">
+          <span>Clashes with something? Move this one to</span>
+          <input type="date" min={store.today} value={task.due_date ?? ''} onchange={(e) => { const v = (e.currentTarget as HTMLInputElement).value; if (v) store.moveOccurrence(id, v) }} />
+        </label>
+      {/if}
       <p class="muted help">Changes below apply to this occurrence only.</p>
+    {/if}
+
+    {#if task.workflow_instance_id}
+      {@const run = store.workflowRun(task.workflow_instance_id)}
+      <div class="chain">
+        <h3>Step {task.workflow_step} of {task.workflow_steps}</h3>
+        <ol>
+          {#each run as r (r.id)}
+            <li class:current={r.id === id} class:done={r.status !== 'open'}>
+              <span class="dot">{r.status === 'done' ? '✓' : r.workflow_step}</span>
+              <button onclick={() => (ui.editing = r.id)}>{r.title}</button>
+              {#if r.status === 'open' && r.blocked}<span class="muted">waiting</span>{/if}
+            </li>
+          {/each}
+        </ol>
+      </div>
     {/if}
 
     {#if task.status === 'open'}
@@ -343,6 +365,58 @@
   }
   section {
     margin-top: 20px;
+  }
+  .move-day {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    margin-top: 8px;
+  }
+  .move-day input {
+    width: auto !important;
+    padding: 4px 8px !important;
+  }
+  .chain {
+    margin-top: 14px;
+  }
+  .chain ol {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+  .chain li {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 3px 0;
+    font-size: 14px;
+  }
+  .chain .dot {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    font-size: 11px;
+    font-weight: 700;
+    background: var(--surface-3);
+  }
+  .chain .done .dot {
+    background: var(--ok);
+    color: #fff;
+  }
+  .chain .current .dot {
+    background: var(--accent);
+    color: var(--accent-text);
+  }
+  .chain .done button {
+    color: var(--muted);
+    text-decoration: line-through;
+  }
+  .chain .current button {
+    font-weight: 700;
   }
   .deps {
     list-style: none;

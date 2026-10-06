@@ -12,4 +12,9 @@ next_date: string | null,
 /**
  * Flexible routines: completed / total in the current window.
  */
-window_done: number, window_total: number, };
+window_done: number, window_total: number, 
+/**
+ * Scheduled routines: done this week / occurrences the schedule has this week
+ * (skipped, deleted or missed ones count as not done, e.g. "worked out 3 of 4").
+ */
+week_done: number, week_total: number, };

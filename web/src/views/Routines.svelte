@@ -17,6 +17,28 @@
 
   // Streaks and progress are computed by the server; refresh when tasks change.
   let stats = $state<Record<string, SeriesStats>>({})
+
+  // A ready-made example (SPEC §6.3b): laundry with variants per kind of load.
+  function addLaundry() {
+    const step = (id: string, title: string, estimate: number | null, wait: number | null) => ({
+      id,
+      title,
+      estimate_min: estimate,
+      wait_min: wait,
+      difficulty: 1,
+    })
+    store.saveWorkflow(null, {
+      name: 'Laundry',
+      steps: [step('wash', 'Wash', 5, 90), step('dry', 'Dry', 5, 60), step('iron', 'Iron', 20, null), step('fold', 'Fold and put away', 10, null)],
+      variants: [
+        { id: 'colours', name: 'Colours', skip: ['iron'] },
+        { id: 'whites', name: 'Whites', skip: [] },
+        { id: 'delicates', name: 'Delicates', skip: ['dry', 'iron'] },
+        { id: 'towels', name: 'Towels', skip: ['iron'] },
+        { id: 'bedding', name: 'Bedding', skip: [] },
+      ],
+    })
+  }
   let timer: ReturnType<typeof setTimeout> | undefined
   $effect(() => {
     // Re-run when any task changes (completions move streaks).
@@ -65,6 +87,7 @@
             {#if project}· {project.name}{/if}
             {#if st?.next_date && s.mode !== 'flexible'}· next {dayLabel(st.next_date, store.today).toLowerCase()}{/if}
             {#if s.mode === 'flexible' && st?.window_total}· {st.window_done} of {st.window_total} this {s.window}{/if}
+            {#if s.mode !== 'flexible' && st && st.week_total > 1}· {st.week_done} of {st.week_total} this week{/if}
           </span>
         </span>
         {#if st?.streak}<span class="streak" title="Streak">🔥 {st.streak}</span>{/if}
@@ -73,7 +96,36 @@
   </div>
 {/each}
 
+<h2 class="section-title">Multi-step chores</h2>
+<p class="muted intro">Chores done in steps, like laundry: wash → dry → fold. Each step appears when the one before is done.</p>
+<div class="card list">
+  {#each [...store.workflows.values()].sort((a, b) => a.name.localeCompare(b.name)) as w (w.id)}
+    <div class="item wf">
+      <button class="main" onclick={() => (ui.workflow = w.id)}>
+        <span class="title">{w.name}</span>
+        <span class="meta">{w.steps.map((s) => s.title).join(' → ')}{w.variants.length ? ` · ${w.variants.length} variants` : ''}</span>
+      </button>
+      <button class="btn small primary" onclick={() => (ui.startWorkflow = w.id)}><Icon name="play" size={14} /> Start</button>
+    </div>
+  {:else}
+    <div class="item"><span class="main muted">None yet.</span>
+      <button class="btn small" onclick={addLaundry}>Add example: Laundry</button>
+    </div>
+  {/each}
+</div>
+<button class="btn small new-wf" onclick={() => (ui.workflow = 'new')}><Icon name="plus" size={14} /> New multi-step chore</button>
+
 <style>
+  .intro {
+    font-size: 13px;
+    margin: -4px 4px 8px;
+  }
+  .wf .main {
+    text-align: left;
+  }
+  .new-wf {
+    margin-top: 8px;
+  }
   .head {
     display: flex;
     justify-content: space-between;

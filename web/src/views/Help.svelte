@@ -9,6 +9,7 @@
     ['planning', 'Planning your day'],
     ['dnd', 'Drag and drop'],
     ['routines', 'Routines and repeating tasks'],
+    ['steps', 'Prerequisites and multi-step chores'],
     ['views', 'List, board and matrix'],
     ['focus', 'Focus timer'],
     ['tasks', 'Tasks and their details'],
@@ -114,7 +115,9 @@
       <li><strong>N times a week or month</strong>: e.g. laundry twice a week, any day you like. Today shows them under “This week / month” with your progress (1/2).</li>
     </ul>
     <p>
-      Each occurrence is an ordinary task: plan it, move it, focus on it, or <strong>Skip this time</strong>. Editing
+      Each occurrence is an ordinary task: plan it, focus on it, <strong>move it to another day</strong> when something
+      clashes (it keeps its time), or <strong>Skip this time</strong>. The Routines page shows how this week is going,
+      e.g. “3 of 4 this week” — skipped or deleted ones count as not done. Editing
       that task changes only that occurrence; <strong>Edit routine</strong> changes it from a date on, and earlier
       occurrences keep their history. Occurrences appear the day before (so you can plan them in the evening).
     </p>
@@ -122,6 +125,23 @@
       What happens when one isn't done depends on its type: fixed-time routines <em>expire</em> (counted as missed),
       “N times” routines are missed if the week or month ends first, and scheduled ones <em>carry on</em> by default.
       The Routines page shows your streak 🔥 for each.
+    </p>
+  </section>
+
+  <section id="steps">
+    <h2><Icon name="list" size={18} /> Prerequisites and multi-step chores</h2>
+    <p>
+      A task can <strong>wait for</strong> other tasks: open it and choose <em>Must be done after…</em>. Until those are
+      done it shows <em>⏳ Waiting on …</em>, stays out of the ready stack and the planner, and isn't counted as missed.
+      The moment the last one is done it becomes ready, on every device. Optionally it waits a bit longer first
+      (<em>then wait 1h</em>, while a machine runs) and tells you when it's ready. If a prerequisite is skipped or
+      deleted, the waiting task is freed.
+    </p>
+    <p>
+      <strong>Multi-step chores</strong> (on the <a href="/routines">Routines</a> page) do this for you. Laundry is a
+      chain: wash → dry → iron → fold, with variants that leave steps out (delicates skip the dryer, towels skip
+      ironing). <em>Start</em> it, pick the loads, and each load gets its own chain; only the current step of each shows
+      up in your lists. The dots on a step show how far along the chain is.
     </p>
   </section>
 

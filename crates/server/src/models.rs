@@ -264,10 +264,10 @@ pub struct WorkflowTemplate {
     pub description: String,
     /// Project the steps go into (optional).
     pub project_id: Option<String>,
-    #[ts(type = "Array<WorkflowStep>")]
+    #[ts(as = "Vec<WorkflowStep>")]
     #[schema(value_type = Vec<WorkflowStep>)]
     pub steps: sqlx::types::Json<Vec<WorkflowStep>>,
-    #[ts(type = "Array<WorkflowVariant>")]
+    #[ts(as = "Vec<WorkflowVariant>")]
     #[schema(value_type = Vec<WorkflowVariant>)]
     pub variants: sqlx::types::Json<Vec<WorkflowVariant>>,
     pub created_at: String,

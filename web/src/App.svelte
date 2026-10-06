@@ -10,6 +10,8 @@
   import AllTasks from './views/AllTasks.svelte'
   import Routines from './views/Routines.svelte'
   import RoutineSheet from './lib/components/RoutineSheet.svelte'
+  import WorkflowSheet from './lib/components/WorkflowSheet.svelte'
+  import StartWorkflowSheet from './lib/components/StartWorkflowSheet.svelte'
   import PlaceTracker from './lib/components/PlaceTracker.svelte'
   import PlaceSwitcher from './lib/components/PlaceSwitcher.svelte'
   import { droppable, type DragItem } from './lib/dnd.svelte'
@@ -204,6 +206,8 @@
   {#if ui.editing}<TaskSheet id={ui.editing} />{/if}
   {#if ui.pullFor}<PullSheet date={ui.pullFor} />{/if}
   {#if ui.routine}{#key ui.routine}<RoutineSheet id={ui.routine} />{/key}{/if}
+  {#if ui.workflow}{#key ui.workflow}<WorkflowSheet id={ui.workflow} />{/key}{/if}
+  {#if ui.startWorkflow}{#key ui.startWorkflow}<StartWorkflowSheet id={ui.startWorkflow} />{/key}{/if}
 {/if}
 
 <Toasts />

@@ -14,6 +14,7 @@ import type { Notification } from './api/types/Notification'
 import type { Place } from './api/types/Place'
 import type { Project } from './api/types/Project'
 import type { Series } from './api/types/Series'
+import type { WorkflowTemplate } from './api/types/WorkflowTemplate'
 import type { SyncResponse } from './api/types/SyncResponse'
 import type { Task } from './api/types/Task'
 import type { TaskType } from './api/types/TaskType'
@@ -22,8 +23,8 @@ import { keyAt, keyBetween } from './order'
 import { toast } from './toast.svelte'
 import { ulid } from './ulid'
 
-type Kind = 'task' | 'project' | 'day_entry' | 'day_plan' | 'focus_session' | 'series' | 'place'
-type Entity = Task | Project | DayEntry | DayPlan | FocusSession | Series | Place
+type Kind = 'task' | 'project' | 'day_entry' | 'day_plan' | 'focus_session' | 'series' | 'place' | 'workflow'
+type Entity = Task | Project | DayEntry | DayPlan | FocusSession | Series | Place | WorkflowTemplate
 
 export type TaskPatch = Partial<
   Pick<
@@ -88,6 +89,7 @@ class Store {
   focusSessions = new SvelteMap<string, FocusSession>()
   series = new SvelteMap<string, Series>()
   places = new SvelteMap<string, Place>()
+  workflows = new SvelteMap<string, WorkflowTemplate>()
   /** Where this device is ('' = anywhere/not set). Per device, like the GPS setting (D-45). */
   currentPlace = $state(readLocal('sl.place', ''))
   /** Use GPS to set the current place (per device; needs HTTPS and permission). */
@@ -137,6 +139,7 @@ class Store {
     this.focusSessions.clear()
     this.series.clear()
     this.places.clear()
+    this.workflows.clear()
     this.focusTimer = IDLE_TIMER
   }
 
@@ -198,6 +201,7 @@ class Store {
       this.focusSessions.clear()
       this.series.clear()
       this.places.clear()
+      this.workflows.clear()
     }
     this.clockOffset = r.server_now - Date.now()
     if (r.focus_timer.rev >= this.focusTimer.rev) this.focusTimer = r.focus_timer
@@ -214,6 +218,7 @@ class Store {
     for (const f of r.focus_sessions) this.applyRemote('focus_session', f)
     for (const x of r.series) this.applyRemote('series', x)
     for (const x of r.places) this.applyRemote('place', x)
+    for (const x of r.workflows) this.applyRemote('workflow', x)
     this.rev = Math.max(this.rev, r.rev)
     this.ready = true
   }
@@ -234,7 +239,7 @@ class Store {
       else if (c.kind === 'focus_timer') {
         const t = c.data as FocusTimer
         if (t.rev >= this.focusTimer.rev) this.focusTimer = t
-      } else if (c.kind === 'focus_session' || c.kind === 'series' || c.kind === 'place')
+      } else if (c.kind === 'focus_session' || c.kind === 'series' || c.kind === 'place' || c.kind === 'workflow')
         this.applyRemote(c.kind, c.data as Entity)
       else if (c.kind === 'task' || c.kind === 'project' || c.kind === 'day_entry' || c.kind === 'day_plan')
         this.applyRemote(c.kind, c.data as Entity)
@@ -264,6 +269,7 @@ class Store {
       focus_session: this.focusSessions,
       series: this.series,
       place: this.places,
+      workflow: this.workflows,
     }
     return maps[kind] as SvelteMap<string, Entity>
   }
@@ -945,6 +951,62 @@ class Store {
     } catch {
       if (this.me) this.me = { ...this.me, prefs: prev }
     }
+  }
+
+  // ---- workflows -------------------------------------------------------------
+
+  async saveWorkflow(id: string | null, body: Record<string, unknown>): Promise<WorkflowTemplate | null> {
+    try {
+      const w = id
+        ? await api.patch<WorkflowTemplate>(`/workflows/${id}`, body)
+        : await api.post<WorkflowTemplate>('/workflows', { id: ulid(), ...body })
+      this.applyRemote('workflow', w)
+      return w
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : 'Could not save the workflow', 'error')
+      return null
+    }
+  }
+
+  deleteWorkflow(id: string) {
+    if (!this.workflows.has(id)) return
+    this.optimistic(
+      [['workflow', id]],
+      () => this.workflows.delete(id),
+      () => api.del(`/workflows/${id}`),
+    )
+  }
+
+  /** Start a run: one chain per chosen variant. */
+  async startWorkflow(id: string, variantIds: string[], day: string | null): Promise<Task[]> {
+    try {
+      const tasks = await api.post<Task[]>(`/workflows/${id}/start`, { variant_ids: variantIds, day })
+      for (const t of tasks) this.applyRemote('task', t)
+      return tasks
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : 'Could not start the workflow', 'error')
+      return []
+    }
+  }
+
+  /** The steps of a workflow run, in order. */
+  workflowRun(instanceId: string): Task[] {
+    return [...this.tasks.values()]
+      .filter((t) => t.workflow_instance_id === instanceId)
+      .sort((a, b) => (a.workflow_step ?? 0) - (b.workflow_step ?? 0))
+  }
+
+  /**
+   * Move one routine occurrence to another day (e.g. a workout clashes with something):
+   * it becomes due that day, keeps its time if it had one, and isn't missed on its
+   * original day.
+   */
+  moveOccurrence(id: string, date: string) {
+    const t = this.tasks.get(id)
+    if (!t) return
+    const entry = this.entryForTask(id)
+    this.updateTask(id, { due_date: date })
+    if (entry) this.plan(id, date, { startTime: entry.start_time })
   }
 
   // ---- places ----------------------------------------------------------------

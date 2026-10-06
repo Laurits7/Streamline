@@ -37,10 +37,12 @@ pub async fn run_for_user(state: &AppState, user: &User) -> anyhow::Result<()> {
 
     // Routine occurrences of an "expires" type whose day passed undone: missed, whether
     // or not they were planned (planned ones are also caught by the entry loop below).
+    // An occurrence moved to another day counts by its new (due) day.
     let expired: Vec<Task> = sqlx::query_as(
         "SELECT t.* FROM tasks t JOIN task_types tt ON tt.id = t.task_type_id
          WHERE t.owner_user_id = ? AND t.deleted_at IS NULL AND t.status = 'open'
-           AND t.series_id IS NOT NULL AND tt.day_end_behavior = 'expire' AND t.occurrence_date < ? AND t.blocked = 0",
+           AND t.series_id IS NOT NULL AND tt.day_end_behavior = 'expire' AND t.blocked = 0
+           AND COALESCE(t.due_date, t.occurrence_date) < ?",
     )
     .bind(&user.id)
     .bind(&today_s)

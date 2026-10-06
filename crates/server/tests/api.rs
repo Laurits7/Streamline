@@ -2268,3 +2268,96 @@ async fn workflow_templates_start_chains() {
         .await;
     assert_eq!(s, StatusCode::BAD_REQUEST);
 }
+
+#[tokio::test]
+async fn routine_week_score_and_rescheduling() {
+    let t = setup().await;
+    let admin = t.admin().await;
+    let today = today_of(&t, &admin).await;
+    let (ws, _) = streamline_domain::time::week_bounds(today, 1);
+    // Every day this week: 7 planned by the schedule.
+    let (_, r, _) = t
+        .req("POST", "/api/v1/series", Some(&admin), Some(json!({"title": "Work out", "mode": "repeat", "rrule": "FREQ=DAILY", "dtstart": ymd(ws), "task_type_id": "tt_expires"})))
+        .await;
+    let rid = r["id"].as_str().unwrap().to_string();
+    let score = || {
+        let (t, admin, rid) = (&t, admin.clone(), rid.clone());
+        async move {
+            let (_, stats, _) = t
+                .req("GET", "/api/v1/series/stats", Some(&admin), None)
+                .await;
+            let s = stats
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|s| s["series_id"] == rid)
+                .unwrap()
+                .clone();
+            (
+                s["week_done"].as_i64().unwrap(),
+                s["week_total"].as_i64().unwrap(),
+            )
+        }
+    };
+    assert_eq!(score().await, (0, 7));
+    let occ = occurrences(&t, &admin, &rid).await;
+    let today_occ = occ
+        .iter()
+        .find(|o| o["occurrence_date"] == ymd(today))
+        .unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    t.req(
+        "PATCH",
+        &format!("/api/v1/tasks/{today_occ}"),
+        Some(&admin),
+        Some(json!({"status": "done"})),
+    )
+    .await;
+    assert_eq!(score().await, (1, 7));
+    // Deleting (or skipping) an occurrence doesn't shrink the week: still out of 7.
+    if let Some(next) = occ.iter().find(|o| o["occurrence_date"] != ymd(today)) {
+        t.req(
+            "DELETE",
+            &format!("/api/v1/tasks/{}", next["id"].as_str().unwrap()),
+            Some(&admin),
+            None,
+        )
+        .await;
+    }
+    assert_eq!(score().await.1, 7);
+
+    // An "expires" occurrence moved to a later day isn't missed on its original day.
+    let (_, other, _) = t
+        .req("POST", "/api/v1/series", Some(&admin), Some(json!({"title": "Swim", "mode": "repeat", "rrule": "FREQ=DAILY", "task_type_id": "tt_expires"})))
+        .await;
+    let swim = occurrences(&t, &admin, other["id"].as_str().unwrap()).await[0].clone();
+    let sid = swim["id"].as_str().unwrap().to_string();
+    let tomorrow = ymd(today + chrono::Duration::days(1));
+    t.req(
+        "PATCH",
+        &format!("/api/v1/tasks/{sid}"),
+        Some(&admin),
+        Some(json!({"due_date": tomorrow})),
+    )
+    .await;
+    sqlx::query("UPDATE tasks SET occurrence_date = ? WHERE id = ?")
+        .bind(ymd(today - chrono::Duration::days(1)))
+        .bind(&sid)
+        .execute(&t.state.db.write)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE users SET last_rollover_date = NULL")
+        .execute(&t.state.db.write)
+        .await
+        .unwrap();
+    t.req("GET", "/api/v1/sync", Some(&admin), None).await;
+    let (_, v, _) = t
+        .req("GET", &format!("/api/v1/tasks/{sid}"), Some(&admin), None)
+        .await;
+    assert_eq!(
+        v["status"], "open",
+        "moved to tomorrow: not missed yesterday"
+    );
+}
