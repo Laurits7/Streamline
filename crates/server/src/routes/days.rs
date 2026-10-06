@@ -21,7 +21,7 @@ use crate::{
     visibility,
 };
 
-#[derive(Serialize, TS)]
+#[derive(Serialize, TS, utoipa::ToSchema)]
 #[ts(export)]
 pub struct DayView {
     pub date: String,
@@ -33,6 +33,7 @@ pub struct DayView {
 }
 
 /// Aggregate for one day, so API clients can render a day in one request.
+#[utoipa::path(get, path = "/days/{date}", tag = "days", summary = "A day's plan, its tasks and what's due", params(("date" = String, Path, description = "YYYY-MM-DD")), responses((status = 200, body = DayView), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
 pub async fn get_day(
     State(state): State<AppState>,
     user: AuthUser,
@@ -69,7 +70,7 @@ pub async fn get_day(
     }))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::ToSchema)]
 pub struct AddEntry {
     id: Option<String>,
     task_id: String,
@@ -80,6 +81,7 @@ pub struct AddEntry {
 
 /// Plan a task into a day. A task has at most one active entry, so planning it on
 /// another day moves the existing entry.
+#[utoipa::path(post, path = "/days/{date}/entries", tag = "days", summary = "Plan a task into a day (moves it if planned elsewhere)", params(("date" = String, Path, description = "YYYY-MM-DD")), request_body = AddEntry, responses((status = 200, body = DayEntry), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
 pub async fn add_entry(
     State(state): State<AppState>,
     user: AuthUser,
@@ -178,7 +180,7 @@ async fn load_entry(
         .ok_or(AppError::NotFound)
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::ToSchema)]
 pub struct PatchEntry {
     date: Option<String>,
     position: Option<String>,
@@ -188,6 +190,7 @@ pub struct PatchEntry {
     duration_min: Option<Option<i32>>,
 }
 
+#[utoipa::path(patch, path = "/day-entries/{id}", tag = "days", summary = "Move, reorder or (un)schedule a planned task", params(("id" = String, Path, description = "ULID")), request_body = PatchEntry, responses((status = 200, body = DayEntry), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
 pub async fn patch_entry(
     State(state): State<AppState>,
     user: AuthUser,
@@ -234,6 +237,7 @@ pub async fn patch_entry(
 }
 
 /// Remove a task from the day plan (the task itself stays in its project).
+#[utoipa::path(delete, path = "/day-entries/{id}", tag = "days", summary = "Remove a task from the day plan", params(("id" = String, Path, description = "ULID")), responses((status = 204, description = "Done"), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
 pub async fn delete_entry(
     State(state): State<AppState>,
     user: AuthUser,

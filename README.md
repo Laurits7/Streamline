@@ -92,7 +92,9 @@ app of about 41 KB gzipped on first load.
 
 ## API
 
-All endpoints are under `/api/v1` and use JSON. Authenticate with the session cookie (web app)
+All endpoints are under `/api/v1` and use JSON. The full, always-current description is the
+OpenAPI document at `/api/v1/openapi.json` (generated from the code), and you can read it at
+`/api/docs` (the viewer loads from a CDN). Authenticate with the session cookie (web app)
 or `Authorization: Bearer <token>`, using a token created in **Settings → API tokens**.
 
 | Endpoint | Purpose |

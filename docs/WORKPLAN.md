@@ -175,7 +175,7 @@ Legend: **Deliverables** = what exists afterwards · **Tests** = what must be co
     `Secure` flag over HTTP vs HTTPS (proxied), admin-only routes.
   - Done when: `curl` with a bearer token and the browser with a cookie both reach `/api/v1/me`.
 
-- [~] **1.5 Projects and tasks API** (MVP: utoipa OpenAPI not yet; API table in README)
+- [x] **1.5 Projects and tasks API** (OpenAPI 3.1 via utoipa at `/api/v1/openapi.json`, viewer at `/api/docs`)
   - Deliverables: projects CRUD and archive; tasks CRUD, complete/reopen, move between
     projects, reorder (fractional index), inbox (`project_id IS NULL`), list filters;
     `GET /changes?since=`; utoipa OpenAPI; ts-rs type generation script.

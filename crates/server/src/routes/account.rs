@@ -6,8 +6,7 @@ use axum::{
     http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Response},
 };
-use serde::Deserialize;
-use serde_json::json;
+use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 
 use crate::{
@@ -19,20 +18,34 @@ use crate::{
     util::{new_id, now, random_token, sha256_hex},
 };
 
-#[derive(Deserialize)]
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct SetupStatus {
+    pub needs_setup: bool,
+}
+
+/// A new API token. `token` is only ever shown here.
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct CreatedToken {
+    pub token: String,
+    pub info: ApiToken,
+}
+
+#[derive(Deserialize, utoipa::ToSchema)]
 pub struct Credentials {
     username: String,
     password: String,
     display_name: Option<String>,
 }
 
-pub async fn setup_status(State(state): State<AppState>) -> ApiResult<Json<serde_json::Value>> {
-    Ok(Json(
-        json!({ "needs_setup": auth::user_count(&state).await? == 0 }),
-    ))
+#[utoipa::path(get, path = "/setup", tag = "account", summary = "Whether first-run setup is needed", responses((status = 200, body = SetupStatus), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
+pub async fn setup_status(State(state): State<AppState>) -> ApiResult<Json<SetupStatus>> {
+    Ok(Json(SetupStatus {
+        needs_setup: auth::user_count(&state).await? == 0,
+    }))
 }
 
 /// Create the first (admin) account. Only possible while there are no users.
+#[utoipa::path(post, path = "/setup", tag = "account", summary = "Create the first admin account and sign in", request_body = Credentials, responses((status = 200, body = Me), (status = 403, description = "Setup already done", body = crate::error::Problem), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
 pub async fn setup(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -62,6 +75,7 @@ async fn login_response(state: &AppState, headers: &HeaderMap, user: &User) -> A
     Ok(([(header::SET_COOKIE, cookie)], Json(Me::from(user))).into_response())
 }
 
+#[utoipa::path(post, path = "/auth/login", tag = "account", summary = "Sign in (sets the session cookie)", request_body = Credentials, responses((status = 200, body = Me), (status = 429, description = "Too many failed attempts", body = crate::error::Problem), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
 pub async fn login(
     State(state): State<AppState>,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
@@ -92,6 +106,7 @@ pub async fn login(
     }
 }
 
+#[utoipa::path(post, path = "/auth/logout", tag = "account", summary = "Sign out this session", responses((status = 204, description = "Done"), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
 pub async fn logout(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -110,11 +125,12 @@ pub async fn logout(
         .into_response())
 }
 
+#[utoipa::path(get, path = "/me", tag = "account", summary = "The signed-in user", responses((status = 200, body = Me), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
 pub async fn me(user: AuthUser) -> Json<Me> {
     Json(Me::from(&user.user))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::ToSchema)]
 pub struct PatchMe {
     display_name: Option<String>,
     timezone: Option<String>,
@@ -123,6 +139,7 @@ pub struct PatchMe {
     week_start: Option<i32>,
 }
 
+#[utoipa::path(patch, path = "/me", tag = "account", summary = "Update profile and preferences", request_body = PatchMe, responses((status = 200, body = Me), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
 pub async fn patch_me(
     State(state): State<AppState>,
     user: AuthUser,
@@ -188,12 +205,13 @@ pub async fn patch_me(
     Ok(Json(me))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::ToSchema)]
 pub struct ChangePassword {
     current_password: String,
     new_password: String,
 }
 
+#[utoipa::path(post, path = "/me/password", tag = "account", summary = "Change password (signs out other sessions)", request_body = ChangePassword, responses((status = 204, description = "Done"), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
 pub async fn change_password(
     State(state): State<AppState>,
     user: AuthUser,
@@ -224,6 +242,7 @@ pub async fn change_password(
 
 // ---- API tokens ---------------------------------------------------------------
 
+#[utoipa::path(get, path = "/tokens", tag = "account", summary = "List API tokens", responses((status = 200, body = Vec<ApiToken>), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
 pub async fn list_tokens(
     State(state): State<AppState>,
     user: AuthUser,
@@ -237,17 +256,18 @@ pub async fn list_tokens(
     Ok(Json(rows))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::ToSchema)]
 pub struct CreateToken {
     name: String,
 }
 
 /// Returns the plaintext token exactly once.
+#[utoipa::path(post, path = "/tokens", tag = "account", summary = "Create an API token (plaintext returned once)", request_body = CreateToken, responses((status = 200, body = CreatedToken), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
 pub async fn create_token(
     State(state): State<AppState>,
     user: AuthUser,
     Json(c): Json<CreateToken>,
-) -> ApiResult<Json<serde_json::Value>> {
+) -> ApiResult<Json<CreatedToken>> {
     let name = c.name.trim();
     if name.is_empty() || name.len() > 100 {
         return Err(bad("name must be 1-100 characters"));
@@ -265,11 +285,18 @@ pub async fn create_token(
     .bind(&ts)
     .execute(&state.db.write)
     .await?;
-    Ok(Json(
-        json!({ "token": token, "info": ApiToken { id, name: name.into(), created_at: ts, last_used_at: None } }),
-    ))
+    Ok(Json(CreatedToken {
+        token,
+        info: ApiToken {
+            id,
+            name: name.into(),
+            created_at: ts,
+            last_used_at: None,
+        },
+    }))
 }
 
+#[utoipa::path(delete, path = "/tokens/{id}", tag = "account", summary = "Revoke an API token", params(("id" = String, Path, description = "ULID")), responses((status = 204, description = "Done"), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
 pub async fn revoke_token(
     State(state): State<AppState>,
     user: AuthUser,
@@ -299,6 +326,7 @@ fn require_admin(user: &AuthUser) -> ApiResult<()> {
     }
 }
 
+#[utoipa::path(get, path = "/users", tag = "users", summary = "List users (admin)", responses((status = 200, body = Vec<Me>), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
 pub async fn list_users(State(state): State<AppState>, user: AuthUser) -> ApiResult<Json<Vec<Me>>> {
     require_admin(&user)?;
     let users: Vec<User> =
@@ -308,7 +336,7 @@ pub async fn list_users(State(state): State<AppState>, user: AuthUser) -> ApiRes
     Ok(Json(users.iter().map(Me::from).collect()))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::ToSchema)]
 pub struct CreateUser {
     username: String,
     password: String,
@@ -317,6 +345,7 @@ pub struct CreateUser {
     is_admin: bool,
 }
 
+#[utoipa::path(post, path = "/users", tag = "users", summary = "Create a user (admin)", request_body = CreateUser, responses((status = 200, body = Me), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
 pub async fn create_user(
     State(state): State<AppState>,
     user: AuthUser,
@@ -334,13 +363,14 @@ pub async fn create_user(
     Ok(Json(Me::from(&u)))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::ToSchema)]
 pub struct PatchUser {
     display_name: Option<String>,
     is_admin: Option<bool>,
     password: Option<String>,
 }
 
+#[utoipa::path(patch, path = "/users/{id}", tag = "users", summary = "Update a user (admin)", params(("id" = String, Path, description = "ULID")), request_body = PatchUser, responses((status = 200, body = Me), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
 pub async fn patch_user(
     State(state): State<AppState>,
     admin: AuthUser,
@@ -389,6 +419,7 @@ pub async fn patch_user(
     Ok(Json(Me::from(&u)))
 }
 
+#[utoipa::path(delete, path = "/users/{id}", tag = "users", summary = "Delete a user (admin)", params(("id" = String, Path, description = "ULID")), responses((status = 204, description = "Done"), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
 pub async fn delete_user(
     State(state): State<AppState>,
     admin: AuthUser,

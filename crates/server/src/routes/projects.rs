@@ -54,6 +54,7 @@ pub async fn load_visible(
     Ok(p)
 }
 
+#[utoipa::path(get, path = "/projects", tag = "projects", summary = "List projects", responses((status = 200, body = Vec<Project>), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
 pub async fn list(State(state): State<AppState>, user: AuthUser) -> ApiResult<Json<Vec<Project>>> {
     let rows = sqlx::query_as(&format!(
         "SELECT * FROM projects WHERE {} AND deleted_at IS NULL ORDER BY position",
@@ -116,7 +117,7 @@ async fn last_sibling_position(
     Ok(key_after(last.as_deref()))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::ToSchema)]
 pub struct CreateProject {
     id: Option<String>,
     name: String,
@@ -125,6 +126,7 @@ pub struct CreateProject {
     parent_id: Option<String>,
 }
 
+#[utoipa::path(post, path = "/projects", tag = "projects", summary = "Create a project (optionally inside another)", request_body = CreateProject, responses((status = 200, body = Project), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
 pub async fn create(
     State(state): State<AppState>,
     user: AuthUser,
@@ -179,7 +181,7 @@ pub async fn create(
     Ok(Json(p))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::ToSchema)]
 pub struct PatchProject {
     name: Option<String>,
     #[serde(default, deserialize_with = "double_option")]
@@ -192,6 +194,7 @@ pub struct PatchProject {
     parent_id: Option<Option<String>>,
 }
 
+#[utoipa::path(patch, path = "/projects/{id}", tag = "projects", summary = "Rename, recolour, reorder, archive or move a project", params(("id" = String, Path, description = "ULID")), request_body = PatchProject, responses((status = 200, body = Project), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
 pub async fn patch(
     State(state): State<AppState>,
     user: AuthUser,
@@ -258,6 +261,7 @@ pub async fn patch(
 
 /// Soft-deletes the project and all its subprojects, with their tasks and the
 /// tasks' day-plan entries.
+#[utoipa::path(delete, path = "/projects/{id}", tag = "projects", summary = "Delete a project with its subprojects and tasks", params(("id" = String, Path, description = "ULID")), responses((status = 204, description = "Done"), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
 pub async fn delete(
     State(state): State<AppState>,
     user: AuthUser,

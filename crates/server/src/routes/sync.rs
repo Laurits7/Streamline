@@ -26,12 +26,13 @@ use crate::{
 /// How far back a full sync reaches for finished tasks and past day entries.
 const HISTORY_DAYS: i64 = 30;
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct SyncQuery {
     since: Option<i64>,
 }
 
-#[derive(Serialize, TS)]
+#[derive(Serialize, TS, utoipa::ToSchema)]
 #[ts(export)]
 pub struct SyncResponse {
     #[ts(type = "number")]
@@ -45,6 +46,7 @@ pub struct SyncResponse {
     pub day_entries: Vec<DayEntry>,
 }
 
+#[utoipa::path(get, path = "/sync", tag = "sync", summary = "Everything visible to you, or only what changed after `since`", params(SyncQuery), responses((status = 200, body = SyncResponse), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
 pub async fn sync(
     State(state): State<AppState>,
     user: AuthUser,
@@ -109,12 +111,22 @@ pub async fn sync(
     }))
 }
 
-pub async fn today(user: AuthUser) -> Json<serde_json::Value> {
-    Json(
-        serde_json::json!({ "date": rollover::today_for(&user.user).format("%Y-%m-%d").to_string() }),
-    )
+#[utoipa::path(get, path = "/today", tag = "sync", summary = "Your current logical date", responses((status = 200, body = Today), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
+pub async fn today(user: AuthUser) -> Json<Today> {
+    Json(Today {
+        date: rollover::today_for(&user.user)
+            .format("%Y-%m-%d")
+            .to_string(),
+    })
 }
 
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct Today {
+    /// `YYYY-MM-DD`, taking timezone and day end into account.
+    pub date: String,
+}
+
+#[utoipa::path(get, path = "/task-types", tag = "sync", summary = "Task types (end-of-day behaviour)", responses((status = 200, body = Vec<TaskType>), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
 pub async fn task_types(
     State(state): State<AppState>,
     user: AuthUser,
@@ -130,6 +142,7 @@ pub async fn task_types(
 
 /// Server-sent events: `change` events carry `{rev, kind, data}`; a `resync` event
 /// means the client fell behind and should call `/sync?since=<last rev>`.
+#[utoipa::path(get, path = "/events", tag = "sync", summary = "Server-sent events: `change` ({rev, kind, data}), `resync`, `hello`", responses((status = 200, body = String, content_type = "text/event-stream"), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
 pub async fn events(
     State(state): State<AppState>,
     user: AuthUser,

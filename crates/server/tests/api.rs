@@ -571,3 +571,45 @@ async fn profile_preferences() {
         assert_eq!(s, StatusCode::BAD_REQUEST, "{bad}");
     }
 }
+
+#[tokio::test]
+async fn openapi_document_covers_the_api() {
+    let t = setup().await;
+    // Public: no auth needed to read the API description.
+    let (s, v, _) = t.req("GET", "/api/v1/openapi.json", None, None).await;
+    assert_eq!(s, StatusCode::OK);
+    assert!(v["openapi"].as_str().unwrap().starts_with("3."));
+    let paths = v["paths"].as_object().unwrap();
+    for p in [
+        "/setup",
+        "/auth/login",
+        "/me",
+        "/tokens",
+        "/users/{id}",
+        "/sync",
+        "/events",
+        "/today",
+        "/projects",
+        "/projects/{id}",
+        "/tasks",
+        "/tasks/{id}",
+        "/days/{date}",
+        "/days/{date}/entries",
+        "/day-entries/{id}",
+    ] {
+        assert!(paths.contains_key(p), "missing {p}");
+    }
+    let schemas = v["components"]["schemas"].as_object().unwrap();
+    for s in [
+        "Task",
+        "Project",
+        "DayEntry",
+        "SyncResponse",
+        "CreateTask",
+        "PatchProject",
+        "Problem",
+    ] {
+        assert!(schemas.contains_key(s), "missing schema {s}");
+    }
+    assert!(v["components"]["securitySchemes"]["bearer"].is_object());
+}

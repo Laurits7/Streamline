@@ -20,7 +20,7 @@ pub struct User {
 }
 
 /// The signed-in user as seen by themselves (and by admins in the user list).
-#[derive(Debug, Clone, Serialize, TS)]
+#[derive(Debug, Clone, Serialize, TS, utoipa::ToSchema)]
 #[ts(export)]
 pub struct Me {
     pub id: String,
@@ -50,7 +50,7 @@ impl From<&User> for Me {
     }
 }
 
-#[derive(Debug, Clone, Serialize, FromRow, TS)]
+#[derive(Debug, Clone, Serialize, FromRow, TS, utoipa::ToSchema)]
 #[ts(export)]
 pub struct TaskType {
     pub id: String,
@@ -67,7 +67,7 @@ pub struct TaskType {
     pub rev: i64,
 }
 
-#[derive(Debug, Clone, Serialize, FromRow, TS)]
+#[derive(Debug, Clone, Serialize, FromRow, TS, utoipa::ToSchema)]
 #[ts(export)]
 pub struct Project {
     pub id: String,
@@ -86,7 +86,7 @@ pub struct Project {
     pub rev: i64,
 }
 
-#[derive(Debug, Clone, Serialize, FromRow, TS)]
+#[derive(Debug, Clone, Serialize, FromRow, TS, utoipa::ToSchema)]
 #[ts(export)]
 pub struct Task {
     pub id: String,
@@ -97,6 +97,7 @@ pub struct Task {
     pub title: String,
     pub notes: String,
     #[ts(as = "TaskStatus")]
+    #[schema(value_type = TaskStatus)]
     pub status: String,
     pub position: String,
     pub due_date: Option<String>,
@@ -119,7 +120,7 @@ pub struct Task {
     pub rev: i64,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, TS)]
+#[derive(Debug, Clone, Copy, Serialize, TS, utoipa::ToSchema)]
 #[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum TaskStatus {
@@ -132,7 +133,7 @@ pub enum TaskStatus {
 
 pub const TASK_STATUSES: &[&str] = &["open", "done", "missed", "skipped", "wont_do"];
 
-#[derive(Debug, Clone, Serialize, FromRow, TS)]
+#[derive(Debug, Clone, Serialize, FromRow, TS, utoipa::ToSchema)]
 #[ts(export)]
 pub struct DayEntry {
     pub id: String,
@@ -149,7 +150,7 @@ pub struct DayEntry {
     pub rev: i64,
 }
 
-#[derive(Debug, Clone, Serialize, FromRow, TS)]
+#[derive(Debug, Clone, Serialize, FromRow, TS, utoipa::ToSchema)]
 #[ts(export)]
 pub struct ApiToken {
     pub id: String,

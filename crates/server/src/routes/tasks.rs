@@ -96,13 +96,15 @@ fn check_attrs(
     Ok(())
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct ListQuery {
     project_id: Option<String>,
     inbox: Option<bool>,
     status: Option<String>,
 }
 
+#[utoipa::path(get, path = "/tasks", tag = "tasks", summary = "List tasks", params(ListQuery), responses((status = 200, body = Vec<Task>), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
 pub async fn list(
     State(state): State<AppState>,
     user: AuthUser,
@@ -125,6 +127,7 @@ pub async fn list(
     Ok(Json(rows))
 }
 
+#[utoipa::path(get, path = "/tasks/{id}", tag = "tasks", summary = "Get a task", params(("id" = String, Path, description = "ULID")), responses((status = 200, body = Task), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
 pub async fn get_one(
     State(state): State<AppState>,
     user: AuthUser,
@@ -134,7 +137,7 @@ pub async fn get_one(
     Ok(Json(load_visible(&mut conn, &user, &id).await?))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::ToSchema)]
 pub struct CreateTask {
     id: Option<String>,
     title: String,
@@ -154,6 +157,7 @@ pub struct CreateTask {
     day_entry_id: Option<String>,
 }
 
+#[utoipa::path(post, path = "/tasks", tag = "tasks", summary = "Create a task (optionally planned into a day)", request_body = CreateTask, responses((status = 200, body = Task), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
 pub async fn create(
     State(state): State<AppState>,
     user: AuthUser,
@@ -261,7 +265,7 @@ pub async fn create(
     Ok(Json(t))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::ToSchema)]
 pub struct PatchTask {
     title: Option<String>,
     notes: Option<String>,
@@ -282,6 +286,7 @@ pub struct PatchTask {
     task_type_id: Option<String>,
 }
 
+#[utoipa::path(patch, path = "/tasks/{id}", tag = "tasks", summary = "Update a task; status done completes it", params(("id" = String, Path, description = "ULID")), request_body = PatchTask, responses((status = 200, body = Task), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
 pub async fn patch(
     State(state): State<AppState>,
     user: AuthUser,
@@ -362,6 +367,7 @@ pub async fn patch(
     Ok(Json(t))
 }
 
+#[utoipa::path(delete, path = "/tasks/{id}", tag = "tasks", summary = "Delete a task", params(("id" = String, Path, description = "ULID")), responses((status = 204, description = "Done"), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
 pub async fn delete(
     State(state): State<AppState>,
     user: AuthUser,

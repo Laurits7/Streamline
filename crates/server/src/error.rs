@@ -19,6 +19,16 @@ pub enum AppError {
 
 pub type ApiResult<T> = Result<T, AppError>;
 
+/// RFC 7807 problem details, the body of every error response (documentation only).
+#[derive(utoipa::ToSchema)]
+#[allow(dead_code)]
+pub struct Problem {
+    r#type: String,
+    title: String,
+    status: u16,
+    detail: Option<String>,
+}
+
 pub fn bad(msg: impl Into<String>) -> AppError {
     AppError::BadRequest(msg.into())
 }
