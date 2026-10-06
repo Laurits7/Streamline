@@ -542,7 +542,7 @@ Legend: **Deliverables** = what exists afterwards · **Tests** = what must be co
 - [ ] **7.6 GitHub integration**: import/link issues and PRs per project, mirror status.
 - [ ] **7.7 Calendar write-back**: `put_event` on the provider; write planned blocks as busy
       events to a dedicated calendar.
-- [ ] **7.8 Native app**: evaluate Tauri 2 reusing `web/`, with token auth and the
+- [ ] **7.8 Native app** *(on hold: owner prefers the web app, D-61)*: evaluate Tauri 2 reusing `web/`, with token auth and the
       change feed.
 
 ---

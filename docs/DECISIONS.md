@@ -142,6 +142,7 @@ Any of them can be revisited when the chunk that implements it starts.
   - **Sharing:** personal by default; a goal can be shared with a group like a top-level project (members see and edit it; unsharing removes it from their devices).
   - **Reviews:** weekly (default; the user's week start), monthly, or off. When due and there's an active goal, the Today view shows a banner. The review page lists active goals with progress and open milestones, takes a note per goal (stored with a progress snapshot, shown as history on the goal), and includes today's reflection. Finishing records the review date.
   - Weekly planning (§6.2d "later") is left for later.
+- **D-61 · 2026-10-06 · No native app for now** (owner): the installable web app (PWA, Phase 6) is the phone app; no App Store / native app (WORKPLAN 7.8) unless asked for later. Phase 6 must deliver Web Push that reaches a closed app (iOS 16.4+, added to the Home Screen, permission asked from a tap in Settings, HTTPS, outgoing access to the push service).
 
 ## Resource log
 
