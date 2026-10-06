@@ -1847,3 +1847,126 @@ async fn changing_how_often_mid_week_tops_up_this_week() {
         "{st}"
     );
 }
+
+#[tokio::test]
+async fn places() {
+    let t = setup().await;
+    let admin = t.admin().await;
+    let (s, cottage, _) = t
+        .req(
+            "POST",
+            "/api/v1/places",
+            Some(&admin),
+            Some(json!({"name": "Cottage", "lat": 58.38, "lon": 26.72, "radius_m": 300})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{cottage}");
+    let (_, town, _) = t
+        .req(
+            "POST",
+            "/api/v1/places",
+            Some(&admin),
+            Some(json!({"name": "Town"})),
+        )
+        .await;
+    let (cid, tid) = (
+        cottage["id"].as_str().unwrap().to_string(),
+        town["id"].as_str().unwrap().to_string(),
+    );
+    for bad in [
+        json!({"name": ""}),
+        json!({"name": "x", "lat": 10.0}),
+        json!({"name": "x", "lat": 95.0, "lon": 0.0}),
+        json!({"name": "x", "radius_m": 5}),
+    ] {
+        let (s, _, _) = t
+            .req("POST", "/api/v1/places", Some(&admin), Some(bad.clone()))
+            .await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "{bad}");
+    }
+
+    // A project's default place goes to new tasks in it; a task's own place wins.
+    let (_, p, _) = t
+        .req(
+            "POST",
+            "/api/v1/projects",
+            Some(&admin),
+            Some(json!({"name": "Cottage chores", "default_place_id": cid})),
+        )
+        .await;
+    let (_, a, _) = t
+        .req(
+            "POST",
+            "/api/v1/tasks",
+            Some(&admin),
+            Some(json!({"title": "Mow the lawn", "project_id": p["id"]})),
+        )
+        .await;
+    assert_eq!(a["place_id"], cid);
+    let (_, b, _) = t
+        .req(
+            "POST",
+            "/api/v1/tasks",
+            Some(&admin),
+            Some(json!({"title": "Buy garden hose", "project_id": p["id"], "place_id": tid})),
+        )
+        .await;
+    assert_eq!(b["place_id"], tid);
+    let (_, v, _) = t
+        .req(
+            "PATCH",
+            &format!("/api/v1/tasks/{}", a["id"].as_str().unwrap()),
+            Some(&admin),
+            Some(json!({"place_id": null})),
+        )
+        .await;
+    assert!(v["place_id"].is_null());
+    let (s, _, _) = t
+        .req(
+            "PATCH",
+            &format!("/api/v1/tasks/{}", a["id"].as_str().unwrap()),
+            Some(&admin),
+            Some(json!({"place_id": "nope"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+
+    // Routines give their place to each occurrence.
+    let (_, r, _) = t.req("POST", "/api/v1/series", Some(&admin), Some(json!({"title": "Water plants", "mode": "repeat", "rrule": "FREQ=DAILY", "place_id": cid}))).await;
+    let occ = occurrences(&t, &admin, r["id"].as_str().unwrap()).await;
+    assert!(!occ.is_empty() && occ.iter().all(|o| o["place_id"] == cid));
+
+    // Other users can't use my places.
+    let bob = t.user(&admin, "bob").await;
+    let (s, _, _) = t
+        .req(
+            "POST",
+            "/api/v1/tasks",
+            Some(&bob),
+            Some(json!({"title": "x", "place_id": cid})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+
+    // Deleting a place makes its tasks, projects and routines "anywhere".
+    let (s, _, _) = t
+        .req(
+            "DELETE",
+            &format!("/api/v1/places/{cid}"),
+            Some(&admin),
+            None,
+        )
+        .await;
+    assert_eq!(s, StatusCode::NO_CONTENT);
+    let (_, sync, _) = t.req("GET", "/api/v1/sync", Some(&admin), None).await;
+    assert_eq!(sync["places"].as_array().unwrap().len(), 1);
+    assert!(
+        sync["tasks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|x| x["place_id"] != cid)
+    );
+    assert!(sync["projects"][0]["default_place_id"].is_null());
+    assert!(sync["series"][0]["place_id"].is_null());
+}

@@ -19,7 +19,9 @@ use crate::{
     auth::AuthUser,
     db::current_rev,
     error::ApiResult,
-    models::{DayEntry, DayPlan, FocusSession, FocusTimer, Me, Project, Series, Task, TaskType},
+    models::{
+        DayEntry, DayPlan, FocusSession, FocusTimer, Me, Place, Project, Series, Task, TaskType,
+    },
     rollover,
 };
 
@@ -48,6 +50,7 @@ pub struct SyncResponse {
     pub focus_timer: FocusTimer,
     pub focus_sessions: Vec<FocusSession>,
     pub series: Vec<Series>,
+    pub places: Vec<Place>,
     /// The server's clock (Unix ms), so clients can correct for clock differences.
     #[ts(type = "number")]
     pub server_now: i64,
@@ -129,6 +132,13 @@ pub async fn sync(
     .fetch_all(db)
     .await?;
     let focus_timer = crate::routes::focus::current(&state, user.id()).await?;
+    let places = sqlx::query_as(
+        "SELECT * FROM places WHERE owner_user_id = ?1 AND (?2 = 0 AND deleted_at IS NULL OR ?2 > 0 AND rev > ?2)",
+    )
+    .bind(user.id())
+    .bind(since)
+    .fetch_all(db)
+    .await?;
     let series = sqlx::query_as(
         "SELECT * FROM series WHERE owner_user_id = ?1 AND (?2 = 0 AND deleted_at IS NULL OR ?2 > 0 AND rev > ?2)",
     )
@@ -150,6 +160,7 @@ pub async fn sync(
         focus_timer,
         focus_sessions,
         series,
+        places,
         server_now: chrono::Utc::now().timestamp_millis(),
     }))
 }

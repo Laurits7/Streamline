@@ -25,7 +25,7 @@
         (scope.kind === 'inbox'
           ? t.project_id === null
           : (t.project_id !== null && ids!.has(t.project_id)) || t.also_project_ids.some((p) => ids!.has(p)))
-      return inScope && !store.isUpcoming(t) && (t.status === 'open' || (t.status === 'done' && (t.completed_at ?? '') >= since))
+      return inScope && !store.isUpcoming(t) && store.atCurrentPlace(t) && (t.status === 'open' || (t.status === 'done' && (t.completed_at ?? '') >= since))
     })
   })
 

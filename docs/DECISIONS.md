@@ -90,6 +90,11 @@ Any of them can be revisited when the chunk that implements it starts.
 
     Shown on the day view (open by default for past days) and in the planner's Review step, with "Copy as text". Groundwork for the Phase 5b daily summary.
 - **D-49 · 2026-10-06 · Routine versions** (owner chose option A): a schedule change links the new routine to the one it replaced (`series.split_from`). For "N per week/month" routines the new version starts at once, and in its first window creates only the slots still missing: wanted minus those already done under earlier versions. Example: twice → three times with one done gives two new slots, shown as "1 of 3". Window progress, streaks and the client's "x/y this week" count across all versions of a routine, so streaks also survive schedule changes.
+- **D-50 · 2026-10-06 · Places implementation** (2b.6a):
+  - **Data:** a `places` table (name, optional lat/lon, radius 20 m–50 km). `tasks.place_id`, `projects.default_place_id` (given to new tasks in the project; the task's own place wins) and `series.place_id` (copied to each occurrence). Deleting a place makes its tasks, projects and routines "anywhere".
+  - **Current place:** stored per device in localStorage, as is the GPS switch, since location and permission are per device and browser. It is never sent to the server.
+  - **GPS:** uses `watchPosition`; a place matches if the position is within its radius plus the fix's accuracy (capped at 500 m), closest first. On plain HTTP, or if permission is denied, the GPS switch turns itself off with a message.
+  - **Filtering:** the ready stack (pull-in, planner) and All tasks / board / matrix show tasks without a place or at the current place, with a "N at other places hidden · show all" note. Project pages and day plans stay unfiltered.
 
 ## Resource log
 

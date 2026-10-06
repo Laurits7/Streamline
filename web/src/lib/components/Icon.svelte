@@ -31,6 +31,7 @@
     pause: 'M6 4h4v16H6zM14 4h4v16h-4z',
     skip: 'm5 4 10 8-10 8V4ZM19 5v14',
     stop: 'M6 6h12v12H6z',
+    pin: 'M12 22s7-6.2 7-12a7 7 0 1 0-14 0c0 5.8 7 12 7 12ZM12 13a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z',
     list: 'M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01',
   }
   let { name, size = 18, label }: { name: string; size?: number; label?: string } = $props()

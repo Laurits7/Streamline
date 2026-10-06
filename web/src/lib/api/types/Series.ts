@@ -29,6 +29,10 @@ start_time: string | null, duration_min: number | null,
  */
 times_per_window: number | null, window: 'week' | 'month' | null, task_type_id: string, estimate_min: number | null, difficulty: number | null, importance: number | null, urgency: number | null, 
 /**
+ * Place given to each occurrence.
+ */
+place_id: string | null, 
+/**
  * The routine this one replaced when its schedule changed (progress and streaks
  * continue across versions).
  */

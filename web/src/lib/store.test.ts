@@ -39,6 +39,7 @@ const task = (id: string, extra: Partial<Task> = {}): Task => ({
   ext_source: null,
   ext_id: null,
   ext_url: null,
+  place_id: null,
   also_project_ids: [],
   series_id: null,
   occurrence_key: null,
@@ -60,6 +61,7 @@ const project = (id: string, extra: Partial<Project> = {}): Project => ({
   color: null,
   position: 'V',
   archived_at: null,
+  default_place_id: null,
   created_at: TS,
   updated_at: TS,
   deleted_at: null,
@@ -106,7 +108,7 @@ function mockApi(handler: Handler) {
 function syncResponse(data: Partial<SyncResponse> = {}): SyncResponse {
   return { rev: 10, full: true, me: ME, today: '2026-10-06', task_types: [], projects: [], tasks: [], day_entries: [], day_plans: [],
     focus_timer: { task_id: null, phase: 'idle', running_since_ms: null, elapsed_ms: 0, length_min: 0, cycle_done: 0, rev: 0 },
-    focus_sessions: [], series: [], server_now: Date.now(), ...data }
+    focus_sessions: [], series: [], places: [], server_now: Date.now(), ...data }
 }
 
 /** Load the store with a full sync of the given data. */
@@ -310,7 +312,7 @@ describe('routine versions', () => {
       id, owner_user_id: 'U1', owner_group_id: null, project_id: null, title: 'Laundry', notes: '', mode: 'flexible' as const,
       rrule: null, dtstart: '2026-10-05', until: null, start_time: null, duration_min: null, times_per_window: 2,
       window: 'week' as const, task_type_id: 'tt_window', estimate_min: null, difficulty: null, importance: null, urgency: null,
-      split_from, created_at: TS, updated_at: TS, deleted_at: null, rev: 1,
+      split_from, place_id: null, created_at: TS, updated_at: TS, deleted_at: null, rev: 1,
     })
     const slot = (id: string, sid: string, status: Task['status']) =>
       task(id, { series_id: sid, occurrence_key: `2026-10-05#${id}`, occurrence_date: '2026-10-05', window_end: '2026-10-11', status })

@@ -124,6 +124,7 @@ pub struct CreateProject {
     color: Option<String>,
     position: Option<String>,
     parent_id: Option<String>,
+    default_place_id: Option<String>,
 }
 
 #[utoipa::path(post, path = "/projects", tag = "projects", summary = "Create a project (optionally inside another)", request_body = CreateProject, responses((status = 200, body = Project), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
@@ -160,6 +161,7 @@ pub async fn create(
         Some(p) => p,
         None => last_sibling_position(&mut tx, &user, &c.parent_id).await?,
     };
+    crate::routes::places::check_place(&mut tx, &user, &c.default_place_id).await?;
     let ts = now();
     let p = Project {
         id,
@@ -170,6 +172,7 @@ pub async fn create(
         color,
         position,
         archived_at: None,
+        default_place_id: c.default_place_id,
         created_at: ts.clone(),
         updated_at: ts,
         deleted_at: None,
@@ -192,6 +195,9 @@ pub struct PatchProject {
     /// Move under another project (`null` = top level).
     #[serde(default, deserialize_with = "double_option")]
     parent_id: Option<Option<String>>,
+    /// Place given to new tasks in this project.
+    #[serde(default, deserialize_with = "double_option")]
+    default_place_id: Option<Option<String>>,
 }
 
 #[utoipa::path(patch, path = "/projects/{id}", tag = "projects", summary = "Rename, recolour, reorder, archive or move a project", params(("id" = String, Path, description = "ULID")), request_body = PatchProject, responses((status = 200, body = Project), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
@@ -224,6 +230,10 @@ pub async fn patch(
     if let Some(pos) = c.position {
         check_position(&pos)?;
         p.position = pos;
+    }
+    if let Some(v) = c.default_place_id {
+        crate::routes::places::check_place(&mut tx, &user, &v).await?;
+        p.default_place_id = v;
     }
     let rev = next_rev(&mut tx).await?;
     let ts = now();

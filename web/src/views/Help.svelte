@@ -15,6 +15,7 @@
     ['dayend', 'What happens at the end of the day'],
     ['projects', 'Projects and the inbox'],
     ['devices', 'Phones, tablets and sync'],
+    ['places', 'Places'],
     ['account', 'Account, users and API tokens'],
     ['soon', 'Coming later'],
   ]
@@ -233,6 +234,24 @@
     <p>
       If you're offline, a change you make is rejected with a message and undone. Full offline use is planned for
       later.
+    </p>
+  </section>
+
+  <section id="places">
+    <h2><Icon name="pin" size={18} /> Places</h2>
+    <p>
+      Give tasks a place where they have to be done (Home, Cottage, Town, Office…). Create places in
+      <a href="/settings">Settings</a>; a project can give new tasks a default place, and routines a place for each
+      occurrence. A task's place can differ from its project's: “buy a garden hose” for the cottage is done in town.
+    </p>
+    <p>
+      Choose where you are with the 📍 switcher (sidebar, or next to the date on a phone). The ready stack, planner,
+      All tasks, board and matrix then show only what can be done there, plus tasks without a place. Project pages and
+      your day plan always show everything.
+    </p>
+    <p>
+      Prefer it automatic? Save a location for your places and turn on <em>Detect my place by GPS</em> in Settings.
+      Browsers only allow this over HTTPS; on a plain <code>http://</code> address you pick the place by hand.
     </p>
   </section>
 

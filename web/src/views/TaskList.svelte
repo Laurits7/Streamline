@@ -105,6 +105,20 @@
                 {/each}
               </select>
             </label>
+            {#if store.places.size}
+              <label class="move">
+                <span>Default place for new tasks</span>
+                <select
+                  value={project.default_place_id ?? ''}
+                  onchange={(e) => {
+                    store.updateProject(projectId!, { default_place_id: (e.currentTarget as HTMLSelectElement).value || null })
+                    menu = false
+                  }}>
+                  <option value="">Anywhere</option>
+                  {#each store.placeList() as p (p.id)}<option value={p.id}>{p.name}</option>{/each}
+                </select>
+              </label>
+            {/if}
             <button role="menuitem" onclick={archive}><Icon name="archive" size={16} /> {project.archived_at ? 'Unarchive' : 'Archive'}</button>
             <button role="menuitem" class="danger" onclick={remove}><Icon name="trash" size={16} /> Delete</button>
           </div>

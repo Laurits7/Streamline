@@ -22,11 +22,19 @@
     return out
   })
   const planned = $derived(store.dayEntries(date).length)
+  const elsewhere = $derived(
+    store.currentPlace
+      ? [...store.tasks.values()].filter((t) => t.status === 'open' && !store.atCurrentPlace(t)).length
+      : 0,
+  )
 </script>
 
 <Sheet title="Pull into {shortDate(date, store.today)}" onclose={() => (ui.pullFor = null)}>
   <input type="text" bind:value={q} placeholder="Search tasks…" aria-label="Search tasks" />
-  <p class="muted count">{planned} planned for {shortDate(date, store.today).toLowerCase()}</p>
+  <p class="muted count">
+    {planned} planned for {shortDate(date, store.today).toLowerCase()}
+    {#if elsewhere}· {elsewhere} at other places hidden{/if}
+  </p>
   {#each groups as g (g.name)}
     <h3><i style:background={g.color ?? 'var(--faint)'}></i>{g.name}</h3>
     <div class="card list">

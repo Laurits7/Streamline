@@ -22,6 +22,7 @@
   let times = $state(existing?.times_per_window ?? 2)
   let window = $state<'week' | 'month'>((existing?.window as 'week' | 'month') ?? 'week')
   let projectId = $state(existing?.project_id ?? '')
+  let placeId = $state(existing?.place_id ?? '')
   let typeId = $state(existing?.task_type_id ?? '')
   let estimate = $state<number | null>(existing?.estimate_min ?? null)
   let difficulty = $state<number | null>(existing?.difficulty ?? null)
@@ -84,6 +85,7 @@
       times_per_window: mode === 'flexible' ? times : null,
       window: mode === 'flexible' ? window : null,
       project_id: projectId || null,
+      place_id: placeId || null,
       task_type_id: effectiveType,
       estimate_min: estimate,
       difficulty,
@@ -201,6 +203,16 @@
       {#each projects as { project: p, depth } (p.id)}<option value={p.id}>{'   '.repeat(depth)}{p.name}</option>{/each}
     </select>
   </section>
+
+  {#if store.places.size}
+    <section>
+      <h3>Place</h3>
+      <select bind:value={placeId}>
+        <option value="">Anywhere</option>
+        {#each store.placeList() as p (p.id)}<option value={p.id}>{p.name}</option>{/each}
+      </select>
+    </section>
+  {/if}
 
   <section>
     <h3>If not done in time</h3>

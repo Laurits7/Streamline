@@ -76,6 +76,9 @@
           <i style:background={project.color ?? 'var(--faint)'}></i>{project.name}{task.also_project_ids.length ? ` +${task.also_project_ids.length}` : ''}
         </span>
       {/if}
+      {#if task.place_id && store.places.get(task.place_id)}
+        <span class="placechip" class:here={task.place_id === store.currentPlace}><Icon name="pin" size={12} />{store.places.get(task.place_id)?.name}</span>
+      {/if}
       {#if task.due_date}<span class:overdue><Icon name="calendar" size={12} />{shortDate(task.due_date, store.today)}</span>{/if}
       {#if task.estimate_min}<span><Icon name="clock" size={12} />{fmtMinutes(task.estimate_min)}</span>{/if}
       {#if task.difficulty}<span class="diff" title="Difficulty">{'●'.repeat(task.difficulty)}{'○'.repeat(3 - task.difficulty)}</span>{/if}
@@ -177,6 +180,10 @@
     height: 8px;
     border-radius: 50%;
     display: inline-block;
+  }
+  .placechip.here {
+    color: var(--accent);
+    font-weight: 600;
   }
   .overdue {
     color: var(--danger);

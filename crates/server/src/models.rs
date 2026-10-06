@@ -128,6 +128,8 @@ pub struct Project {
     pub color: Option<String>,
     pub position: String,
     pub archived_at: Option<String>,
+    /// Place given to new tasks created in this project.
+    pub default_place_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
     pub deleted_at: Option<String>,
@@ -164,6 +166,8 @@ pub struct Task {
     pub ext_source: Option<String>,
     pub ext_id: Option<String>,
     pub ext_url: Option<String>,
+    /// Where the task has to be done; `null` = anywhere.
+    pub place_id: Option<String>,
     /// Other projects the task is also listed in (besides its main `project_id`).
     #[ts(type = "Array<string>")]
     #[schema(value_type = Vec<String>)]
@@ -213,6 +217,40 @@ pub struct DayEntry {
     pub rev: i64,
 }
 
+/// Somewhere tasks are done (SPEC §6.16). Coordinates are optional (for GPS detection).
+#[derive(Debug, Clone, Serialize, FromRow, TS, utoipa::ToSchema)]
+#[ts(export)]
+pub struct Place {
+    pub id: String,
+    pub owner_user_id: Option<String>,
+    pub owner_group_id: Option<String>,
+    pub name: String,
+    pub lat: Option<f64>,
+    pub lon: Option<f64>,
+    /// How close (metres) counts as being there.
+    pub radius_m: i32,
+    pub position: String,
+    pub created_at: String,
+    pub updated_at: String,
+    pub deleted_at: Option<String>,
+    #[ts(type = "number")]
+    pub rev: i64,
+}
+
+pub async fn upsert_place(conn: &mut SqliteConnection, p: &Place) -> sqlx::Result<()> {
+    sqlx::query(
+        "INSERT INTO places (id, owner_user_id, owner_group_id, name, lat, lon, radius_m, position, created_at, updated_at, deleted_at, rev)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+         ON CONFLICT(id) DO UPDATE SET name=excluded.name, lat=excluded.lat, lon=excluded.lon, radius_m=excluded.radius_m,
+           position=excluded.position, updated_at=excluded.updated_at, deleted_at=excluded.deleted_at, rev=excluded.rev",
+    )
+    .bind(&p.id).bind(&p.owner_user_id).bind(&p.owner_group_id).bind(&p.name).bind(p.lat).bind(p.lon)
+    .bind(p.radius_m).bind(&p.position).bind(&p.created_at).bind(&p.updated_at).bind(&p.deleted_at).bind(p.rev)
+    .execute(conn)
+    .await
+    .map(|_| ())
+}
+
 /// A routine: a template that spawns one task per occurrence (SPEC §6.3).
 #[derive(Debug, Clone, Serialize, FromRow, TS, utoipa::ToSchema)]
 #[ts(export)]
@@ -244,6 +282,8 @@ pub struct Series {
     pub difficulty: Option<i32>,
     pub importance: Option<i32>,
     pub urgency: Option<i32>,
+    /// Place given to each occurrence.
+    pub place_id: Option<String>,
     #[serde(skip)]
     #[ts(skip)]
     pub materialized_through: Option<String>,
@@ -330,14 +370,15 @@ pub struct ApiToken {
 
 pub async fn upsert_project(conn: &mut SqliteConnection, p: &Project) -> sqlx::Result<()> {
     sqlx::query(
-        "INSERT INTO projects (id, owner_user_id, owner_group_id, parent_id, name, color, position, archived_at, created_at, updated_at, deleted_at, rev)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+        "INSERT INTO projects (id, owner_user_id, owner_group_id, parent_id, name, color, position, archived_at, default_place_id, created_at, updated_at, deleted_at, rev)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
          ON CONFLICT(id) DO UPDATE SET owner_user_id=excluded.owner_user_id, owner_group_id=excluded.owner_group_id,
            parent_id=excluded.parent_id, name=excluded.name, color=excluded.color, position=excluded.position, archived_at=excluded.archived_at,
+           default_place_id=excluded.default_place_id,
            updated_at=excluded.updated_at, deleted_at=excluded.deleted_at, rev=excluded.rev",
     )
     .bind(&p.id).bind(&p.owner_user_id).bind(&p.owner_group_id).bind(&p.parent_id).bind(&p.name).bind(&p.color)
-    .bind(&p.position).bind(&p.archived_at).bind(&p.created_at).bind(&p.updated_at).bind(&p.deleted_at).bind(p.rev)
+    .bind(&p.position).bind(&p.archived_at).bind(&p.default_place_id).bind(&p.created_at).bind(&p.updated_at).bind(&p.deleted_at).bind(p.rev)
     .execute(conn)
     .await
     .map(|_| ())
@@ -347,9 +388,9 @@ pub async fn upsert_task(conn: &mut SqliteConnection, t: &Task) -> sqlx::Result<
     sqlx::query(
         "INSERT INTO tasks (id, owner_user_id, owner_group_id, assignee_user_id, project_id, title, notes, status, position,
            due_date, estimate_min, difficulty, importance, urgency, actual_min, task_type_id, carry_count, started_at, completed_at,
-           completed_by, ext_source, ext_id, ext_url, also_project_ids, series_id, occurrence_key, occurrence_date, window_end,
+           completed_by, ext_source, ext_id, ext_url, place_id, also_project_ids, series_id, occurrence_key, occurrence_date, window_end,
            created_at, updated_at, deleted_at, rev)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
          ON CONFLICT(id) DO UPDATE SET owner_user_id=excluded.owner_user_id, owner_group_id=excluded.owner_group_id,
            assignee_user_id=excluded.assignee_user_id, project_id=excluded.project_id, title=excluded.title,
            notes=excluded.notes, status=excluded.status, position=excluded.position, due_date=excluded.due_date,
@@ -357,7 +398,7 @@ pub async fn upsert_task(conn: &mut SqliteConnection, t: &Task) -> sqlx::Result<
            urgency=excluded.urgency, actual_min=excluded.actual_min, task_type_id=excluded.task_type_id,
            carry_count=excluded.carry_count, started_at=excluded.started_at, completed_at=excluded.completed_at, completed_by=excluded.completed_by,
            ext_source=excluded.ext_source, ext_id=excluded.ext_id, ext_url=excluded.ext_url,
-           also_project_ids=excluded.also_project_ids,
+           also_project_ids=excluded.also_project_ids, place_id=excluded.place_id,
            occurrence_date=excluded.occurrence_date, window_end=excluded.window_end,
            updated_at=excluded.updated_at, deleted_at=excluded.deleted_at, rev=excluded.rev",
     )
@@ -365,7 +406,7 @@ pub async fn upsert_task(conn: &mut SqliteConnection, t: &Task) -> sqlx::Result<
     .bind(&t.title).bind(&t.notes).bind(&t.status).bind(&t.position).bind(&t.due_date).bind(t.estimate_min)
     .bind(t.difficulty).bind(t.importance).bind(t.urgency).bind(t.actual_min).bind(&t.task_type_id)
     .bind(t.carry_count).bind(&t.started_at).bind(&t.completed_at).bind(&t.completed_by).bind(&t.ext_source).bind(&t.ext_id)
-    .bind(&t.ext_url).bind(&t.also_project_ids).bind(&t.series_id).bind(&t.occurrence_key).bind(&t.occurrence_date).bind(&t.window_end)
+    .bind(&t.ext_url).bind(&t.place_id).bind(&t.also_project_ids).bind(&t.series_id).bind(&t.occurrence_key).bind(&t.occurrence_date).bind(&t.window_end)
     .bind(&t.created_at).bind(&t.updated_at).bind(&t.deleted_at).bind(t.rev)
     .execute(conn)
     .await
@@ -390,20 +431,21 @@ pub async fn upsert_series(conn: &mut SqliteConnection, s: &Series) -> sqlx::Res
     sqlx::query(
         "INSERT INTO series (id, owner_user_id, owner_group_id, project_id, title, notes, mode, rrule, dtstart, until,
            start_time, duration_min, times_per_window, window, task_type_id, estimate_min, difficulty, importance, urgency,
-           materialized_through, split_from, created_at, updated_at, deleted_at, rev)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+           materialized_through, split_from, place_id, created_at, updated_at, deleted_at, rev)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
          ON CONFLICT(id) DO UPDATE SET project_id=excluded.project_id, title=excluded.title, notes=excluded.notes,
            mode=excluded.mode, rrule=excluded.rrule, dtstart=excluded.dtstart, until=excluded.until,
            start_time=excluded.start_time, duration_min=excluded.duration_min, times_per_window=excluded.times_per_window,
            window=excluded.window, task_type_id=excluded.task_type_id, estimate_min=excluded.estimate_min,
            difficulty=excluded.difficulty, importance=excluded.importance, urgency=excluded.urgency,
+           place_id=excluded.place_id,
            materialized_through=excluded.materialized_through, updated_at=excluded.updated_at,
            deleted_at=excluded.deleted_at, rev=excluded.rev",
     )
     .bind(&s.id).bind(&s.owner_user_id).bind(&s.owner_group_id).bind(&s.project_id).bind(&s.title).bind(&s.notes)
     .bind(&s.mode).bind(&s.rrule).bind(&s.dtstart).bind(&s.until).bind(&s.start_time).bind(s.duration_min)
     .bind(s.times_per_window).bind(&s.window).bind(&s.task_type_id).bind(s.estimate_min).bind(s.difficulty)
-    .bind(s.importance).bind(s.urgency).bind(&s.materialized_through).bind(&s.split_from).bind(&s.created_at).bind(&s.updated_at)
+    .bind(s.importance).bind(s.urgency).bind(&s.materialized_through).bind(&s.split_from).bind(&s.place_id).bind(&s.created_at).bind(&s.updated_at)
     .bind(&s.deleted_at).bind(s.rev)
     .execute(conn)
     .await

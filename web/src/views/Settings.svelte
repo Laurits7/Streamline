@@ -23,6 +23,18 @@
   const sample = $derived(
     new Date().toLocaleDateString(me.locale || undefined, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }),
   )
+  let newPlace = $state('')
+  const canLocate = typeof window !== 'undefined' && window.isSecureContext && 'geolocation' in navigator
+  function locate(id: string) {
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        store.updatePlace(id, { lat: pos.coords.latitude, lon: pos.coords.longitude })
+        toast('Location saved')
+      },
+      () => toast('Could not get your location', 'error'),
+      { enableHighAccuracy: true, timeout: 20_000 },
+    )
+  }
   const err = (e: unknown) => toast(e instanceof ApiError ? e.message : 'Something went wrong', 'error')
 
   // Password
@@ -208,6 +220,43 @@
 </section>
 
 <section class="card">
+  <h2>Places</h2>
+  <p class="help muted">
+    Where tasks are done (e.g. Home, Cottage, Town). Pick where you are with the 📍 switcher and lists show only what
+    can be done there (plus tasks without a place).
+  </p>
+  {#each store.placeList() as p (p.id)}
+    <div class="line">
+      <div>
+        <input class="place-name" type="text" value={p.name} onchange={(e) => store.updatePlace(p.id, { name: (e.currentTarget as HTMLInputElement).value })} aria-label="Place name" />
+        <div class="muted small">
+          {#if p.lat !== null}Location saved · within
+            <select class="radius" value={p.radius_m} onchange={(e) => store.updatePlace(p.id, { radius_m: Number((e.currentTarget as HTMLSelectElement).value) })}>
+              {#each [100, 200, 500, 1000, 3000] as r (r)}<option value={r}>{r < 1000 ? `${r} m` : `${r / 1000} km`}</option>{/each}
+            </select>
+          {:else}No location (GPS can't detect it){/if}
+        </div>
+      </div>
+      <div class="row">
+        {#if canLocate}<button class="btn small" onclick={() => locate(p.id)}>Use my location</button>{/if}
+        <button class="btn small danger" onclick={() => confirm(`Delete “${p.name}”? Its tasks become “anywhere”.`) && store.deletePlace(p.id)}>Delete</button>
+      </div>
+    </div>
+  {/each}
+  <form class="row" onsubmit={(e) => { e.preventDefault(); if (newPlace.trim()) { store.createPlace(newPlace.trim()); newPlace = '' } }}>
+    <input type="text" bind:value={newPlace} placeholder="New place, e.g. Cottage" />
+    <button class="btn" type="submit">Add</button>
+  </form>
+  <label class="check gps">
+    <input type="checkbox" checked={store.useGps} disabled={!canLocate} onchange={(e) => store.setUseGps((e.currentTarget as HTMLInputElement).checked)} />
+    Detect my place by GPS on this device
+  </label>
+  <p class="help muted">
+    {#if canLocate}Uses places with a saved location; your position stays on this device.{:else}Browsers only allow location access over HTTPS, so this is available when Streamline is opened through HTTPS (see the README).{/if}
+  </p>
+</section>
+
+<section class="card">
   <h2>Focus timer</h2>
   <div class="grid4">
     <label><span>Focus (min)</span><input type="number" min="1" max="180" value={me.focus_work_min} onchange={(e) => store.updateMe({ focus_work_min: Number((e.currentTarget as HTMLInputElement).value) })} /></label>
@@ -332,6 +381,19 @@
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
     gap: 0 12px;
+  }
+  .place-name {
+    padding: 4px 8px !important;
+    font-weight: 600;
+    max-width: 220px;
+  }
+  .radius {
+    width: auto !important;
+    padding: 0 4px !important;
+    font-size: 12px;
+  }
+  .gps {
+    margin-top: 12px;
   }
   .grid4 {
     display: grid;

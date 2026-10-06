@@ -4,4 +4,8 @@ export type Project = { id: string, owner_user_id: string | null, owner_group_id
 /**
  * Parent project for nested projects (`null` = top level).
  */
-parent_id: string | null, name: string, color: string | null, position: string, archived_at: string | null, created_at: string, updated_at: string, deleted_at: string | null, rev: number, };
+parent_id: string | null, name: string, color: string | null, position: string, archived_at: string | null, 
+/**
+ * Place given to new tasks created in this project.
+ */
+default_place_id: string | null, created_at: string, updated_at: string, deleted_at: string | null, rev: number, };

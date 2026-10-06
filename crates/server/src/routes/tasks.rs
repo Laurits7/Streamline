@@ -151,6 +151,8 @@ pub struct CreateTask {
     importance: Option<i32>,
     urgency: Option<i32>,
     task_type_id: Option<String>,
+    /// Where it has to be done; defaults to the project's default place.
+    place_id: Option<String>,
     /// Also plan the new task into this day (`YYYY-MM-DD`).
     day: Option<String>,
     /// Client-chosen id for that day entry.
@@ -192,6 +194,17 @@ pub async fn create(
     }
     check_project(&mut tx, &user, &c.project_id).await?;
     check_task_type(&mut tx, &user, &task_type_id).await?;
+    crate::routes::places::check_place(&mut tx, &user, &c.place_id).await?;
+    let place_id = match (&c.place_id, &c.project_id) {
+        (Some(p), _) => Some(p.clone()),
+        (None, Some(project)) => {
+            sqlx::query_scalar("SELECT default_place_id FROM projects WHERE id = ?")
+                .bind(project)
+                .fetch_one(&mut *tx)
+                .await?
+        }
+        (None, None) => None,
+    };
     let position = match c.position {
         Some(p) => p,
         None => {
@@ -231,6 +244,7 @@ pub async fn create(
         ext_source: None,
         ext_id: None,
         ext_url: None,
+        place_id,
         also_project_ids: sqlx::types::Json(vec![]),
         series_id: None,
         occurrence_key: None,
@@ -294,6 +308,9 @@ pub struct PatchTask {
     in_progress: Option<bool>,
     /// Other projects to also list the task in (replaces the current list).
     also_project_ids: Option<Vec<String>>,
+    /// Where it has to be done; `null` = anywhere.
+    #[serde(default, deserialize_with = "double_option")]
+    place_id: Option<Option<String>>,
 }
 
 /// Validate "also in" projects: visible, unique, not the main project, at most 10.
@@ -341,6 +358,10 @@ pub async fn patch(
         // Becoming the main project replaces an "also in" link to it.
         let main = t.project_id.clone();
         t.also_project_ids.0.retain(|p| Some(p) != main.as_ref());
+    }
+    if let Some(v) = c.place_id {
+        crate::routes::places::check_place(&mut tx, &user, &v).await?;
+        t.place_id = v;
     }
     if let Some(v) = c.also_project_ids {
         t.also_project_ids = sqlx::types::Json(check_also(&mut tx, &user, &t.project_id, v).await?);

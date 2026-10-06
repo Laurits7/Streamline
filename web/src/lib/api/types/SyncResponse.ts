@@ -4,12 +4,13 @@ import type { DayPlan } from "./DayPlan";
 import type { FocusSession } from "./FocusSession";
 import type { FocusTimer } from "./FocusTimer";
 import type { Me } from "./Me";
+import type { Place } from "./Place";
 import type { Project } from "./Project";
 import type { Series } from "./Series";
 import type { Task } from "./Task";
 import type { TaskType } from "./TaskType";
 
-export type SyncResponse = { rev: number, full: boolean, me: Me, today: string, task_types: Array<TaskType>, projects: Array<Project>, tasks: Array<Task>, day_entries: Array<DayEntry>, day_plans: Array<DayPlan>, focus_timer: FocusTimer, focus_sessions: Array<FocusSession>, series: Array<Series>, 
+export type SyncResponse = { rev: number, full: boolean, me: Me, today: string, task_types: Array<TaskType>, projects: Array<Project>, tasks: Array<Task>, day_entries: Array<DayEntry>, day_plans: Array<DayPlan>, focus_timer: FocusTimer, focus_sessions: Array<FocusSession>, series: Array<Series>, places: Array<Place>, 
 /**
  * The server's clock (Unix ms), so clients can correct for clock differences.
  */

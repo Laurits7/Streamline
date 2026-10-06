@@ -2,6 +2,7 @@ mod account;
 mod days;
 pub mod focus;
 mod log;
+pub mod places;
 mod projects;
 mod series;
 mod sync;
@@ -31,6 +32,7 @@ use crate::AppState;
         account::revoke_token, account::list_users, account::create_user, account::patch_user,
         account::delete_user,
         account::patch_prefs, focus::get_focus, focus::post_focus,
+        places::list, places::create, places::patch, places::delete,
         series::list, series::all_stats, series::create, series::patch, series::delete,
         sync::sync, sync::events, sync::today, sync::task_types,
         projects::list, projects::create, projects::patch, projects::delete,
@@ -46,6 +48,7 @@ use crate::AppState;
         (name = "days", description = "The day plan"),
         (name = "focus", description = "Focus (Pomodoro) timer"),
         (name = "routines", description = "Recurring tasks and routines"),
+        (name = "places", description = "Places where tasks are done"),
     )
 )]
 pub struct ApiDoc;
@@ -108,6 +111,8 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/me/prefs", patch(account::patch_prefs))
         .route("/focus", get(focus::get_focus).post(focus::post_focus))
+        .route("/places", get(places::list).post(places::create))
+        .route("/places/{id}", patch(places::patch).delete(places::delete))
         .route("/series", get(series::list).post(series::create))
         .route("/series/stats", get(series::all_stats))
         .route("/series/{id}", patch(series::patch).delete(series::delete))

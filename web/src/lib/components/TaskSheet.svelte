@@ -174,6 +174,16 @@
       </div>
     </section>
 
+    {#if store.places.size}
+      <section>
+        <h3><Icon name="pin" size={14} /> Place</h3>
+        <select value={task.place_id ?? ''} onchange={(e) => store.updateTask(id, { place_id: (e.currentTarget as HTMLSelectElement).value || null })}>
+          <option value="">Anywhere</option>
+          {#each store.placeList() as p (p.id)}<option value={p.id}>{p.name}</option>{/each}
+        </select>
+      </section>
+    {/if}
+
     <section>
       <h3>Due date</h3>
       <div class="row">

@@ -10,13 +10,15 @@
 
   let q = $state('')
   const match = (title: string) => !q.trim() || title.toLowerCase().includes(q.trim().toLowerCase())
+  const here = (t: { place_id: string | null }) => store.atCurrentPlace(t as Parameters<typeof store.atCurrentPlace>[0])
+  const hidden = $derived([...store.tasks.values()].filter((t) => t.status === 'open' && !store.isUpcoming(t) && !here(t)).length)
   const sections = $derived([
-    { id: null as string | null, name: 'Inbox', color: null as string | null, tasks: store.tasksIn(null).filter((t) => match(t.title)) },
+    { id: null as string | null, name: 'Inbox', color: null as string | null, tasks: store.tasksIn(null).filter((t) => match(t.title) && here(t)) },
     ...store.projectTree().map(({ project: p }) => ({
       id: p.id as string | null,
       name: store.projectPath(p.id),
       color: p.color,
-      tasks: store.tasksIn(p.id).filter((t) => match(t.title)),
+      tasks: store.tasksIn(p.id).filter((t) => match(t.title) && here(t)),
     })),
   ])
   const total = $derived(sections.reduce((n, s) => n + s.tasks.length, 0))
@@ -29,7 +31,10 @@
 
 <header class="head">
   <h1>All tasks</h1>
-  <p class="muted">{total} open</p>
+  <p class="muted">
+    {total} open
+    {#if hidden}· {hidden} at other places hidden <button class="link" onclick={() => store.setCurrentPlace('')}>show all</button>{/if}
+  </p>
 </header>
 
 <TaskViews scope={{ kind: 'all' }}>
@@ -70,6 +75,10 @@
   }
   .head p {
     margin: 2px 0 0;
+  }
+  .link {
+    color: var(--accent);
+    font-weight: 600;
   }
   .search {
     margin-top: 10px;

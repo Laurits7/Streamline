@@ -11,6 +11,7 @@ import type { FocusState } from './api/types/FocusState'
 import type { FocusTimer } from './api/types/FocusTimer'
 import type { Me } from './api/types/Me'
 import type { Notification } from './api/types/Notification'
+import type { Place } from './api/types/Place'
 import type { Project } from './api/types/Project'
 import type { Series } from './api/types/Series'
 import type { SyncResponse } from './api/types/SyncResponse'
@@ -20,8 +21,8 @@ import { keyAt, keyBetween } from './order'
 import { toast } from './toast.svelte'
 import { ulid } from './ulid'
 
-type Kind = 'task' | 'project' | 'day_entry' | 'day_plan' | 'focus_session' | 'series'
-type Entity = Task | Project | DayEntry | DayPlan | FocusSession | Series
+type Kind = 'task' | 'project' | 'day_entry' | 'day_plan' | 'focus_session' | 'series' | 'place'
+type Entity = Task | Project | DayEntry | DayPlan | FocusSession | Series | Place
 
 export type TaskPatch = Partial<
   Pick<
@@ -38,11 +39,26 @@ export type TaskPatch = Partial<
     | 'urgency'
     | 'task_type_id'
     | 'also_project_ids'
+    | 'place_id'
   >
 >
 export type EntryPatch = Partial<Pick<DayEntry, 'date' | 'position' | 'start_time' | 'duration_min'>>
 
 const now = () => new Date().toISOString()
+function readLocal(key: string, fallback: string): string {
+  try {
+    return localStorage.getItem(key) ?? fallback
+  } catch {
+    return fallback
+  }
+}
+function writeLocal(key: string, value: string) {
+  try {
+    localStorage.setItem(key, value)
+  } catch {
+    /* storage unavailable */
+  }
+}
 const IDLE_TIMER: FocusTimer = {
   task_id: null,
   phase: 'idle',
@@ -69,6 +85,11 @@ class Store {
   dayPlans = new SvelteMap<string, DayPlan>()
   focusSessions = new SvelteMap<string, FocusSession>()
   series = new SvelteMap<string, Series>()
+  places = new SvelteMap<string, Place>()
+  /** Where this device is ('' = anywhere/not set). Per device, like the GPS setting (D-45). */
+  currentPlace = $state(readLocal('sl.place', ''))
+  /** Use GPS to set the current place (per device; needs HTTPS and permission). */
+  useGps = $state(readLocal('sl.gps', '') === '1')
   focusTimer = $state<FocusTimer>(IDLE_TIMER)
   /** server clock - local clock (ms), from the last response that carried server_now. */
   clockOffset = 0
@@ -113,6 +134,7 @@ class Store {
     this.dayPlans.clear()
     this.focusSessions.clear()
     this.series.clear()
+    this.places.clear()
     this.focusTimer = IDLE_TIMER
   }
 
@@ -173,6 +195,7 @@ class Store {
       this.dayPlans.clear()
       this.focusSessions.clear()
       this.series.clear()
+      this.places.clear()
     }
     this.clockOffset = r.server_now - Date.now()
     if (r.focus_timer.rev >= this.focusTimer.rev) this.focusTimer = r.focus_timer
@@ -188,6 +211,7 @@ class Store {
     for (const p of r.day_plans) this.applyRemote('day_plan', p)
     for (const f of r.focus_sessions) this.applyRemote('focus_session', f)
     for (const x of r.series) this.applyRemote('series', x)
+    for (const x of r.places) this.applyRemote('place', x)
     this.rev = Math.max(this.rev, r.rev)
     this.ready = true
   }
@@ -208,7 +232,8 @@ class Store {
       else if (c.kind === 'focus_timer') {
         const t = c.data as FocusTimer
         if (t.rev >= this.focusTimer.rev) this.focusTimer = t
-      } else if (c.kind === 'focus_session' || c.kind === 'series') this.applyRemote(c.kind, c.data as Entity)
+      } else if (c.kind === 'focus_session' || c.kind === 'series' || c.kind === 'place')
+        this.applyRemote(c.kind, c.data as Entity)
       else if (c.kind === 'task' || c.kind === 'project' || c.kind === 'day_entry' || c.kind === 'day_plan')
         this.applyRemote(c.kind, c.data as Entity)
     })
@@ -236,6 +261,7 @@ class Store {
       day_plan: this.dayPlans,
       focus_session: this.focusSessions,
       series: this.series,
+      place: this.places,
     }
     return maps[kind] as SvelteMap<string, Entity>
   }
@@ -383,7 +409,7 @@ class Store {
   readyStack(date: string): Task[] {
     const plannedHere = new Set(this.dayEntries(date).map((e) => e.task_id))
     return [...this.tasks.values()]
-      .filter((t) => t.status === 'open' && !plannedHere.has(t.id) && !this.isUpcoming(t, date))
+      .filter((t) => t.status === 'open' && !plannedHere.has(t.id) && !this.isUpcoming(t, date) && this.atCurrentPlace(t))
       .sort(byPosition)
   }
 
@@ -422,6 +448,7 @@ class Store {
       ext_source: null,
       ext_id: null,
       ext_url: null,
+      place_id: input.place_id ?? (projectId ? (this.projects.get(projectId)?.default_place_id ?? null) : null),
       also_project_ids: [],
       series_id: null,
       occurrence_key: null,
@@ -461,6 +488,7 @@ class Store {
         const { day, ...rest } = input
         const t = await api.post<Task>('/tasks', {
           ...rest,
+          place_id: task.place_id,
           id,
           project_id: projectId,
           position: task.position,
@@ -534,6 +562,7 @@ class Store {
       color: parent?.color ?? null,
       position: keyBetween(this.childProjects(parentId, true).at(-1)?.position, null),
       archived_at: null,
+      default_place_id: null,
       created_at: ts,
       updated_at: ts,
       deleted_at: null,
@@ -551,7 +580,14 @@ class Store {
 
   updateProject(
     id: string,
-    patch: { name?: string; color?: string | null; position?: string; archived?: boolean; parent_id?: string | null },
+    patch: {
+      name?: string
+      color?: string | null
+      position?: string
+      archived?: boolean
+      parent_id?: string | null
+      default_place_id?: string | null
+    },
   ) {
     const cur = this.projects.get(id)
     if (!cur) return
@@ -861,6 +897,73 @@ class Store {
     } catch {
       if (this.me) this.me = { ...this.me, prefs: prev }
     }
+  }
+
+  // ---- places ----------------------------------------------------------------
+
+  placeList(): Place[] {
+    return [...this.places.values()].sort(byPosition)
+  }
+
+  /** Can the task be done where this device is? (No place set, or the task has none, or it matches.) */
+  atCurrentPlace(t: Task): boolean {
+    return !this.currentPlace || !t.place_id || t.place_id === this.currentPlace || !this.places.has(t.place_id)
+  }
+
+  setCurrentPlace(id: string) {
+    this.currentPlace = id
+    writeLocal('sl.place', id)
+  }
+
+  setUseGps(on: boolean) {
+    this.useGps = on
+    writeLocal('sl.gps', on ? '1' : '')
+  }
+
+  createPlace(name: string, coords?: { lat: number; lon: number }): string {
+    const id = ulid()
+    const ts = now()
+    const p: Place = {
+      id,
+      owner_user_id: this.me?.id ?? null,
+      owner_group_id: null,
+      name,
+      lat: coords?.lat ?? null,
+      lon: coords?.lon ?? null,
+      radius_m: 200,
+      position: keyBetween(this.placeList().at(-1)?.position, null),
+      created_at: ts,
+      updated_at: ts,
+      deleted_at: null,
+      rev: 0,
+    }
+    this.optimistic(
+      [['place', id]],
+      () => this.places.set(id, p),
+      async () => [['place', await api.post<Place>('/places', { id, name, lat: p.lat, lon: p.lon, radius_m: p.radius_m })]],
+    )
+    return id
+  }
+
+  updatePlace(id: string, patch: Partial<Pick<Place, 'name' | 'lat' | 'lon' | 'radius_m'>>) {
+    const cur = this.places.get(id)
+    if (!cur) return
+    this.optimistic(
+      [['place', id]],
+      () => this.places.set(id, { ...cur, ...patch, updated_at: now() }),
+      async () => [['place', await api.patch<Place>(`/places/${id}`, patch)]],
+    )
+  }
+
+  deletePlace(id: string) {
+    const cur = this.places.get(id)
+    if (!cur) return
+    if (this.currentPlace === id) this.setCurrentPlace('')
+    this.optimistic(
+      [['place', id]],
+      () => this.places.delete(id),
+      () => api.del(`/places/${id}`),
+    )
   }
 
   // ---- routines ------------------------------------------------------------

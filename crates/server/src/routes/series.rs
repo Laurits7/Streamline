@@ -110,9 +110,10 @@ async fn check(conn: &mut sqlx::SqliteConnection, user: &AuthUser, s: &Series) -
     )
     .bind(&s.task_type_id)
     .bind(user.id())
-    .fetch_optional(conn)
+    .fetch_optional(&mut *conn)
     .await?;
-    ok.map(|_| ()).ok_or_else(|| bad("unknown task type"))
+    ok.map(|_| ()).ok_or_else(|| bad("unknown task type"))?;
+    crate::routes::places::check_place(conn, user, &s.place_id).await
 }
 
 #[utoipa::path(get, path = "/series", tag = "routines", summary = "List routines", responses((status = 200, body = Vec<Series>), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
@@ -169,6 +170,7 @@ pub struct CreateSeries {
     difficulty: Option<i32>,
     importance: Option<i32>,
     urgency: Option<i32>,
+    place_id: Option<String>,
 }
 
 #[utoipa::path(post, path = "/series", tag = "routines", summary = "Create a routine (its occurrences appear up to tomorrow)", request_body = CreateSeries, responses((status = 200, body = Series), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
@@ -203,6 +205,7 @@ pub async fn create(
         difficulty: c.difficulty,
         importance: c.importance,
         urgency: c.urgency,
+        place_id: c.place_id,
         materialized_through: None,
         split_from: None,
         created_at: ts.clone(),
@@ -248,6 +251,8 @@ pub struct PatchSeries {
     importance: Option<Option<i32>>,
     #[serde(default, deserialize_with = "double_option")]
     urgency: Option<Option<i32>>,
+    #[serde(default, deserialize_with = "double_option")]
+    place_id: Option<Option<String>>,
     // Schedule: changing any of these splits the routine at `from`.
     mode: Option<String>,
     rrule: Option<String>,
@@ -341,6 +346,9 @@ pub async fn patch(
     }
     if let Some(v) = c.urgency {
         next.urgency = v;
+    }
+    if let Some(v) = c.place_id {
+        next.place_id = v;
     }
     let mut schedule_changed = false;
     if let Some(v) = c.mode.filter(|v| *v != old.mode) {
@@ -462,6 +470,7 @@ pub async fn patch(
             t.difficulty = next.difficulty;
             t.importance = next.importance;
             t.urgency = next.urgency;
+            t.place_id = next.place_id.clone();
             t.updated_at = ts.clone();
             t.rev = rev;
             upsert_task(&mut tx, &t).await?;

@@ -4,6 +4,7 @@
   import type { Task } from '../lib/api/types/Task'
   import Icon from '../lib/components/Icon.svelte'
   import PlanBanner from '../lib/components/PlanBanner.svelte'
+  import PlaceSwitcher from '../lib/components/PlaceSwitcher.svelte'
   import DayLog from '../lib/components/DayLog.svelte'
   import { dayLoad } from '../lib/planning'
   import QuickAdd from '../lib/components/QuickAdd.svelte'
@@ -114,6 +115,7 @@
           {/if}
         </p>
       </div>
+      <div class="mobile-place"><PlaceSwitcher compact /></div>
       <nav class="daynav" aria-label="Change day">
         <button class="icon-btn" onclick={() => go(addDays(date, -1))} aria-label="Previous day"><Icon name="left" /></button>
         {#if !isToday}<button class="btn small" onclick={() => go(store.today)}>Today</button>{/if}
@@ -255,6 +257,15 @@
   }
   .plan-chip.done {
     background: var(--accent-soft);
+  }
+  .mobile-place {
+    margin-left: auto;
+    min-width: 0;
+  }
+  @media (min-width: 900px) {
+    .mobile-place {
+      display: none;
+    }
   }
   .daynav {
     display: flex;

@@ -7,6 +7,10 @@ export type Task = { id: string, owner_user_id: string | null, owner_group_id: s
  */
 started_at: string | null, completed_at: string | null, completed_by: string | null, ext_source: string | null, ext_id: string | null, ext_url: string | null, 
 /**
+ * Where the task has to be done; `null` = anywhere.
+ */
+place_id: string | null, 
+/**
  * Other projects the task is also listed in (besides its main `project_id`).
  */
 also_project_ids: Array<string>, 

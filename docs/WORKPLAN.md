@@ -3,7 +3,8 @@
 > Companion to [`SPEC.md`](SPEC.md). Section numbers like §6.2c refer to the spec.
 > Status (2026-10-06): Part A and Part C **confirmed** (see `DECISIONS.md`). **Phases 1, 2, 2a, 2b
 > and 3 are complete**, plus the owner's follow-ups (orange unplanned banner, Done → To do on the board,
-> tasks in several projects, daily activity log; D-48). Next: 2b.6a Places, then Phase 3b.
+> tasks in several projects, daily activity log; D-48), routine versions (D-49) and 2b.6a Places (D-50).
+> Next: Phase 3b (prerequisites and workflows).
 > Legend: `[x]` done · `[~]` partly done (the remaining work is noted) · `[ ]` not started.
 
 ## MVP status (2026-10-06)
@@ -307,7 +308,7 @@ Legend: **Deliverables** = what exists afterwards · **Tests** = what must be co
 - [x] **2b.6 Focus view UI**: distraction-free page (title, notes, step context), large timer,
       start/pause/skip, sound + `navigator.vibrate` cue, a mini-timer pill visible on all
       pages, and done / snooze / next-planned-task actions.
-- [ ] **2b.6a Places** (SPEC §6.16, D-45): `places` per user/household (name, optional
+- [x] **2b.6a Places** (SPEC §6.16, D-45; done 2026-10-06, D-50): `places` per user/household (name, optional
       coordinates + radius); optional `place_id` on tasks with a per-project default for new
       tasks; place chip on rows; a "where am I" filter on the ready stack, pull-in sheet and
       views, picked manually, or detected by GPS when enabled in Settings and permitted by the
