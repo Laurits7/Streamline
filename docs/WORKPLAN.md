@@ -190,7 +190,7 @@ Legend: **Deliverables** = what exists afterwards · **Tests** = what must be co
   - Tests: subscriber receives own-user events and not other users' events; resume after
     reconnect.
 
-- [~] **1.7 Frontend shell** (MVP: vitest store tests and a CI bundle-size check still missing)
+- [x] **1.7 Frontend shell** (Vitest store/order tests and a CI bundle budget)
   - Deliverables: routing, responsive layout (tab bar / sidebar), theme tokens + dark mode,
     login page, API client on top of generated types, normalized store with `mutate()`
     (optimistic + rollback), SSE subscription with reconnect, toast system, empty states.

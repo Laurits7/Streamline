@@ -61,7 +61,10 @@ mod tests {
 
     #[test]
     fn basic() {
+        // Same values are asserted in web/src/lib/order.test.ts (TS mirror).
         assert_eq!(key_between("", None), "V");
+        assert_eq!(key_between("V", None), "k");
+        assert_eq!(key_between("", Some("V")), "F");
         let a = key_after(None);
         let b = key_after(Some(&a));
         assert!(a < b);

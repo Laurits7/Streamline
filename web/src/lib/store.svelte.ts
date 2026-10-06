@@ -53,7 +53,10 @@ class Store {
 
   private pending = new Map<string, number>()
   private es: EventSource | null = null
-  private syncing: Promise<void> | null = null
+  private syncChain: Promise<void> = Promise.resolve()
+  private deltaQueued: Promise<void> | null = null
+  /** Bumped on sign-out so late responses for the previous session are ignored. */
+  private generation = 0
   private timer: ReturnType<typeof setInterval> | null = null
 
   // ---- lifecycle ----------------------------------------------------------
@@ -67,6 +70,9 @@ class Store {
   }
 
   stop() {
+    this.generation++
+    this.deltaQueued = null
+    this.pending.clear()
     this.es?.close()
     this.es = null
     document.removeEventListener('visibilitychange', this.onVisible)
@@ -108,34 +114,45 @@ class Store {
     toast(`Timezone set to ${tz}`)
   }
 
-  sync(since = this.rev): Promise<void> {
-    // Coalesce concurrent syncs.
-    if (this.syncing) return this.syncing
-    this.syncing = (async () => {
-      try {
-        const r = await api.get<SyncResponse>(`/sync?since=${since}`)
-        if (r.full) {
-          this.taskTypes.clear()
-          this.projects.clear()
-          this.tasks.clear()
-          this.entries.clear()
-        }
-        this.me = r.me
-        this.today = r.today
-        for (const t of r.task_types) {
-          if (t.deleted_at) this.taskTypes.delete(t.id)
-          else this.taskTypes.set(t.id, t)
-        }
-        for (const p of r.projects) this.applyRemote('project', p)
-        for (const t of r.tasks) this.applyRemote('task', t)
-        for (const e of r.day_entries) this.applyRemote('day_entry', e)
-        this.rev = Math.max(this.rev, r.rev)
-        this.ready = true
-      } finally {
-        this.syncing = null
-      }
-    })()
-    return this.syncing
+  /**
+   * Fetch changes from the server. `since` omitted = changes since the last known rev
+   * (repeated calls while one is waiting are merged); `0` = full reload. Syncs run
+   * one at a time, in order.
+   */
+  sync(since?: number): Promise<void> {
+    if (since === undefined && this.deltaQueued) return this.deltaQueued
+    const p = this.syncChain
+      .catch(() => {})
+      .then(() => {
+        if (since === undefined) this.deltaQueued = null
+        return this.runSync(since ?? this.rev)
+      })
+    if (since === undefined) this.deltaQueued = p
+    this.syncChain = p
+    return p
+  }
+
+  private async runSync(since: number) {
+    const gen = this.generation
+    const r = await api.get<SyncResponse>(`/sync?since=${since}`)
+    if (gen !== this.generation) return // signed out meanwhile: drop the old user's data
+    if (r.full) {
+      this.taskTypes.clear()
+      this.projects.clear()
+      this.tasks.clear()
+      this.entries.clear()
+    }
+    this.me = r.me
+    this.today = r.today
+    for (const t of r.task_types) {
+      if (t.deleted_at) this.taskTypes.delete(t.id)
+      else this.taskTypes.set(t.id, t)
+    }
+    for (const p of r.projects) this.applyRemote('project', p)
+    for (const t of r.tasks) this.applyRemote('task', t)
+    for (const e of r.day_entries) this.applyRemote('day_entry', e)
+    this.rev = Math.max(this.rev, r.rev)
+    this.ready = true
   }
 
   private connect() {

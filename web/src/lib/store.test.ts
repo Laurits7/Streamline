@@ -1,0 +1,260 @@
+// Store behaviour that makes the UI feel instant and stay correct: optimistic
+// updates, rollback on failure, merging live changes, and project-tree rules.
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { DayEntry } from './api/types/DayEntry'
+import type { Project } from './api/types/Project'
+import type { SyncResponse } from './api/types/SyncResponse'
+import type { Task } from './api/types/Task'
+import { store } from './store.svelte'
+import { toasts } from './toast.svelte'
+
+const TS = '2026-10-06T08:00:00.000Z'
+const ME = { id: 'U1', username: 'me', display_name: 'Me', is_admin: true, timezone: 'UTC', day_end: '04:00', locale: '', week_start: 1 }
+
+const task = (id: string, extra: Partial<Task> = {}): Task => ({
+  id,
+  owner_user_id: 'U1',
+  owner_group_id: null,
+  assignee_user_id: null,
+  project_id: null,
+  title: id,
+  notes: '',
+  status: 'open',
+  position: 'V',
+  due_date: null,
+  estimate_min: null,
+  difficulty: null,
+  importance: null,
+  urgency: null,
+  actual_min: 0,
+  task_type_id: 'tt_carry_on',
+  carry_count: 0,
+  completed_at: null,
+  completed_by: null,
+  ext_source: null,
+  ext_id: null,
+  ext_url: null,
+  created_at: TS,
+  updated_at: TS,
+  deleted_at: null,
+  rev: 1,
+  ...extra,
+})
+
+const project = (id: string, extra: Partial<Project> = {}): Project => ({
+  id,
+  owner_user_id: 'U1',
+  owner_group_id: null,
+  parent_id: null,
+  name: id,
+  color: null,
+  position: 'V',
+  archived_at: null,
+  created_at: TS,
+  updated_at: TS,
+  deleted_at: null,
+  rev: 1,
+  ...extra,
+})
+
+const entry = (id: string, taskId: string, date: string, extra: Partial<DayEntry> = {}): DayEntry => ({
+  id,
+  user_id: 'U1',
+  date,
+  task_id: taskId,
+  position: 'V',
+  start_time: null,
+  duration_min: null,
+  created_at: TS,
+  updated_at: TS,
+  deleted_at: null,
+  rev: 1,
+  ...extra,
+})
+
+type Handler = (method: string, path: string, body: unknown) => unknown | Promise<unknown>
+let calls: { method: string; path: string; body: unknown }[] = []
+
+/** Route fetch() through `handler`. Return a value for 200 JSON, or throw `{status}` for an error. */
+function mockApi(handler: Handler) {
+  calls = []
+  vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+    const method = init?.method ?? 'GET'
+    const path = url.replace('/api/v1', '')
+    const body = init?.body ? JSON.parse(init.body as string) : undefined
+    calls.push({ method, path, body })
+    try {
+      const out = await handler(method, path, body)
+      return new Response(out === undefined ? null : JSON.stringify(out), { status: out === undefined ? 204 : 200 })
+    } catch (e) {
+      const status = (e as { status?: number }).status ?? 500
+      return new Response(JSON.stringify({ title: 'Error', status, detail: `failed with ${status}` }), { status })
+    }
+  })
+}
+
+function syncResponse(data: Partial<SyncResponse> = {}): SyncResponse {
+  return { rev: 10, full: true, me: ME, today: '2026-10-06', task_types: [], projects: [], tasks: [], day_entries: [], ...data }
+}
+
+/** Load the store with a full sync of the given data. */
+async function load(data: Partial<SyncResponse> = {}) {
+  mockApi(() => syncResponse(data))
+  await store.sync(0)
+}
+
+const tick = () => new Promise((r) => setTimeout(r, 0))
+const remote = (kind: string, e: unknown) => (store as unknown as { applyRemote: (k: string, e: unknown) => void }).applyRemote(kind, e)
+
+beforeEach(() => {
+  store.stop()
+  toasts.splice(0)
+})
+afterEach(() => vi.unstubAllGlobals())
+
+describe('sync', () => {
+  it('loads everything and tracks the latest rev', async () => {
+    await load({ tasks: [task('T1', { rev: 12 })], projects: [project('P1')] })
+    expect(store.me?.id).toBe('U1')
+    expect(store.tasks.get('T1')?.title).toBe('T1')
+    expect(store.projects.size).toBe(1)
+    expect(store.rev).toBe(12)
+  })
+
+  it('applies deletions from a delta sync', async () => {
+    await load({ tasks: [task('T1')] })
+    mockApi(() => syncResponse({ full: false, rev: 20, tasks: [task('T1', { rev: 20, deleted_at: TS })] }))
+    await store.sync()
+    expect(calls[0].path).toBe('/sync?since=10')
+    expect(store.tasks.has('T1')).toBe(false)
+  })
+})
+
+describe('optimistic updates', () => {
+  it('shows a new task before the server answers, then adopts the server copy', async () => {
+    await load()
+    let release!: (v: unknown) => void
+    mockApi((_m, _p, body) => new Promise((r) => (release = () => r({ ...task((body as Task).id), title: 'Buy milk', rev: 11 }))))
+    const id = store.createTask({ title: 'Buy milk' })
+    expect(store.tasks.get(id)?.title).toBe('Buy milk')
+    expect(store.tasks.get(id)?.rev).toBe(0)
+    expect(calls[0].body).toMatchObject({ id, title: 'Buy milk' })
+    release(undefined)
+    await tick()
+    await tick()
+    expect(store.tasks.get(id)?.rev).toBe(11)
+  })
+
+  it('rolls back and reports when the server rejects a change', async () => {
+    await load({ tasks: [task('T1', { title: 'Original' })] })
+    mockApi((method) => {
+      if (method === 'PATCH') throw { status: 400 }
+      return syncResponse({ full: false, tasks: [] })
+    })
+    store.updateTask('T1', { title: 'Changed' })
+    expect(store.tasks.get('T1')?.title).toBe('Changed')
+    await tick()
+    await tick()
+    expect(store.tasks.get('T1')?.title).toBe('Original')
+    expect(toasts.at(-1)).toMatchObject({ kind: 'error', text: 'failed with 400' })
+  })
+
+  it('completing sets who and when locally', async () => {
+    await load({ tasks: [task('T1')] })
+    mockApi(() => new Promise(() => {}))
+    store.updateTask('T1', { status: 'done' })
+    expect(store.tasks.get('T1')).toMatchObject({ status: 'done', completed_by: 'U1' })
+    expect(store.tasks.get('T1')?.completed_at).toBeTruthy()
+  })
+})
+
+describe('live changes', () => {
+  it('ignores stale events and applies newer ones and tombstones', async () => {
+    await load({ tasks: [task('T1', { title: 'v5', rev: 5 })] })
+    remote('task', task('T1', { title: 'v4', rev: 4 }))
+    expect(store.tasks.get('T1')?.title).toBe('v5')
+    remote('task', task('T1', { title: 'v6', rev: 6 }))
+    expect(store.tasks.get('T1')?.title).toBe('v6')
+    remote('task', task('T1', { rev: 7, deleted_at: TS }))
+    expect(store.tasks.has('T1')).toBe(false)
+  })
+
+  it("doesn't let an echo overwrite an edit that is still in flight", async () => {
+    await load({ tasks: [task('T1', { title: 'Old', rev: 5 })] })
+    mockApi(() => new Promise(() => {}))
+    store.updateTask('T1', { title: 'Mine' })
+    remote('task', task('T1', { title: 'Old', rev: 6 }))
+    expect(store.tasks.get('T1')?.title).toBe('Mine')
+  })
+})
+
+describe('day plan', () => {
+  it('a task has one entry: planning it on another day moves it', async () => {
+    await load({ tasks: [task('T1')], day_entries: [entry('E1', 'T1', '2026-10-06', { start_time: '09:00' })] })
+    mockApi(() => new Promise(() => {}))
+    store.plan('T1', '2026-10-07')
+    const entries = [...store.entries.values()]
+    expect(entries).toHaveLength(1)
+    expect(entries[0]).toMatchObject({ id: 'E1', date: '2026-10-07', start_time: null })
+    expect(calls[0]).toMatchObject({ method: 'POST', path: '/days/2026-10-07/entries' })
+  })
+
+  it('keeps the time when re-planned on the same day unless told otherwise', async () => {
+    await load({ tasks: [task('T1')], day_entries: [entry('E1', 'T1', '2026-10-06', { start_time: '09:00' })] })
+    mockApi(() => new Promise(() => {}))
+    store.plan('T1', '2026-10-06', { position: 'a' })
+    expect(store.entries.get('E1')).toMatchObject({ start_time: '09:00', position: 'a' })
+    store.plan('T1', '2026-10-06', { startTime: null })
+    expect(store.entries.get('E1')?.start_time).toBeNull()
+  })
+})
+
+describe('project tree', () => {
+  const tree = () =>
+    load({
+      projects: [
+        project('Paper'),
+        project('Writing', { parent_id: 'Paper' }),
+        project('Draft', { parent_id: 'Writing' }),
+        project('Garden', { position: 'k' }),
+      ],
+      tasks: [task('T1', { project_id: 'Draft' }), task('T2', { project_id: 'Paper' })],
+    })
+
+  it('walks the tree depth-first with depths and paths', async () => {
+    await tree()
+    expect(store.projectTree().map((n) => `${n.depth}:${n.project.id}`)).toEqual(['0:Paper', '1:Writing', '2:Draft', '0:Garden'])
+    expect(store.projectTree((id) => id === 'Writing').map((n) => n.project.id)).toEqual(['Paper', 'Writing', 'Garden'])
+    expect(store.projectPath('Draft')).toBe('Paper › Writing › Draft')
+    expect(store.openCountDeep('Paper')).toBe(2)
+  })
+
+  it('refuses to move a project into its own subtree', async () => {
+    await tree()
+    mockApi(() => new Promise(() => {}))
+    expect(store.canMoveProject('Paper', 'Draft')).toBe(false)
+    store.moveProject('Paper', 'Draft')
+    expect(store.projects.get('Paper')?.parent_id).toBeNull()
+    expect(calls).toHaveLength(0)
+    expect(toasts.at(-1)?.kind).toBe('error')
+  })
+
+  it('promotes a subproject to the top level', async () => {
+    await tree()
+    mockApi(() => new Promise(() => {}))
+    store.moveProject('Writing', null)
+    expect(store.projects.get('Writing')?.parent_id).toBeNull()
+    expect(calls[0]).toMatchObject({ method: 'PATCH', path: '/projects/Writing', body: { parent_id: null } })
+  })
+
+  it('archives and deletes whole subtrees', async () => {
+    await tree()
+    mockApi(() => new Promise(() => {}))
+    store.updateProject('Writing', { archived: true })
+    expect(store.projects.get('Draft')?.archived_at).toBeTruthy()
+    expect(store.projects.get('Paper')?.archived_at).toBeNull()
+    store.deleteProject('Paper')
+    expect([...store.projects.keys()]).toEqual(['Garden'])
+    expect(store.tasks.size).toBe(0)
+  })
+})

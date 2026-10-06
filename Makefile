@@ -11,7 +11,7 @@ dev-web:
 
 test:
 	cargo test --workspace
-	cd web && npm run check
+	cd web && npm run check && npm test
 
 check:
 	cargo fmt --all --check

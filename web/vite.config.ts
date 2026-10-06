@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { svelte } from '@sveltejs/vite-plugin-svelte'
 import { defineConfig } from 'vite'
 
@@ -11,6 +12,12 @@ export default defineConfig({
       '/api': { target: backend, changeOrigin: false },
     },
   },
+  test: {
+    environment: 'happy-dom',
+    include: ['src/**/*.test.ts'],
+  },
+  // Svelte's browser build (runes, $state) also in tests.
+  resolve: process.env.VITEST ? { conditions: ['browser'] } : undefined,
   build: {
     target: 'es2022',
     cssCodeSplit: false,
