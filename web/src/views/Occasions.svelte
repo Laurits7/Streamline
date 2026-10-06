@@ -130,6 +130,7 @@
   present” and “wish them a happy birthday” to your inbox, each due on its day.
 </p>
 
+<div class="grid">
 {#if upcoming.length}
   <section class="card">
     <h2>Coming up</h2>
@@ -254,8 +255,20 @@
     </details>
   {/if}
 </section>
+</div>
 
 <style>
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(480px, 1fr));
+    gap: 0 14px;
+    align-items: start;
+  }
+  @media (max-width: 600px) {
+    .grid {
+      grid-template-columns: 1fr;
+    }
+  }
   h1 {
     font-size: 28px;
     font-weight: 750;

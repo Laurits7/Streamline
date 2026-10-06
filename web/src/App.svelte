@@ -320,14 +320,12 @@
       overflow-y: auto;
     }
     /* Content starts next to the menu (no centred gap on wide screens). */
-    .content {
-      --content-w: 980px;
+    .content,
+    .content.wide {
+      --content-w: 1760px;
       margin-left: var(--sidebar-w);
       max-width: calc(var(--content-w) + 2 * var(--gutter));
       padding: 32px var(--gutter) 56px;
-    }
-    .content.wide {
-      --content-w: 1320px;
     }
   }
   .brand {

@@ -41,7 +41,9 @@
   {#snippet list()}
     <QuickAdd placeholder="Add to inbox…" onadd={(title) => store.createTask({ title })} />
     <input class="search" type="text" bind:value={q} placeholder="Filter tasks…" aria-label="Filter tasks" />
+    <div class="groups">
     {#each sections.filter((s) => s.tasks.length || s.id === null) as s (s.id ?? 'inbox')}
+      <div class="group">
       <h2 class="section-title">
         {#if s.id}<i class="dot" style:background={s.color ?? 'var(--faint)'}></i>{:else}<Icon name="inbox" size={14} />{/if}
         <a href={s.id ? `/projects/${s.id}` : '/inbox'}>{s.name}</a>
@@ -60,7 +62,9 @@
           <p class="empty">{q ? 'No matches.' : 'Nothing here.'}</p>
         {/each}
       </div>
+      </div>
     {/each}
+    </div>
   {/snippet}
 </TaskViews>
 
@@ -85,6 +89,18 @@
   }
   .list {
     overflow: hidden;
+  }
+  /* Wide screens: project groups side by side. */
+  .groups {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(460px, 1fr));
+    gap: 0 20px;
+    align-items: start;
+  }
+  @media (max-width: 560px) {
+    .groups {
+      grid-template-columns: 1fr;
+    }
   }
   .dot {
     width: 8px;

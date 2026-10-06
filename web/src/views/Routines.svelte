@@ -72,7 +72,9 @@
   </div>
 {/if}
 
+<div class="groups">
 {#each groups.filter((g) => g.items.length) as g (g.title)}
+  <div>
   <h2 class="section-title">{g.title}</h2>
   <div class="card list">
     {#each g.items as s (s.id)}
@@ -94,7 +96,9 @@
       </button>
     {/each}
   </div>
+  </div>
 {/each}
+</div>
 
 <h2 class="section-title">Multi-step chores</h2>
 <p class="muted intro">Chores done in steps, like laundry: wash → dry → fold. Each step appears when the one before is done.</p>
@@ -116,6 +120,17 @@
 <button class="btn small new-wf" onclick={() => (ui.workflow = 'new')}><Icon name="plus" size={14} /> New multi-step chore</button>
 
 <style>
+  .groups {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(460px, 1fr));
+    gap: 0 20px;
+    align-items: start;
+  }
+  @media (max-width: 560px) {
+    .groups {
+      grid-template-columns: 1fr;
+    }
+  }
   .intro {
     font-size: 13px;
     margin: -4px 4px 8px;

@@ -87,7 +87,7 @@
 </header>
 
 <div class="layout">
-  <div>
+  <div class="sections">
     {#if summary}
       <section class="card stats">
         <div><strong>{summary.done}/{summary.planned}</strong><span>planned done</span></div>
@@ -152,7 +152,7 @@
         </section>
       {/if}
     {/if}
-    <section class="card">
+    <section class="card reflection-card">
       <h2>Reflection</h2>
       {#key date}<Reflection {date} />{/key}
     </section>
@@ -197,9 +197,19 @@
     gap: 6px;
     align-items: center;
   }
+  .sections {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+    gap: 0 12px;
+    align-items: start;
+  }
+  .sections .stats,
+  .reflection-card {
+    grid-column: 1 / -1;
+  }
   .layout {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 300px;
+    grid-template-columns: minmax(0, 1fr) 320px;
     gap: 14px;
     align-items: start;
   }

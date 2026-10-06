@@ -100,6 +100,14 @@
   const next = $derived(isToday ? (upcoming[0] ?? flexible[0] ?? null) : null)
 
   // Wide screens show the timeline beside the plan; phones show it above.
+  // Very wide screens get a third column (tracking and the activity log).
+  const mqx = window.matchMedia('(min-width: 1500px)')
+  let xwide = $state(mqx.matches)
+  $effect(() => {
+    const on = () => (xwide = mqx.matches)
+    mqx.addEventListener('change', on)
+    return () => mqx.removeEventListener('change', on)
+  })
   const mq = window.matchMedia('(min-width: 1100px)')
   let wide = $state(mq.matches)
   $effect(() => {
@@ -152,7 +160,14 @@
   <Timeline {date} items={timed} now={isToday ? now : null} />
 {/snippet}
 
-<div class="day" class:wide>
+{#snippet side()}
+  {#if date <= store.today}
+    <QuickLog {date} />
+    {#key date}<DayLog {date} open={date < store.today} />{/key}
+  {/if}
+{/snippet}
+
+<div class="day" class:wide class:xwide={wide && xwide}>
   <div class="main-col">
     {#if isToday}<PlanBanner />{/if}
     {#if isToday && store.goalReviewDue()}
@@ -272,10 +287,7 @@
       </div>
     {/if}
 
-    {#if date <= store.today}
-      <QuickLog {date} />
-      {#key date}<DayLog {date} open={date < store.today} />{/key}
-    {/if}
+    {#if !(wide && xwide)}{@render side()}{/if}
 
     {#if closed.length}
       <button class="section-title toggle" onclick={() => (showDone = !showDone)} aria-expanded={showDone}>
@@ -291,6 +303,7 @@
     {/if}
   </div>
 
+  {#if wide && xwide}<aside class="side-col">{@render side()}</aside>{/if}
   {#if wide}
     <aside class="time-col">{@render timeline()}</aside>
   {/if}
@@ -376,9 +389,12 @@
   }
   .day.wide {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 360px;
-    gap: 32px;
+    grid-template-columns: minmax(0, 1fr) minmax(360px, 32%);
+    gap: 28px;
     align-items: start;
+  }
+  .day.xwide {
+    grid-template-columns: minmax(0, 1fr) minmax(320px, 24%) minmax(380px, 28%);
   }
   .time-col {
     position: sticky;

@@ -753,7 +753,7 @@
   /* Wide screens: two columns of sections instead of very long form fields. */
   @media (min-width: 1280px) {
     .settings-grid {
-      columns: 2 420px;
+      columns: auto 460px;
       column-gap: 14px;
     }
     .settings-grid > :global(*) {

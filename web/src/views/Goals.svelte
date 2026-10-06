@@ -185,16 +185,16 @@
   <button class="btn primary" type="submit">Add goal</button>
 </form>
 
-{#each active as g (g.id)}{@render card(g)}{:else}<p class="muted">No active goals yet. Add one above, then link projects and tasks so everyday work counts towards it.</p>{/each}
+<div class="cards">{#each active as g (g.id)}{@render card(g)}{:else}<p class="muted">No active goals yet. Add one above, then link projects and tasks so everyday work counts towards it.</p>{/each}</div>
 {#if paused.length}
   <h2 class="section-title">Paused</h2>
-  {#each paused as g (g.id)}{@render card(g)}{/each}
+  <div class="cards">{#each paused as g (g.id)}{@render card(g)}{/each}</div>
 {/if}
 {#if closed.length}
   <button class="section-title toggle" onclick={() => (showClosed = !showClosed)} aria-expanded={showClosed}>
     <Icon name={showClosed ? 'left' : 'right'} size={14} /> Achieved & dropped ({closed.length})
   </button>
-  {#if showClosed}{#each closed as g (g.id)}{@render card(g)}{/each}{/if}
+  {#if showClosed}<div class="cards">{#each closed as g (g.id)}{@render card(g)}{/each}</div>{/if}
 {/if}
 
 <style>
@@ -226,8 +226,22 @@
   .new input {
     flex: 1;
   }
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
+    gap: 12px;
+    align-items: start;
+    margin-bottom: 12px;
+  }
+  @media (max-width: 560px) {
+    .cards {
+      grid-template-columns: 1fr;
+    }
+  }
+  .goal.open {
+    grid-column: 1 / -1;
+  }
   .goal {
-    margin-bottom: 10px;
     overflow: hidden;
   }
   .summary {

@@ -151,6 +151,7 @@ Any of them can be revisited when the chunk that implements it starts.
 - **D-63 · 2026-10-06 · Backups** (Phase 6.3): `VACUUM INTO data/backups/streamline-YYYYMMDD-HHMMSS.db` every `BACKUP_HOURS` (24), keeping `BACKUP_KEEP` (7), files mode 0600. Admins list, create and download them. Restore is documented in the README (also keep `secret.key` and `vapid.key`).
 - **D-64 · 2026-10-06 · Mood is a log** (owner): mood changes through the day, so each tap is a new entry ("how I feel now") with its time, with undo; the day's value is the average, and the Today card and summary show the entries through the day.
 - **D-65 · 2026-10-06 · Desktop layout** (owner): content starts right after the menu with a responsive gutter (24–48 px) instead of being centred in the remaining space (which left a wide gap on big screens). It is wider: lists up to 980 px, the day view (plan + timeline) up to 1320 px; extra width on very wide screens stays on the right. The menu is grouped (main pages / Reflect / Projects), and Settings shows two columns of sections from 1280 px.
+  - **Revised (owner: "fill the screen"):** content is fluid up to 1760 px. Today uses three columns from 1500 px (plan | tracking and activity log | timeline) and two from 1100 px. All tasks and Routines show their groups side by side, Goals and Namedays use card grids, the Summary sections sit in a grid next to the month calendar, and Trends charts sit side by side. Phones are unchanged.
 
 ## Resource log
 

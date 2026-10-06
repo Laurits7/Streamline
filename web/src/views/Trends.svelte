@@ -49,6 +49,7 @@
   </div>
 </div>
 
+<div class="charts">
 {#if metric}
   <section class="card">
     <h2>{metric.name}{unit ? ` (${unit})` : ''}</h2>
@@ -82,9 +83,21 @@
     {/if}
   </section>
 {/if}
+</div>
 <p class="muted small"><Icon name="settings" size={12} /> Add your own metrics (sleep, water, steps…) in <a href="/settings">Settings</a>.</p>
 
 <style>
+  .charts {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(520px, 1fr));
+    gap: 0 12px;
+    align-items: start;
+  }
+  @media (max-width: 600px) {
+    .charts {
+      grid-template-columns: 1fr;
+    }
+  }
   h1 {
     font-size: 28px;
     font-weight: 750;
