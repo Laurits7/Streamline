@@ -15,6 +15,26 @@ place_id: string | null,
  */
 also_project_ids: Array<string>, 
 /**
+ * Tasks that must be finished first (SPEC §6.3b).
+ */
+depends_on: Array<string>, 
+/**
+ * A prerequisite is still open: not in the ready stack, can't be planned.
+ */
+blocked: boolean, 
+/**
+ * Minutes to wait after the last prerequisite is done (e.g. a machine running).
+ */
+wait_min: number | null, 
+/**
+ * While waiting: when the task becomes ready.
+ */
+ready_at: string | null, 
+/**
+ * Steps of a running workflow: the run, this step's number and the step count.
+ */
+workflow_instance_id: string | null, workflow_step: number | null, workflow_steps: number | null, 
+/**
  * Set for occurrences of a routine.
  */
 series_id: string | null, 

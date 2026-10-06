@@ -1970,3 +1970,162 @@ async fn places() {
     assert!(sync["projects"][0]["default_place_id"].is_null());
     assert!(sync["series"][0]["place_id"].is_null());
 }
+
+#[tokio::test]
+async fn prerequisites_block_and_unblock() {
+    let t = setup().await;
+    let admin = t.admin().await;
+    let mk = |title: &'static str| {
+        let (t, admin) = (&t, admin.clone());
+        async move {
+            t.req(
+                "POST",
+                "/api/v1/tasks",
+                Some(&admin),
+                Some(json!({"title": title})),
+            )
+            .await
+            .1["id"]
+                .as_str()
+                .unwrap()
+                .to_string()
+        }
+    };
+    let get = |id: String| {
+        let (t, admin) = (&t, admin.clone());
+        async move {
+            t.req("GET", &format!("/api/v1/tasks/{id}"), Some(&admin), None)
+                .await
+                .1
+        }
+    };
+    let patch = |id: String, body: Value| {
+        let (t, admin) = (&t, admin.clone());
+        async move {
+            t.req(
+                "PATCH",
+                &format!("/api/v1/tasks/{id}"),
+                Some(&admin),
+                Some(body),
+            )
+            .await
+        }
+    };
+    let (wash, dry, fold) = (mk("Wash").await, mk("Dry").await, mk("Fold").await);
+
+    let (s, v, _) = patch(dry.clone(), json!({"depends_on": [wash], "wait_min": 60})).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["blocked"], true);
+    patch(fold.clone(), json!({"depends_on": [dry]})).await;
+
+    // Cycles and self-references are refused.
+    let (s, _, _) = patch(wash.clone(), json!({"depends_on": [fold]})).await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    let (s, _, _) = patch(wash.clone(), json!({"depends_on": [wash]})).await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+
+    // Blocked tasks can't be planned.
+    let (_, today, _) = t.req("GET", "/api/v1/today", Some(&admin), None).await;
+    let day = today["date"].as_str().unwrap();
+    let (s, _, _) = t
+        .req(
+            "POST",
+            &format!("/api/v1/days/{day}/entries"),
+            Some(&admin),
+            Some(json!({"task_id": dry})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+
+    // Washing unblocks drying, which then waits its hour; folding stays blocked.
+    patch(wash.clone(), json!({"status": "done"})).await;
+    let d = get(dry.clone()).await;
+    assert_eq!(d["blocked"], false);
+    assert!(d["ready_at"].as_str().unwrap() > now_iso().as_str());
+    assert_eq!(get(fold.clone()).await["blocked"], true);
+
+    // When the wait is over the job releases it and tells the owner.
+    sqlx::query("UPDATE tasks SET ready_at = '2000-01-01T00:00:00.000Z' WHERE id = ?")
+        .bind(&dry)
+        .execute(&t.state.db.write)
+        .await
+        .unwrap();
+    let mut events = t.state.bus.subscribe();
+    streamline::deps::release_waiting(&t.state).await.unwrap();
+    assert!(get(dry.clone()).await["ready_at"].is_null());
+    let mut kinds = vec![];
+    while let Ok(e) = events.try_recv() {
+        kinds.push((e.kind, e.data["title"].as_str().unwrap_or("").to_string()));
+    }
+    assert!(
+        kinds
+            .iter()
+            .any(|(k, title)| *k == "notification" && title == "“Dry” is ready"),
+        "{kinds:?}"
+    );
+
+    // Reopening a prerequisite blocks again; dropping it (won't do / delete) unblocks (D-6).
+    patch(wash.clone(), json!({"status": "open"})).await;
+    assert_eq!(get(dry.clone()).await["blocked"], true);
+    patch(wash.clone(), json!({"status": "wont_do"})).await;
+    assert_eq!(get(dry.clone()).await["blocked"], false);
+    t.req(
+        "DELETE",
+        &format!("/api/v1/tasks/{dry}"),
+        Some(&admin),
+        None,
+    )
+    .await;
+    assert_eq!(
+        get(fold.clone()).await["blocked"],
+        false,
+        "deleted prerequisite unblocks"
+    );
+}
+
+#[tokio::test]
+async fn blocked_tasks_do_not_miss() {
+    let t = setup().await;
+    let admin = t.admin().await;
+    let today = today_of(&t, &admin).await;
+    let (_, gate, _) = t
+        .req(
+            "POST",
+            "/api/v1/tasks",
+            Some(&admin),
+            Some(json!({"title": "Buy pills"})),
+        )
+        .await;
+    let (_, r, _) = t.req("POST", "/api/v1/series", Some(&admin), Some(json!({"title": "Take pills", "mode": "repeat", "rrule": "FREQ=DAILY", "task_type_id": "tt_expires"}))).await;
+    let occ = occurrences(&t, &admin, r["id"].as_str().unwrap()).await[0].clone();
+    let oid = occ["id"].as_str().unwrap().to_string();
+    t.req(
+        "PATCH",
+        &format!("/api/v1/tasks/{oid}"),
+        Some(&admin),
+        Some(json!({"depends_on": [gate["id"]]})),
+    )
+    .await;
+    sqlx::query("UPDATE tasks SET occurrence_date = ? WHERE id = ?")
+        .bind(ymd(today - chrono::Duration::days(1)))
+        .bind(&oid)
+        .execute(&t.state.db.write)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE users SET last_rollover_date = NULL")
+        .execute(&t.state.db.write)
+        .await
+        .unwrap();
+    t.req("GET", "/api/v1/sync", Some(&admin), None).await;
+    let (_, v, _) = t
+        .req("GET", &format!("/api/v1/tasks/{oid}"), Some(&admin), None)
+        .await;
+    assert_eq!(
+        v["status"], "open",
+        "blocked while its day passed: not missed"
+    );
+}
+
+fn now_iso() -> String {
+    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+}

@@ -172,6 +172,20 @@ pub struct Task {
     #[ts(type = "Array<string>")]
     #[schema(value_type = Vec<String>)]
     pub also_project_ids: sqlx::types::Json<Vec<String>>,
+    /// Tasks that must be finished first (SPEC §6.3b).
+    #[ts(type = "Array<string>")]
+    #[schema(value_type = Vec<String>)]
+    pub depends_on: sqlx::types::Json<Vec<String>>,
+    /// A prerequisite is still open: not in the ready stack, can't be planned.
+    pub blocked: bool,
+    /// Minutes to wait after the last prerequisite is done (e.g. a machine running).
+    pub wait_min: Option<i32>,
+    /// While waiting: when the task becomes ready.
+    pub ready_at: Option<String>,
+    /// Steps of a running workflow: the run, this step's number and the step count.
+    pub workflow_instance_id: Option<String>,
+    pub workflow_step: Option<i32>,
+    pub workflow_steps: Option<i32>,
     /// Set for occurrences of a routine.
     pub series_id: Option<String>,
     /// Identifies the occurrence within its routine (a date, or window start + "#n").
@@ -388,9 +402,10 @@ pub async fn upsert_task(conn: &mut SqliteConnection, t: &Task) -> sqlx::Result<
     sqlx::query(
         "INSERT INTO tasks (id, owner_user_id, owner_group_id, assignee_user_id, project_id, title, notes, status, position,
            due_date, estimate_min, difficulty, importance, urgency, actual_min, task_type_id, carry_count, started_at, completed_at,
-           completed_by, ext_source, ext_id, ext_url, place_id, also_project_ids, series_id, occurrence_key, occurrence_date, window_end,
+           completed_by, ext_source, ext_id, ext_url, place_id, also_project_ids, depends_on, blocked, wait_min, ready_at,
+           workflow_instance_id, workflow_step, workflow_steps, series_id, occurrence_key, occurrence_date, window_end,
            created_at, updated_at, deleted_at, rev)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
          ON CONFLICT(id) DO UPDATE SET owner_user_id=excluded.owner_user_id, owner_group_id=excluded.owner_group_id,
            assignee_user_id=excluded.assignee_user_id, project_id=excluded.project_id, title=excluded.title,
            notes=excluded.notes, status=excluded.status, position=excluded.position, due_date=excluded.due_date,
@@ -399,6 +414,9 @@ pub async fn upsert_task(conn: &mut SqliteConnection, t: &Task) -> sqlx::Result<
            carry_count=excluded.carry_count, started_at=excluded.started_at, completed_at=excluded.completed_at, completed_by=excluded.completed_by,
            ext_source=excluded.ext_source, ext_id=excluded.ext_id, ext_url=excluded.ext_url,
            also_project_ids=excluded.also_project_ids, place_id=excluded.place_id,
+           depends_on=excluded.depends_on, blocked=excluded.blocked, wait_min=excluded.wait_min, ready_at=excluded.ready_at,
+           workflow_instance_id=excluded.workflow_instance_id, workflow_step=excluded.workflow_step,
+           workflow_steps=excluded.workflow_steps,
            occurrence_date=excluded.occurrence_date, window_end=excluded.window_end,
            updated_at=excluded.updated_at, deleted_at=excluded.deleted_at, rev=excluded.rev",
     )
@@ -406,7 +424,8 @@ pub async fn upsert_task(conn: &mut SqliteConnection, t: &Task) -> sqlx::Result<
     .bind(&t.title).bind(&t.notes).bind(&t.status).bind(&t.position).bind(&t.due_date).bind(t.estimate_min)
     .bind(t.difficulty).bind(t.importance).bind(t.urgency).bind(t.actual_min).bind(&t.task_type_id)
     .bind(t.carry_count).bind(&t.started_at).bind(&t.completed_at).bind(&t.completed_by).bind(&t.ext_source).bind(&t.ext_id)
-    .bind(&t.ext_url).bind(&t.place_id).bind(&t.also_project_ids).bind(&t.series_id).bind(&t.occurrence_key).bind(&t.occurrence_date).bind(&t.window_end)
+    .bind(&t.ext_url).bind(&t.place_id).bind(&t.also_project_ids).bind(&t.depends_on).bind(t.blocked)
+    .bind(t.wait_min).bind(&t.ready_at).bind(&t.workflow_instance_id).bind(t.workflow_step).bind(t.workflow_steps).bind(&t.series_id).bind(&t.occurrence_key).bind(&t.occurrence_date).bind(&t.window_end)
     .bind(&t.created_at).bind(&t.updated_at).bind(&t.deleted_at).bind(t.rev)
     .execute(conn)
     .await

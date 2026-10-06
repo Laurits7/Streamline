@@ -308,6 +308,7 @@ pub async fn delete(
             t.rev = rev;
             upsert_task(&mut tx, &t).await?;
             changes.push(Change::task(&t));
+            crate::deps::refresh_dependents(&mut tx, &t.id, &mut changes).await?;
         }
         p.deleted_at = Some(ts.clone());
         p.updated_at = ts.clone();

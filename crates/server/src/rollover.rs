@@ -40,7 +40,7 @@ pub async fn run_for_user(state: &AppState, user: &User) -> anyhow::Result<()> {
     let expired: Vec<Task> = sqlx::query_as(
         "SELECT t.* FROM tasks t JOIN task_types tt ON tt.id = t.task_type_id
          WHERE t.owner_user_id = ? AND t.deleted_at IS NULL AND t.status = 'open'
-           AND t.series_id IS NOT NULL AND tt.day_end_behavior = 'expire' AND t.occurrence_date < ?",
+           AND t.series_id IS NOT NULL AND tt.day_end_behavior = 'expire' AND t.occurrence_date < ? AND t.blocked = 0",
     )
     .bind(&user.id)
     .bind(&today_s)
@@ -69,7 +69,7 @@ pub async fn run_for_user(state: &AppState, user: &User) -> anyhow::Result<()> {
          JOIN task_types tt ON tt.id = t.task_type_id
          LEFT JOIN series s ON s.id = t.series_id
          WHERE t.owner_user_id = ? AND t.deleted_at IS NULL AND t.status = 'open'
-           AND t.window_end IS NOT NULL AND t.window_end < ?",
+           AND t.window_end IS NOT NULL AND t.window_end < ? AND t.blocked = 0",
     )
     .bind(&user.id)
     .bind(&today_s)
@@ -151,8 +151,8 @@ pub async fn run_for_user(state: &AppState, user: &User) -> anyhow::Result<()> {
             .fetch_one(&mut *tx)
             .await?;
         let behavior = DayEndBehavior::parse(&behavior).unwrap_or(DayEndBehavior::Carry);
-        // Prerequisites arrive in Phase 3b; until then nothing is blocked.
-        match day_end_outcome(behavior, false) {
+        // Blocked tasks (waiting for a prerequisite) never miss (SPEC §6.2c).
+        match day_end_outcome(behavior, task.blocked) {
             Outcome::CarryTo => {
                 let from = entry.date.clone();
                 let days = NaiveDate::parse_from_str(&from, "%Y-%m-%d")
@@ -200,6 +200,15 @@ pub async fn run_for_user(state: &AppState, user: &User) -> anyhow::Result<()> {
             }
             Outcome::Keep => {}
         }
+    }
+    // Missed prerequisites no longer block (D-6).
+    let missed: Vec<String> = changes
+        .iter()
+        .filter(|c| c.kind == "task" && c.data["status"] == "missed")
+        .filter_map(|c| c.data["id"].as_str().map(String::from))
+        .collect();
+    for id in missed {
+        crate::deps::refresh_dependents(&mut tx, &id, &mut changes).await?;
     }
     sqlx::query("UPDATE users SET last_rollover_date = ? WHERE id = ?")
         .bind(&today_s)

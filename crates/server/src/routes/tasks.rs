@@ -246,6 +246,13 @@ pub async fn create(
         ext_url: None,
         place_id,
         also_project_ids: sqlx::types::Json(vec![]),
+        depends_on: sqlx::types::Json(vec![]),
+        blocked: false,
+        wait_min: None,
+        ready_at: None,
+        workflow_instance_id: None,
+        workflow_step: None,
+        workflow_steps: None,
         series_id: None,
         occurrence_key: None,
         occurrence_date: None,
@@ -311,6 +318,48 @@ pub struct PatchTask {
     /// Where it has to be done; `null` = anywhere.
     #[serde(default, deserialize_with = "double_option")]
     place_id: Option<Option<String>>,
+    /// Tasks that must be finished first (replaces the current list). Cycles are refused.
+    depends_on: Option<Vec<String>>,
+    /// Minutes to wait after the last prerequisite is done before this becomes ready.
+    #[serde(default, deserialize_with = "double_option")]
+    wait_min: Option<Option<i32>>,
+}
+
+/// Validate prerequisites: visible, not the task itself, no cycles, at most 20.
+async fn check_deps(
+    conn: &mut sqlx::SqliteConnection,
+    user: &AuthUser,
+    task_id: &str,
+    ids: Vec<String>,
+) -> ApiResult<Vec<String>> {
+    let mut out: Vec<String> = vec![];
+    for id in ids {
+        if out.contains(&id) {
+            continue;
+        }
+        if id == task_id {
+            return Err(bad("a task can't wait for itself"));
+        }
+        load_visible(conn, user, &id)
+            .await
+            .map_err(|_| bad("unknown prerequisite"))?;
+        out.push(id);
+    }
+    if out.len() > 20 {
+        return Err(bad("at most 20 prerequisites"));
+    }
+    let rows: Vec<(String, sqlx::types::Json<Vec<String>>)> = sqlx::query_as(&format!(
+        "SELECT id, depends_on FROM tasks WHERE {} AND deleted_at IS NULL AND depends_on <> '[]'",
+        visibility::OWNED_VISIBLE_SQL
+    ))
+    .bind(user.id())
+    .fetch_all(&mut *conn)
+    .await?;
+    let graph = rows.into_iter().map(|(id, d)| (id, d.0)).collect();
+    if streamline_domain::deps::creates_cycle(task_id, &out, &graph) {
+        return Err(bad("that would make tasks wait for each other in a circle"));
+    }
+    Ok(out)
 }
 
 /// Validate "also in" projects: visible, unique, not the main project, at most 10.
@@ -345,6 +394,7 @@ pub async fn patch(
 ) -> ApiResult<Json<Task>> {
     let mut tx = state.db.write.begin().await?;
     let mut t = load_visible(&mut tx, &user, &id).await?;
+    let old_status = t.status.clone();
     if let Some(v) = c.title {
         t.title = check_title(&v)?;
     }
@@ -358,6 +408,17 @@ pub async fn patch(
         // Becoming the main project replaces an "also in" link to it.
         let main = t.project_id.clone();
         t.also_project_ids.0.retain(|p| Some(p) != main.as_ref());
+    }
+    if let Some(v) = c.wait_min {
+        check_range("wait_min", v, 0, 24 * 60)?;
+        t.wait_min = v;
+    }
+    let deps_changed = c.depends_on.is_some();
+    if let Some(v) = c.depends_on {
+        t.depends_on = sqlx::types::Json(check_deps(&mut tx, &user, &t.id, v).await?);
+    }
+    if deps_changed {
+        crate::deps::refresh(&mut tx, &mut t).await?;
     }
     if let Some(v) = c.place_id {
         crate::routes::places::check_place(&mut tx, &user, &v).await?;
@@ -430,8 +491,13 @@ pub async fn patch(
     t.updated_at = now();
     t.rev = next_rev(&mut tx).await?;
     upsert_task(&mut tx, &t).await?;
+    let mut changes = vec![Change::task(&t)];
+    if t.status != old_status {
+        // Finishing (or reopening) a prerequisite unblocks (or re-blocks) what waits for it.
+        crate::deps::refresh_dependents(&mut tx, &t.id, &mut changes).await?;
+    }
     tx.commit().await?;
-    state.bus.publish([Change::task(&t)]);
+    state.bus.publish(changes);
     Ok(Json(t))
 }
 
@@ -463,6 +529,8 @@ pub async fn delete(
     t.rev = rev;
     upsert_task(&mut tx, &t).await?;
     changes.push(Change::task(&t));
+    // A deleted prerequisite no longer blocks (D-6).
+    crate::deps::refresh_dependents(&mut tx, &t.id, &mut changes).await?;
     tx.commit().await?;
     state.bus.publish(changes);
     Ok(StatusCode::NO_CONTENT)

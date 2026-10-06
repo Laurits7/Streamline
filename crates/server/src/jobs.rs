@@ -20,6 +20,9 @@ pub fn spawn(state: AppState) {
             if let Err(e) = crate::reminders::run_all(&state).await {
                 tracing::warn!("reminder job failed: {e:#}");
             }
+            if let Err(e) = crate::deps::release_waiting(&state).await {
+                tracing::warn!("wait-time job failed: {e:#}");
+            }
             if let Err(e) = crate::routes::focus::advance_all(&state).await {
                 tracing::warn!("focus job failed: {e:#}");
             }

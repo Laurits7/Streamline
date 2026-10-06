@@ -303,6 +303,7 @@ async fn drop_open_occurrences(
         t.rev = rev;
         upsert_task(conn, &t).await?;
         changes.push(Change::task(&t));
+        crate::deps::refresh_dependents(conn, &t.id, changes).await?;
     }
     Ok(())
 }

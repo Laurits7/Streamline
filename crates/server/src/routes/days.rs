@@ -264,6 +264,11 @@ pub async fn add_entry(
     check_range("duration_min", c.duration_min, 0, 24 * 60)?;
     let mut tx = state.db.write.begin().await?;
     let task = crate::routes::tasks::load_visible(&mut tx, &user, &c.task_id).await?;
+    if task.blocked {
+        return Err(crate::error::bad(
+            "this task is waiting for a prerequisite and can't be planned yet",
+        ));
+    }
     let position = match c.position {
         Some(p) => p,
         None => {
