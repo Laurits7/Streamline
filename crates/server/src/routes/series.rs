@@ -204,6 +204,7 @@ pub async fn create(
         importance: c.importance,
         urgency: c.urgency,
         materialized_through: None,
+        split_from: None,
         created_at: ts.clone(),
         updated_at: ts,
         deleted_at: None,
@@ -402,20 +403,39 @@ pub async fn patch(
         ended.rev = rev;
         upsert_series(&mut tx, &ended).await?;
         changes.push(Change::series(&ended));
-        // Don't redo what's already settled: start after the last occurrence (or, for
-        // "N per week/month", the last window) that is done, missed or skipped.
-        let last_closed: Option<String> = sqlx::query_scalar(
-            "SELECT MAX(COALESCE(window_end, occurrence_date)) FROM tasks
-             WHERE series_id = ? AND deleted_at IS NULL AND status <> 'open'",
-        )
-        .bind(&old.id)
-        .fetch_one(&mut *tx)
-        .await?;
+        // Don't redo what's already settled: start after the last occurrence that is done,
+        // missed or skipped. "N per week/month" routines instead start right away and top
+        // up the current window with what's still missing (see routines::materialize_series),
+        // so only windows *after* the current one count as settled.
+        let current_window_start = old
+            .window
+            .as_deref()
+            .and_then(|w| routines::current_window(w, from, user.user.week_start as u32))
+            .map(|(s, _)| s.format("%Y-%m-%d").to_string());
+        let last_closed: Option<String> = if next.mode == "flexible" && old.mode == "flexible" {
+            sqlx::query_scalar(
+                "SELECT MAX(window_end) FROM tasks
+                 WHERE series_id = ? AND deleted_at IS NULL AND status <> 'open' AND occurrence_date > ?",
+            )
+            .bind(&old.id)
+            .bind(current_window_start.unwrap_or_default())
+            .fetch_one(&mut *tx)
+            .await?
+        } else {
+            sqlx::query_scalar(
+                "SELECT MAX(COALESCE(window_end, occurrence_date)) FROM tasks
+                 WHERE series_id = ? AND deleted_at IS NULL AND status <> 'open'",
+            )
+            .bind(&old.id)
+            .fetch_one(&mut *tx)
+            .await?
+        };
         let mut start = date(&old.dtstart).map_or(from, |d| d.max(from));
         if let Some(d) = last_closed.as_deref().and_then(date) {
             start = start.max(d + Duration::days(1));
         }
         next.id = crate::util::new_id();
+        next.split_from = Some(old.id.clone());
         next.dtstart = start.format("%Y-%m-%d").to_string();
         next.materialized_through = None;
         next.created_at = ts.clone();

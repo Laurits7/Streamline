@@ -247,6 +247,9 @@ pub struct Series {
     #[serde(skip)]
     #[ts(skip)]
     pub materialized_through: Option<String>,
+    /// The routine this one replaced when its schedule changed (progress and streaks
+    /// continue across versions).
+    pub split_from: Option<String>,
     pub created_at: String,
     pub updated_at: String,
     pub deleted_at: Option<String>,
@@ -387,8 +390,8 @@ pub async fn upsert_series(conn: &mut SqliteConnection, s: &Series) -> sqlx::Res
     sqlx::query(
         "INSERT INTO series (id, owner_user_id, owner_group_id, project_id, title, notes, mode, rrule, dtstart, until,
            start_time, duration_min, times_per_window, window, task_type_id, estimate_min, difficulty, importance, urgency,
-           materialized_through, created_at, updated_at, deleted_at, rev)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+           materialized_through, split_from, created_at, updated_at, deleted_at, rev)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
          ON CONFLICT(id) DO UPDATE SET project_id=excluded.project_id, title=excluded.title, notes=excluded.notes,
            mode=excluded.mode, rrule=excluded.rrule, dtstart=excluded.dtstart, until=excluded.until,
            start_time=excluded.start_time, duration_min=excluded.duration_min, times_per_window=excluded.times_per_window,
@@ -400,7 +403,7 @@ pub async fn upsert_series(conn: &mut SqliteConnection, s: &Series) -> sqlx::Res
     .bind(&s.id).bind(&s.owner_user_id).bind(&s.owner_group_id).bind(&s.project_id).bind(&s.title).bind(&s.notes)
     .bind(&s.mode).bind(&s.rrule).bind(&s.dtstart).bind(&s.until).bind(&s.start_time).bind(s.duration_min)
     .bind(s.times_per_window).bind(&s.window).bind(&s.task_type_id).bind(s.estimate_min).bind(s.difficulty)
-    .bind(s.importance).bind(s.urgency).bind(&s.materialized_through).bind(&s.created_at).bind(&s.updated_at)
+    .bind(s.importance).bind(s.urgency).bind(&s.materialized_through).bind(&s.split_from).bind(&s.created_at).bind(&s.updated_at)
     .bind(&s.deleted_at).bind(s.rev)
     .execute(conn)
     .await

@@ -75,7 +75,7 @@ Any of them can be revisited when the chunk that implements it starts.
   - **Kinds:** *repeat* is due on its dates (default Carry on). *anchored* is also put on the day's timeline at its time (default Expires). *flexible* means N slots per fixed week or month, due at the window's end (default the new built-in "Within its week/month" type).
   - **Day end:** expiring occurrences are missed even if unplanned. Open window tasks whose window ended are missed, or roll into the current window when the type's `window_overflow = roll`.
   - **Edits:** "this one" means editing the task. "All future" (`PATCH /series/{id}` with `from`) updates content in place on open occurrences from that date. A *schedule* change splits the routine: the old one ends the day before (or is deleted if it has no history), and the new one starts after the last settled occurrence or window, so nothing is done twice. Ending a routine removes open occurrences from today on and keeps the history.
-  - **Known limit:** splitting a "N per week" routine mid-window when only some slots are done starts the new routine next week; this week's remaining open slots are removed.
+  - **Mid-window changes (resolved by D-49):** changing how often a "N per week" routine runs mid-window now tops up the current window instead of waiting a week.
   - **Streaks:** consecutive done occurrences (or fully done windows). Skips don't break a streak; open, carry-on occurrences are undecided.
 - **D-48 · 2026-10-06 · Owner follow-ups** (after Phase 3):
   - **Unplanned banner:** an unplanned day's banner is warm orange (warning colours), not neutral or accent.
@@ -89,6 +89,7 @@ Any of them can be revisited when the chunk that implements it starts.
     - days marked planned
 
     Shown on the day view (open by default for past days) and in the planner's Review step, with "Copy as text". Groundwork for the Phase 5b daily summary.
+- **D-49 · 2026-10-06 · Routine versions** (owner chose option A): a schedule change links the new routine to the one it replaced (`series.split_from`). For "N per week/month" routines the new version starts at once, and in its first window creates only the slots still missing: wanted minus those already done under earlier versions. Example: twice → three times with one done gives two new slots, shown as "1 of 3". Window progress, streaks and the client's "x/y this week" count across all versions of a routine, so streaks also survive schedule changes.
 
 ## Resource log
 

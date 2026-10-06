@@ -872,12 +872,32 @@ class Store {
       .sort((a, b) => a.title.localeCompare(b.title))
   }
 
-  /** Done/total of a flexible routine's occurrences in the window that contains `day`. */
+  /** The first version of a routine (versions link back via `split_from` on schedule changes). */
+  private seriesRoot(id: string): string {
+    let cur = id
+    for (let i = 0; i < 50; i++) {
+      const prev = this.series.get(cur)?.split_from
+      if (!prev || !this.series.has(prev)) break
+      cur = prev
+    }
+    return cur
+  }
+
+  /** All versions of the routine `id` belongs to. */
+  seriesFamily(id: string): Set<string> {
+    const root = this.seriesRoot(id)
+    const out = new Set([id, root])
+    for (const s of this.series.values()) if (this.seriesRoot(s.id) === root) out.add(s.id)
+    return out
+  }
+
+  /** Done/total of a flexible routine's occurrences in the window that contains `day` (all versions). */
   windowProgress(seriesId: string, day: string): { done: number; total: number } {
+    const family = this.seriesFamily(seriesId)
     let done = 0
     let total = 0
     for (const t of this.tasks.values())
-      if (t.series_id === seriesId && t.window_end && t.occurrence_date! <= day && day <= t.window_end) {
+      if (t.series_id && family.has(t.series_id) && t.window_end && t.occurrence_date! <= day && day <= t.window_end) {
         total++
         if (t.status === 'done') done++
       }

@@ -27,4 +27,9 @@ start_time: string | null, duration_min: number | null,
 /**
  * Flexible routines: how many times per window.
  */
-times_per_window: number | null, window: 'week' | 'month' | null, task_type_id: string, estimate_min: number | null, difficulty: number | null, importance: number | null, urgency: number | null, created_at: string, updated_at: string, deleted_at: string | null, rev: number, };
+times_per_window: number | null, window: 'week' | 'month' | null, task_type_id: string, estimate_min: number | null, difficulty: number | null, importance: number | null, urgency: number | null, 
+/**
+ * The routine this one replaced when its schedule changed (progress and streaks
+ * continue across versions).
+ */
+split_from: string | null, created_at: string, updated_at: string, deleted_at: string | null, rev: number, };

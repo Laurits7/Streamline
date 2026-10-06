@@ -1729,3 +1729,121 @@ async fn daily_activity_log() {
         .await;
     assert_eq!(theirs, json!([]));
 }
+
+#[tokio::test]
+async fn changing_how_often_mid_week_tops_up_this_week() {
+    let t = setup().await;
+    let admin = t.admin().await;
+    let today = today_of(&t, &admin).await;
+    let (ws, we) = streamline_domain::time::week_bounds(today, 1);
+    let (_, old, _) = t
+        .req("POST", "/api/v1/series", Some(&admin), Some(json!({"title": "Laundry", "mode": "flexible", "times_per_window": 2, "window": "week", "dtstart": ymd(ws)})))
+        .await;
+    let oid = old["id"].as_str().unwrap().to_string();
+    let this_week = |v: Vec<Value>| {
+        v.into_iter()
+            .filter(|o| o["occurrence_date"] == ymd(ws))
+            .collect::<Vec<_>>()
+    };
+    let slots = this_week(occurrences(&t, &admin, &oid).await);
+    t.req(
+        "PATCH",
+        &format!("/api/v1/tasks/{}", slots[0]["id"].as_str().unwrap()),
+        Some(&admin),
+        Some(json!({"status": "done"})),
+    )
+    .await;
+
+    // Twice -> three times a week, from today: one done, so two more this week.
+    let (s, new, _) = t
+        .req(
+            "PATCH",
+            &format!("/api/v1/series/{oid}"),
+            Some(&admin),
+            Some(json!({"times_per_window": 3})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{new}");
+    let nid = new["id"].as_str().unwrap().to_string();
+    assert_eq!(new["split_from"], oid);
+    assert_eq!(
+        new["dtstart"],
+        ymd(today),
+        "takes effect now, not next week"
+    );
+    let old_now = this_week(occurrences(&t, &admin, &oid).await);
+    assert_eq!(
+        old_now
+            .iter()
+            .map(|o| o["status"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        ["done"],
+        "old open slot replaced"
+    );
+    let new_now = this_week(occurrences(&t, &admin, &nid).await);
+    assert_eq!(new_now.len(), 2, "tops up: 3 wanted - 1 done");
+    assert!(
+        new_now
+            .iter()
+            .all(|o| o["status"] == "open" && o["window_end"] == ymd(we))
+    );
+
+    // Progress and streak count across both versions.
+    let (_, stats, _) = t
+        .req("GET", "/api/v1/series/stats", Some(&admin), None)
+        .await;
+    let st = stats
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["series_id"] == nid)
+        .unwrap()
+        .clone();
+    assert_eq!(
+        (st["window_done"].as_i64(), st["window_total"].as_i64()),
+        (Some(1), Some(3)),
+        "{st}"
+    );
+
+    // Next week gets the full three (viewing a day there creates them).
+    let next_ws = ws + chrono::Duration::days(7);
+    t.req(
+        "GET",
+        &format!("/api/v1/days/{}", ymd(next_ws + chrono::Duration::days(1))),
+        Some(&admin),
+        None,
+    )
+    .await;
+    let next = occurrences(&t, &admin, &nid)
+        .await
+        .into_iter()
+        .filter(|o| o["occurrence_date"] == ymd(next_ws))
+        .count();
+    assert_eq!(next, 3);
+
+    // Doing everything this week completes the window and keeps the streak going.
+    for o in &new_now {
+        t.req(
+            "PATCH",
+            &format!("/api/v1/tasks/{}", o["id"].as_str().unwrap()),
+            Some(&admin),
+            Some(json!({"status": "done"})),
+        )
+        .await;
+    }
+    let (_, stats, _) = t
+        .req("GET", "/api/v1/series/stats", Some(&admin), None)
+        .await;
+    let st = stats
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["series_id"] == nid)
+        .unwrap()
+        .clone();
+    assert_eq!(
+        (st["window_done"].as_i64(), st["streak"].as_i64()),
+        (Some(3), Some(1)),
+        "{st}"
+    );
+}

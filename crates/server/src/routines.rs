@@ -55,10 +55,36 @@ pub async fn materialize_series(
         return Ok(vec![]);
     };
     let until = s.until.as_deref().and_then(date);
+    // A routine that replaced an earlier version mid-window only adds what's still
+    // missing in that first window (slots already done under the old version count).
+    let mut credit: Option<(NaiveDate, u32)> = None;
+    if let (Schedule::Flexible { window, .. }, Some(_)) = (&sched, &s.split_from) {
+        let (ws, we) = window_bounds(dtstart, *window, week_start);
+        let mut done = 0u32;
+        for id in lineage(conn, s).await?.iter().skip(1) {
+            let n: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM tasks WHERE series_id = ? AND deleted_at IS NULL AND status = 'done'
+                   AND occurrence_date >= ? AND occurrence_date <= ?",
+            )
+            .bind(id)
+            .bind(fmt(ws))
+            .bind(fmt(we))
+            .fetch_one(&mut *conn)
+            .await?;
+            done += n as u32;
+        }
+        credit = Some((ws, done));
+    }
     let mut changes = vec![];
     for o in plan_occurrences(&sched, dtstart, until, from, to, week_start)
         .map_err(anyhow::Error::msg)?
     {
+        if let (Some((ws, done)), Some(i)) = (credit, o.index)
+            && o.date == ws
+            && i <= done
+        {
+            continue;
+        }
         let exists: Option<String> =
             sqlx::query_scalar("SELECT id FROM tasks WHERE series_id = ? AND occurrence_key = ?")
                 .bind(&s.id)
@@ -142,6 +168,21 @@ pub async fn materialize_series(
         }
     }
     Ok(changes)
+}
+
+/// The routine and the versions it replaced, newest first (ids).
+pub async fn lineage(conn: &mut SqliteConnection, s: &Series) -> sqlx::Result<Vec<String>> {
+    let mut out = vec![s.id.clone()];
+    let mut prev = s.split_from.clone();
+    while let Some(id) = prev.filter(|id| !out.contains(id) && out.len() < 50) {
+        prev = sqlx::query_scalar("SELECT split_from FROM series WHERE id = ?")
+            .bind(&id)
+            .fetch_optional(&mut *conn)
+            .await?
+            .flatten();
+        out.push(id);
+    }
+    Ok(out)
 }
 
 /// Bring a user's routines up to date: occurrences through tomorrow (so tomorrow can be
@@ -244,13 +285,19 @@ fn outcome(status: &str, pending: bool) -> Outcome {
 
 pub async fn stats(state: &AppState, user: &User, s: &Series) -> anyhow::Result<SeriesStats> {
     let today = today_for(user);
-    let rows: Vec<(String, String, Option<String>)> = sqlx::query_as(
+    // Earlier versions of the routine count too (streaks survive schedule changes).
+    let ids = lineage(&mut *state.db.read.acquire().await?, s).await?;
+    let placeholders = vec!["?"; ids.len()].join(",");
+    let sql = format!(
         "SELECT status, occurrence_date, window_end FROM tasks
-         WHERE series_id = ? AND deleted_at IS NULL AND occurrence_date IS NOT NULL ORDER BY occurrence_date, occurrence_key",
-    )
-    .bind(&s.id)
-    .fetch_all(&state.db.read)
-    .await?;
+         WHERE series_id IN ({placeholders}) AND deleted_at IS NULL AND occurrence_date IS NOT NULL
+         ORDER BY occurrence_date, occurrence_key"
+    );
+    let mut q = sqlx::query_as::<_, (String, String, Option<String>)>(&sql);
+    for id in &ids {
+        q = q.bind(id);
+    }
+    let rows = q.fetch_all(&state.db.read).await?;
     let (mut window_done, mut window_total) = (0, 0);
     let outcomes: Vec<Outcome> = if s.mode == "flexible" {
         // One outcome per window: done when every slot is done.
