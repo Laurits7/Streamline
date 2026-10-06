@@ -1066,3 +1066,361 @@ async fn in_progress_prefs_and_focus_settings() {
         .await;
     assert_eq!(v["timer"]["length_min"], 50);
 }
+
+async fn today_of(t: &T, auth: &str) -> chrono::NaiveDate {
+    let (_, v, _) = t.req("GET", "/api/v1/today", Some(auth), None).await;
+    chrono::NaiveDate::parse_from_str(v["date"].as_str().unwrap(), "%Y-%m-%d").unwrap()
+}
+fn ymd(d: chrono::NaiveDate) -> String {
+    d.format("%Y-%m-%d").to_string()
+}
+async fn occurrences(t: &T, auth: &str, series_id: &str) -> Vec<Value> {
+    let (_, v, _) = t.req("GET", "/api/v1/tasks", Some(auth), None).await;
+    let mut out: Vec<Value> = v
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|x| x["series_id"] == series_id)
+        .cloned()
+        .collect();
+    out.sort_by_key(|x| x["occurrence_key"].as_str().unwrap().to_string());
+    out
+}
+
+#[tokio::test]
+async fn routines_create_occurrences_once() {
+    let t = setup().await;
+    let admin = t.admin().await;
+    let today = today_of(&t, &admin).await;
+    let tomorrow = today + chrono::Duration::days(1);
+
+    // Repeat daily: today and tomorrow exist (tomorrow so it can be planned tonight).
+    let (s, daily, _) = t
+        .req(
+            "POST",
+            "/api/v1/series",
+            Some(&admin),
+            Some(json!({"title": "Water plants", "mode": "repeat", "rrule": "FREQ=DAILY"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{daily}");
+    assert_eq!(daily["task_type_id"], "tt_carry_on");
+    let occ = occurrences(&t, &admin, daily["id"].as_str().unwrap()).await;
+    assert_eq!(
+        occ.iter()
+            .map(|o| o["occurrence_date"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        [ymd(today), ymd(tomorrow)]
+    );
+    assert_eq!(occ[0]["due_date"], ymd(today));
+
+    // Syncing again doesn't duplicate; a deleted (skipped) occurrence never returns.
+    t.req(
+        "DELETE",
+        &format!("/api/v1/tasks/{}", occ[1]["id"].as_str().unwrap()),
+        Some(&admin),
+        None,
+    )
+    .await;
+    t.req("GET", "/api/v1/sync", Some(&admin), None).await;
+    sqlx::query("UPDATE series SET materialized_through = NULL")
+        .execute(&t.state.db.write)
+        .await
+        .unwrap();
+    t.req("GET", "/api/v1/sync", Some(&admin), None).await;
+    assert_eq!(
+        occurrences(&t, &admin, daily["id"].as_str().unwrap())
+            .await
+            .len(),
+        1
+    );
+
+    // Fixed time: planned on the timeline, "expires" by default.
+    let (_, anchored, _) = t
+        .req("POST", "/api/v1/series", Some(&admin), Some(json!({"title": "Vitamins", "mode": "anchored", "rrule": "FREQ=DAILY", "start_time": "07:30", "duration_min": 5})))
+        .await;
+    assert_eq!(anchored["task_type_id"], "tt_expires");
+    let (_, day, _) = t
+        .req(
+            "GET",
+            &format!("/api/v1/days/{}", ymd(today)),
+            Some(&admin),
+            None,
+        )
+        .await;
+    let vit = occurrences(&t, &admin, anchored["id"].as_str().unwrap()).await[0].clone();
+    let entry = day["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["task_id"] == vit["id"])
+        .expect("planned");
+    assert_eq!(
+        (entry["start_time"].as_str(), entry["duration_min"].as_i64()),
+        (Some("07:30"), Some(5))
+    );
+
+    // N times per week: two slots for the current week, due at its end.
+    let (_, laundry, _) = t
+        .req("POST", "/api/v1/series", Some(&admin), Some(json!({"title": "Laundry", "mode": "flexible", "times_per_window": 2, "window": "week"})))
+        .await;
+    assert_eq!(laundry["task_type_id"], "tt_window");
+    let (ws, we) = streamline_domain::time::week_bounds(today, 1);
+    let occ = occurrences(&t, &admin, laundry["id"].as_str().unwrap()).await;
+    let this_week: Vec<_> = occ
+        .iter()
+        .filter(|o| o["occurrence_date"] == ymd(ws))
+        .collect();
+    assert_eq!(this_week.len(), 2);
+    assert_eq!(this_week[0]["window_end"], ymd(we));
+    assert_eq!(this_week[0]["due_date"], ymd(we));
+
+    // A later day is filled in on demand when viewed.
+    let later = today + chrono::Duration::days(10);
+    let (_, day, _) = t
+        .req(
+            "GET",
+            &format!("/api/v1/days/{}", ymd(later)),
+            Some(&admin),
+            None,
+        )
+        .await;
+    assert!(
+        day["tasks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|x| x["series_id"] == daily["id"] && x["occurrence_date"] == ymd(later))
+    );
+    assert!(
+        day["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|e| e["start_time"] == "07:30")
+    );
+
+    // Validation.
+    for bad in [
+        json!({"title": "x", "mode": "repeat", "rrule": "FREQ=HOURLY"}),
+        json!({"title": "x", "mode": "repeat"}),
+        json!({"title": "x", "mode": "anchored", "rrule": "FREQ=DAILY"}),
+        json!({"title": "x", "mode": "flexible", "times_per_window": 2}),
+        json!({"title": "x", "mode": "repeat", "rrule": "FREQ=DAILY", "dtstart": "2026-10-10", "until": "2026-10-01"}),
+    ] {
+        let (s, _, _) = t
+            .req("POST", "/api/v1/series", Some(&admin), Some(bad.clone()))
+            .await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "{bad}");
+    }
+}
+
+#[tokio::test]
+async fn routine_day_end_rules_and_streaks() {
+    let t = setup().await;
+    let admin = t.admin().await;
+    let today = today_of(&t, &admin).await;
+    let yesterday = today - chrono::Duration::days(1);
+    let (_, vit, _) = t.req("POST", "/api/v1/series", Some(&admin), Some(json!({"title": "Vitamins", "mode": "repeat", "rrule": "FREQ=DAILY", "task_type_id": "tt_expires"}))).await;
+    let (_, laundry, _) = t
+        .req("POST", "/api/v1/series", Some(&admin), Some(json!({"title": "Laundry", "mode": "flexible", "times_per_window": 1, "window": "week"})))
+        .await;
+    let vit_occ = occurrences(&t, &admin, vit["id"].as_str().unwrap()).await;
+    let laundry_occ = occurrences(&t, &admin, laundry["id"].as_str().unwrap()).await;
+
+    // Pretend today's vitamins were yesterday's and never planned, and the laundry week ended.
+    sqlx::query("UPDATE tasks SET occurrence_date = ? WHERE id = ?")
+        .bind(ymd(yesterday))
+        .bind(vit_occ[0]["id"].as_str().unwrap())
+        .execute(&t.state.db.write)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE tasks SET window_end = ? WHERE id = ?")
+        .bind(ymd(yesterday))
+        .bind(laundry_occ[0]["id"].as_str().unwrap())
+        .execute(&t.state.db.write)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE users SET last_rollover_date = NULL")
+        .execute(&t.state.db.write)
+        .await
+        .unwrap();
+    t.req("GET", "/api/v1/sync", Some(&admin), None).await;
+    let get = |id: &Value| {
+        let id = id.as_str().unwrap().to_string();
+        let t = &t;
+        let admin = admin.clone();
+        async move {
+            t.req("GET", &format!("/api/v1/tasks/{id}"), Some(&admin), None)
+                .await
+                .1
+        }
+    };
+    assert_eq!(
+        get(&vit_occ[0]["id"]).await["status"],
+        "missed",
+        "an expiring routine missed without being planned"
+    );
+    assert_eq!(
+        get(&laundry_occ[0]["id"]).await["status"],
+        "missed",
+        "window ended undone"
+    );
+
+    // With overflow = roll, an unfinished window task moves into the current window instead.
+    sqlx::query("UPDATE task_types SET window_overflow = 'roll' WHERE id = 'tt_window'")
+        .execute(&t.state.db.write)
+        .await
+        .unwrap();
+    let (_, other, _) = t
+        .req("POST", "/api/v1/series", Some(&admin), Some(json!({"title": "Vacuum", "mode": "flexible", "times_per_window": 1, "window": "week"})))
+        .await;
+    let vac = occurrences(&t, &admin, other["id"].as_str().unwrap()).await[0].clone();
+    sqlx::query("UPDATE tasks SET window_end = ? WHERE id = ?")
+        .bind(ymd(yesterday))
+        .bind(vac["id"].as_str().unwrap())
+        .execute(&t.state.db.write)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE users SET last_rollover_date = NULL")
+        .execute(&t.state.db.write)
+        .await
+        .unwrap();
+    t.req("GET", "/api/v1/sync", Some(&admin), None).await;
+    let v = get(&vac["id"]).await;
+    assert_eq!(v["status"], "open");
+    assert!(v["window_end"].as_str().unwrap() >= ymd(today).as_str());
+    assert_eq!(v["carry_count"], 1);
+
+    // Streaks: completing the next vitamins (early) after yesterday's miss = 1.
+    let tomorrow = today + chrono::Duration::days(1);
+    let today_vit = occurrences(&t, &admin, vit["id"].as_str().unwrap())
+        .await
+        .into_iter()
+        .find(|o| o["occurrence_date"] == ymd(tomorrow))
+        .unwrap();
+    t.req(
+        "PATCH",
+        &format!("/api/v1/tasks/{}", today_vit["id"].as_str().unwrap()),
+        Some(&admin),
+        Some(json!({"status": "done"})),
+    )
+    .await;
+    let (_, stats, _) = t
+        .req("GET", "/api/v1/series/stats", Some(&admin), None)
+        .await;
+    let s = stats
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["series_id"] == vit["id"])
+        .unwrap();
+    assert_eq!(s["streak"], 1);
+    assert_eq!(s["next_date"], ymd(today));
+}
+
+#[tokio::test]
+async fn routine_edits_this_one_vs_all_future() {
+    let t = setup().await;
+    let admin = t.admin().await;
+    let today = today_of(&t, &admin).await;
+    let (_, s, _) = t
+        .req(
+            "POST",
+            "/api/v1/series",
+            Some(&admin),
+            Some(json!({"title": "Stretch", "mode": "repeat", "rrule": "FREQ=DAILY"})),
+        )
+        .await;
+    let sid = s["id"].as_str().unwrap().to_string();
+    let occ = occurrences(&t, &admin, &sid).await;
+
+    // "This one": editing the occurrence task only changes it.
+    t.req(
+        "PATCH",
+        &format!("/api/v1/tasks/{}", occ[1]["id"].as_str().unwrap()),
+        Some(&admin),
+        Some(json!({"title": "Stretch (long)"})),
+    )
+    .await;
+    // "All future", content only: in place, open occurrences follow.
+    let (_, s2, _) = t
+        .req(
+            "PATCH",
+            &format!("/api/v1/series/{sid}"),
+            Some(&admin),
+            Some(json!({"title": "Stretching", "estimate_min": 10})),
+        )
+        .await;
+    assert_eq!(s2["id"], sid);
+    let occ = occurrences(&t, &admin, &sid).await;
+    assert!(
+        occ.iter()
+            .all(|o| o["title"] == "Stretching" && o["estimate_min"] == 10)
+    );
+
+    // Do today's, then change the schedule: the routine splits; history stays with the old one.
+    t.req(
+        "PATCH",
+        &format!("/api/v1/tasks/{}", occ[0]["id"].as_str().unwrap()),
+        Some(&admin),
+        Some(json!({"status": "done"})),
+    )
+    .await;
+    let tomorrow = today + chrono::Duration::days(1);
+    let (s, s3, _) = t
+        .req(
+            "PATCH",
+            &format!("/api/v1/series/{sid}"),
+            Some(&admin),
+            Some(json!({"rrule": "FREQ=WEEKLY", "from": ymd(tomorrow)})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{s3}");
+    assert_ne!(s3["id"], sid);
+    assert_eq!(s3["dtstart"], ymd(tomorrow));
+    let (_, list, _) = t.req("GET", "/api/v1/series", Some(&admin), None).await;
+    let old = list
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|x| x["id"] == sid)
+        .unwrap();
+    assert_eq!(
+        old["until"],
+        ymd(today),
+        "the old routine ends the day before"
+    );
+    let old_occ = occurrences(&t, &admin, &sid).await;
+    assert_eq!(
+        old_occ.len(),
+        1,
+        "only the done occurrence stays with the old routine"
+    );
+    assert_eq!(old_occ[0]["status"], "done");
+    let new_occ = occurrences(&t, &admin, s3["id"].as_str().unwrap()).await;
+    assert_eq!(
+        new_occ
+            .iter()
+            .map(|o| o["occurrence_date"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        [ymd(tomorrow)]
+    );
+
+    // Ending a routine removes open occurrences from today on, keeps history.
+    let (s, _, _) = t
+        .req(
+            "DELETE",
+            &format!("/api/v1/series/{}", s3["id"].as_str().unwrap()),
+            Some(&admin),
+            None,
+        )
+        .await;
+    assert_eq!(s, StatusCode::NO_CONTENT);
+    assert!(
+        occurrences(&t, &admin, s3["id"].as_str().unwrap())
+            .await
+            .is_empty()
+    );
+    assert_eq!(occurrences(&t, &admin, &sid).await.len(), 1);
+}

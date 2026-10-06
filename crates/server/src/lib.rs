@@ -12,6 +12,7 @@ pub mod notify;
 pub mod reminders;
 pub mod rollover;
 pub mod routes;
+pub mod routines;
 pub mod static_files;
 pub mod util;
 pub mod visibility;

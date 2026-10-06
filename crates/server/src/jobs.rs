@@ -10,6 +10,10 @@ pub fn spawn(state: AppState) {
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         loop {
             tick.tick().await;
+            // Occurrences first, so a missed routine day is recorded by the rollover.
+            if let Err(e) = crate::routines::materialize_all(&state).await {
+                tracing::warn!("routines job failed: {e:#}");
+            }
             if let Err(e) = crate::rollover::run_all(&state).await {
                 tracing::warn!("rollover job failed: {e:#}");
             }

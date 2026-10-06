@@ -105,7 +105,12 @@ pub async fn get_day(
     user: AuthUser,
     Path(date): Path<String>,
 ) -> ApiResult<Json<DayView>> {
-    parse_date(&date)?;
+    let day = parse_date(&date)?;
+    // Routine occurrences exist up to tomorrow; create them on demand for later days.
+    if day > rollover::today_for(&user.user) + chrono::Duration::days(1) {
+        crate::routines::materialize_day(&state, &user.user, day).await?;
+    }
+    crate::routines::materialize_user(&state, &user.user).await?;
     rollover::run_for_user(&state, &user.user).await?;
     let db = &state.db.read;
     let entries: Vec<DayEntry> = sqlx::query_as(

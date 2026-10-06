@@ -164,6 +164,14 @@ pub struct Task {
     pub ext_source: Option<String>,
     pub ext_id: Option<String>,
     pub ext_url: Option<String>,
+    /// Set for occurrences of a routine.
+    pub series_id: Option<String>,
+    /// Identifies the occurrence within its routine (a date, or window start + "#n").
+    pub occurrence_key: Option<String>,
+    /// The day the occurrence is for (or the first day of its window).
+    pub occurrence_date: Option<String>,
+    /// For "N times per week/month" routines: the last day of the window.
+    pub window_end: Option<String>,
     pub created_at: String,
     pub updated_at: String,
     pub deleted_at: Option<String>,
@@ -194,6 +202,47 @@ pub struct DayEntry {
     pub position: String,
     pub start_time: Option<String>,
     pub duration_min: Option<i32>,
+    pub created_at: String,
+    pub updated_at: String,
+    pub deleted_at: Option<String>,
+    #[ts(type = "number")]
+    pub rev: i64,
+}
+
+/// A routine: a template that spawns one task per occurrence (SPEC §6.3).
+#[derive(Debug, Clone, Serialize, FromRow, TS, utoipa::ToSchema)]
+#[ts(export)]
+pub struct Series {
+    pub id: String,
+    pub owner_user_id: Option<String>,
+    pub owner_group_id: Option<String>,
+    pub project_id: Option<String>,
+    pub title: String,
+    pub notes: String,
+    /// `repeat` (on the rule's dates), `anchored` (at a fixed time) or `flexible` (N per week/month).
+    #[ts(type = "'repeat' | 'anchored' | 'flexible'")]
+    pub mode: String,
+    /// iCalendar RRULE without `RRULE:`, e.g. `FREQ=WEEKLY;BYDAY=MO,WE` (repeat/anchored).
+    pub rrule: Option<String>,
+    /// First day (`YYYY-MM-DD`).
+    pub dtstart: String,
+    /// Last day, inclusive; `null` = no end.
+    pub until: Option<String>,
+    /// `HH:MM` for anchored routines.
+    pub start_time: Option<String>,
+    pub duration_min: Option<i32>,
+    /// Flexible routines: how many times per window.
+    pub times_per_window: Option<i32>,
+    #[ts(type = "'week' | 'month' | null")]
+    pub window: Option<String>,
+    pub task_type_id: String,
+    pub estimate_min: Option<i32>,
+    pub difficulty: Option<i32>,
+    pub importance: Option<i32>,
+    pub urgency: Option<i32>,
+    #[serde(skip)]
+    #[ts(skip)]
+    pub materialized_through: Option<String>,
     pub created_at: String,
     pub updated_at: String,
     pub deleted_at: Option<String>,
@@ -291,8 +340,9 @@ pub async fn upsert_task(conn: &mut SqliteConnection, t: &Task) -> sqlx::Result<
     sqlx::query(
         "INSERT INTO tasks (id, owner_user_id, owner_group_id, assignee_user_id, project_id, title, notes, status, position,
            due_date, estimate_min, difficulty, importance, urgency, actual_min, task_type_id, carry_count, started_at, completed_at,
-           completed_by, ext_source, ext_id, ext_url, created_at, updated_at, deleted_at, rev)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+           completed_by, ext_source, ext_id, ext_url, series_id, occurrence_key, occurrence_date, window_end,
+           created_at, updated_at, deleted_at, rev)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
          ON CONFLICT(id) DO UPDATE SET owner_user_id=excluded.owner_user_id, owner_group_id=excluded.owner_group_id,
            assignee_user_id=excluded.assignee_user_id, project_id=excluded.project_id, title=excluded.title,
            notes=excluded.notes, status=excluded.status, position=excluded.position, due_date=excluded.due_date,
@@ -300,13 +350,15 @@ pub async fn upsert_task(conn: &mut SqliteConnection, t: &Task) -> sqlx::Result<
            urgency=excluded.urgency, actual_min=excluded.actual_min, task_type_id=excluded.task_type_id,
            carry_count=excluded.carry_count, started_at=excluded.started_at, completed_at=excluded.completed_at, completed_by=excluded.completed_by,
            ext_source=excluded.ext_source, ext_id=excluded.ext_id, ext_url=excluded.ext_url,
+           occurrence_date=excluded.occurrence_date, window_end=excluded.window_end,
            updated_at=excluded.updated_at, deleted_at=excluded.deleted_at, rev=excluded.rev",
     )
     .bind(&t.id).bind(&t.owner_user_id).bind(&t.owner_group_id).bind(&t.assignee_user_id).bind(&t.project_id)
     .bind(&t.title).bind(&t.notes).bind(&t.status).bind(&t.position).bind(&t.due_date).bind(t.estimate_min)
     .bind(t.difficulty).bind(t.importance).bind(t.urgency).bind(t.actual_min).bind(&t.task_type_id)
     .bind(t.carry_count).bind(&t.started_at).bind(&t.completed_at).bind(&t.completed_by).bind(&t.ext_source).bind(&t.ext_id)
-    .bind(&t.ext_url).bind(&t.created_at).bind(&t.updated_at).bind(&t.deleted_at).bind(t.rev)
+    .bind(&t.ext_url).bind(&t.series_id).bind(&t.occurrence_key).bind(&t.occurrence_date).bind(&t.window_end)
+    .bind(&t.created_at).bind(&t.updated_at).bind(&t.deleted_at).bind(t.rev)
     .execute(conn)
     .await
     .map(|_| ())
@@ -321,6 +373,30 @@ pub async fn upsert_entry(conn: &mut SqliteConnection, e: &DayEntry) -> sqlx::Re
     )
     .bind(&e.id).bind(&e.user_id).bind(&e.date).bind(&e.task_id).bind(&e.position).bind(&e.start_time)
     .bind(e.duration_min).bind(&e.created_at).bind(&e.updated_at).bind(&e.deleted_at).bind(e.rev)
+    .execute(conn)
+    .await
+    .map(|_| ())
+}
+
+pub async fn upsert_series(conn: &mut SqliteConnection, s: &Series) -> sqlx::Result<()> {
+    sqlx::query(
+        "INSERT INTO series (id, owner_user_id, owner_group_id, project_id, title, notes, mode, rrule, dtstart, until,
+           start_time, duration_min, times_per_window, window, task_type_id, estimate_min, difficulty, importance, urgency,
+           materialized_through, created_at, updated_at, deleted_at, rev)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+         ON CONFLICT(id) DO UPDATE SET project_id=excluded.project_id, title=excluded.title, notes=excluded.notes,
+           mode=excluded.mode, rrule=excluded.rrule, dtstart=excluded.dtstart, until=excluded.until,
+           start_time=excluded.start_time, duration_min=excluded.duration_min, times_per_window=excluded.times_per_window,
+           window=excluded.window, task_type_id=excluded.task_type_id, estimate_min=excluded.estimate_min,
+           difficulty=excluded.difficulty, importance=excluded.importance, urgency=excluded.urgency,
+           materialized_through=excluded.materialized_through, updated_at=excluded.updated_at,
+           deleted_at=excluded.deleted_at, rev=excluded.rev",
+    )
+    .bind(&s.id).bind(&s.owner_user_id).bind(&s.owner_group_id).bind(&s.project_id).bind(&s.title).bind(&s.notes)
+    .bind(&s.mode).bind(&s.rrule).bind(&s.dtstart).bind(&s.until).bind(&s.start_time).bind(s.duration_min)
+    .bind(s.times_per_window).bind(&s.window).bind(&s.task_type_id).bind(s.estimate_min).bind(s.difficulty)
+    .bind(s.importance).bind(s.urgency).bind(&s.materialized_through).bind(&s.created_at).bind(&s.updated_at)
+    .bind(&s.deleted_at).bind(s.rev)
     .execute(conn)
     .await
     .map(|_| ())

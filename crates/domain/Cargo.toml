@@ -7,3 +7,4 @@ license.workspace = true
 [dependencies]
 chrono.workspace = true
 chrono-tz.workspace = true
+rrule = "0.14"

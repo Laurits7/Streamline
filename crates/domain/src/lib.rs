@@ -4,6 +4,7 @@
 pub mod focus;
 pub mod order;
 pub mod planning;
+pub mod recurrence;
 pub mod rollover;
 pub mod time;
 pub mod tree;

@@ -5,7 +5,7 @@
 use chrono::{NaiveDate, Utc};
 use streamline_domain::{
     order::key_after,
-    rollover::{DayEndBehavior, Outcome, day_end_outcome},
+    rollover::{DayEndBehavior, Outcome, WindowOutcome, day_end_outcome, window_outcome},
     time::{logical_date, parse_hhmm, parse_tz},
 };
 
@@ -32,6 +32,94 @@ pub async fn run_for_user(state: &AppState, user: &User) -> anyhow::Result<()> {
     }
 
     let mut tx = state.db.write.begin().await?;
+    let mut changes = Vec::new();
+    let ts = now();
+
+    // Routine occurrences of an "expires" type whose day passed undone: missed, whether
+    // or not they were planned (planned ones are also caught by the entry loop below).
+    let expired: Vec<Task> = sqlx::query_as(
+        "SELECT t.* FROM tasks t JOIN task_types tt ON tt.id = t.task_type_id
+         WHERE t.owner_user_id = ? AND t.deleted_at IS NULL AND t.status = 'open'
+           AND t.series_id IS NOT NULL AND tt.day_end_behavior = 'expire' AND t.occurrence_date < ?",
+    )
+    .bind(&user.id)
+    .bind(&today_s)
+    .fetch_all(&mut *tx)
+    .await?;
+    for mut t in expired {
+        t.status = "missed".into();
+        t.updated_at = ts.clone();
+        t.rev = next_rev(&mut tx).await?;
+        upsert_task(&mut tx, &t).await?;
+        log_task_event(
+            &mut tx,
+            &t.id,
+            None,
+            "missed",
+            Some(serde_json::json!({"date": t.occurrence_date})),
+        )
+        .await?;
+        changes.push(Change::task(&t));
+    }
+
+    // "N times per week/month" tasks whose window ended: missed, or rolled into the
+    // current window when the task type says so.
+    let ended: Vec<(String, String, Option<String>)> = sqlx::query_as(
+        "SELECT t.id, tt.window_overflow, s.window FROM tasks t
+         JOIN task_types tt ON tt.id = t.task_type_id
+         LEFT JOIN series s ON s.id = t.series_id
+         WHERE t.owner_user_id = ? AND t.deleted_at IS NULL AND t.status = 'open'
+           AND t.window_end IS NOT NULL AND t.window_end < ?",
+    )
+    .bind(&user.id)
+    .bind(&today_s)
+    .fetch_all(&mut *tx)
+    .await?;
+    for (id, overflow, window) in ended {
+        let mut t: Task = sqlx::query_as("SELECT * FROM tasks WHERE id = ?")
+            .bind(&id)
+            .fetch_one(&mut *tx)
+            .await?;
+        let Some(end) = t.window_end.as_deref().and_then(crate::routines::date) else {
+            continue;
+        };
+        let current = window
+            .as_deref()
+            .and_then(|w| crate::routines::current_window(w, today, user.week_start as u32));
+        match (window_outcome(end, today, overflow == "roll"), current) {
+            (WindowOutcome::Roll, Some((start, end))) => {
+                t.occurrence_date = Some(start.format("%Y-%m-%d").to_string());
+                t.window_end = Some(end.format("%Y-%m-%d").to_string());
+                t.due_date = t.window_end.clone();
+                t.carry_count += 1;
+                log_task_event(
+                    &mut tx,
+                    &t.id,
+                    None,
+                    "carried",
+                    Some(serde_json::json!({"window_end": t.window_end})),
+                )
+                .await?;
+            }
+            (WindowOutcome::Keep, _) => continue,
+            _ => {
+                t.status = "missed".into();
+                log_task_event(
+                    &mut tx,
+                    &t.id,
+                    None,
+                    "missed",
+                    Some(serde_json::json!({"window_end": end.to_string()})),
+                )
+                .await?;
+            }
+        }
+        t.updated_at = ts.clone();
+        t.rev = next_rev(&mut tx).await?;
+        upsert_task(&mut tx, &t).await?;
+        changes.push(Change::task(&t));
+    }
+
     let rows: Vec<(String, String)> = sqlx::query_as(
         "SELECT e.id, tt.day_end_behavior FROM day_entries e
          JOIN tasks t ON t.id = e.task_id
@@ -53,8 +141,6 @@ pub async fn run_for_user(state: &AppState, user: &User) -> anyhow::Result<()> {
     .fetch_one(&mut *tx)
     .await?;
 
-    let mut changes = Vec::new();
-    let ts = now();
     for (entry_id, behavior) in rows {
         let mut entry: DayEntry = sqlx::query_as("SELECT * FROM day_entries WHERE id = ?")
             .bind(&entry_id)

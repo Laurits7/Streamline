@@ -5,4 +5,20 @@ export type Task = { id: string, owner_user_id: string | null, owner_group_id: s
 /**
  * Set when work on the task began ("in progress" while the task is open).
  */
-started_at: string | null, completed_at: string | null, completed_by: string | null, ext_source: string | null, ext_id: string | null, ext_url: string | null, created_at: string, updated_at: string, deleted_at: string | null, rev: number, };
+started_at: string | null, completed_at: string | null, completed_by: string | null, ext_source: string | null, ext_id: string | null, ext_url: string | null, 
+/**
+ * Set for occurrences of a routine.
+ */
+series_id: string | null, 
+/**
+ * Identifies the occurrence within its routine (a date, or window start + "#n").
+ */
+occurrence_key: string | null, 
+/**
+ * The day the occurrence is for (or the first day of its window).
+ */
+occurrence_date: string | null, 
+/**
+ * For "N times per week/month" routines: the last day of the window.
+ */
+window_end: string | null, created_at: string, updated_at: string, deleted_at: string | null, rev: number, };

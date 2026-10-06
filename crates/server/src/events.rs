@@ -7,7 +7,7 @@ use serde::Serialize;
 use tokio::sync::broadcast;
 
 use crate::{
-    models::{DayEntry, DayPlan, FocusSession, FocusTimer, Project, Task},
+    models::{DayEntry, DayPlan, FocusSession, FocusTimer, Project, Series, Task},
     visibility,
 };
 
@@ -51,6 +51,14 @@ impl Change {
             kind: "day_plan",
             data: serde_json::to_value(p).unwrap(),
             audience: vec![p.user_id.clone()],
+        }
+    }
+    pub fn series(s: &Series) -> Self {
+        Self {
+            rev: s.rev,
+            kind: "series",
+            data: serde_json::to_value(s).unwrap(),
+            audience: visibility::audience(s.owner_user_id.as_deref(), s.owner_group_id.as_deref()),
         }
     }
     pub fn focus_timer(user_id: &str, t: &FocusTimer) -> Self {

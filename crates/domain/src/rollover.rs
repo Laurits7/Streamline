@@ -60,6 +60,30 @@ pub fn day_end_outcome(behavior: DayEndBehavior, blocked: bool) -> Outcome {
     }
 }
 
+/// What happens to an open flexible-routine task whose window ended before `today`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WindowOutcome {
+    /// Still inside its window.
+    Keep,
+    Miss,
+    /// Carry over into the window containing `today` (task type `window_overflow = roll`).
+    Roll,
+}
+
+pub fn window_outcome(
+    window_end: chrono::NaiveDate,
+    today: chrono::NaiveDate,
+    roll: bool,
+) -> WindowOutcome {
+    if window_end >= today {
+        WindowOutcome::Keep
+    } else if roll {
+        WindowOutcome::Roll
+    } else {
+        WindowOutcome::Miss
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -88,5 +112,13 @@ mod tests {
         ] {
             assert_eq!(DayEndBehavior::parse(b.as_str()), Some(b));
         }
+    }
+
+    #[test]
+    fn windows_end() {
+        let d = |day| chrono::NaiveDate::from_ymd_opt(2026, 10, day).unwrap();
+        assert_eq!(window_outcome(d(11), d(11), false), WindowOutcome::Keep);
+        assert_eq!(window_outcome(d(11), d(12), false), WindowOutcome::Miss);
+        assert_eq!(window_outcome(d(11), d(12), true), WindowOutcome::Roll);
     }
 }
