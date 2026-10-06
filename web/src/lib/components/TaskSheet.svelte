@@ -7,6 +7,7 @@
   import Sheet from './Sheet.svelte'
   import { router } from '../router.svelte'
   import { describeSeries } from '../rrule'
+  import { createsCycle } from '../deps'
 
   let { id }: { id: string } = $props()
 
@@ -14,6 +15,21 @@
   const entry = $derived(store.entryForTask(id))
   const projects = $derived(store.projectTree())
   const types = $derived([...store.taskTypes.values()])
+  // Tasks this one could wait for: open, not itself, not already chosen, no cycles.
+  const candidates = $derived.by(() => {
+    const t = store.tasks.get(id)
+    if (!t) return []
+    return [...store.tasks.values()]
+      .filter(
+        (c) =>
+          c.id !== id &&
+          c.status === 'open' &&
+          !t.depends_on.includes(c.id) &&
+          !store.isUpcoming(c) &&
+          !createsCycle(id, [...t.depends_on, c.id], (x) => store.tasks.get(x)?.depends_on ?? []),
+      )
+      .sort((a, b) => a.title.localeCompare(b.title))
+  })
 
   let title = $state('')
   let notes = $state('')
@@ -185,6 +201,42 @@
     {/if}
 
     <section>
+      <h3>Waits for</h3>
+      {#if task.depends_on.length}
+        <ul class="deps">
+          {#each task.depends_on as did (did)}
+            {@const d = store.tasks.get(did)}
+            <li>
+              <span class:done={d?.status !== 'open'}>{d?.status === 'open' ? '⏳' : '✓'} {d?.title ?? '(deleted)'}</span>
+              <button class="icon-btn" aria-label="Remove prerequisite" onclick={() => store.setPrerequisites(id, task.depends_on.filter((x) => x !== did))}><Icon name="x" size={14} /></button>
+            </li>
+          {/each}
+        </ul>
+      {/if}
+      <select
+        value=""
+        aria-label="Add a prerequisite"
+        onchange={(e) => {
+          const v = (e.currentTarget as HTMLSelectElement).value
+          if (v) store.setPrerequisites(id, [...task.depends_on, v])
+          ;(e.currentTarget as HTMLSelectElement).value = ''
+        }}>
+        <option value="">+ Must be done after…</option>
+        {#each candidates as c (c.id)}<option value={c.id}>{c.title}</option>{/each}
+      </select>
+      {#if task.depends_on.length}
+        <label class="wait">
+          <span>Then wait</span>
+          <select value={task.wait_min ?? ''} onchange={(e) => store.updateTask(id, { wait_min: (e.currentTarget as HTMLSelectElement).value ? Number((e.currentTarget as HTMLSelectElement).value) : null })}>
+            <option value="">no extra time</option>
+            {#each [15, 30, 45, 60, 90, 120, 180, 240] as m (m)}<option value={m}>{fmtMinutes(m)}</option>{/each}
+          </select>
+          <span class="muted">(e.g. while a machine runs)</span>
+        </label>
+      {/if}
+    </section>
+
+    <section>
       <h3>Due date</h3>
       <div class="row">
         <input
@@ -291,6 +343,32 @@
   }
   section {
     margin-top: 20px;
+  }
+  .deps {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 8px;
+  }
+  .deps li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .deps .done {
+    color: var(--muted);
+    text-decoration: line-through;
+  }
+  .wait {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-top: 8px;
+    font-size: 13px;
+  }
+  .wait select {
+    width: auto !important;
   }
   .also {
     display: flex;

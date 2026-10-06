@@ -35,12 +35,21 @@
   const plannedHere = $derived(plannedEntry?.date === target)
   const overdue = $derived(task.status === 'open' && !!task.due_date && task.due_date < store.today)
   const closed = $derived(task.status !== 'open')
+  const waitingOn = $derived(
+    task.blocked ? task.depends_on.map((id) => store.tasks.get(id)).filter((d) => d && d.status === 'open') : [],
+  )
+  const readyAt = $derived(
+    !task.blocked && task.ready_at && task.ready_at > new Date().toISOString()
+      ? new Intl.DateTimeFormat('en-GB', { timeZone: store.me?.timezone ?? 'UTC', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(task.ready_at))
+      : null,
+  )
   const statusLabel: Record<string, string> = { missed: 'Missed', skipped: 'Skipped', wont_do: "Won't do" }
 </script>
 
 <div
   class="row"
   class:closed
+  class:blocked={task.blocked && task.status === 'open'}
   data-id={entry?.id ?? task.id}
   use:draggable={{
     disabled: task.status !== 'open' && !(dragClosed && task.status === 'done'),
@@ -70,6 +79,15 @@
       {task.title}
     </span>
     <span class="meta">
+      {#if waitingOn.length}
+        <span class="tag waiting" title="Can't start until these are done">⏳ Waiting on “{waitingOn[0]!.title}”{waitingOn.length > 1 ? ` +${waitingOn.length - 1}` : ''}</span>
+      {/if}
+      {#if readyAt}<span class="tag waiting">⏱ Ready at {readyAt}</span>{/if}
+      {#if task.workflow_steps && task.workflow_step}
+        <span class="steps" title="Step {task.workflow_step} of {task.workflow_steps}" aria-label="Step {task.workflow_step} of {task.workflow_steps}">
+          {#each Array.from({ length: task.workflow_steps }, (_, i) => i + 1) as i (i)}<i class:done={i < task.workflow_step} class:now={i === task.workflow_step}></i>{/each}
+        </span>
+      {/if}
       {#if statusLabel[task.status]}<span class="tag danger">{statusLabel[task.status]}</span>{/if}
       {#if showProject && project}
         <span class="project" title={[project.id, ...task.also_project_ids].map((p) => store.projectPath(p)).join('\n')}>
@@ -93,7 +111,7 @@
       {#if task.notes.trim()}<span title="Has notes">¶</span>{/if}
     </span>
   </button>
-  {#if planButton && task.status === 'open'}
+  {#if planButton && task.status === 'open' && !task.blocked}
     <button
       data-nodrag
       class="icon-btn plan"
@@ -211,6 +229,28 @@
   .tag.danger {
     background: var(--danger-soft);
     color: var(--danger);
+  }
+  .row.blocked .main .title {
+    color: var(--muted);
+  }
+  .tag.waiting {
+    background: var(--surface-2);
+    color: var(--muted);
+  }
+  .steps {
+    gap: 3px !important;
+  }
+  .steps i {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--surface-3);
+  }
+  .steps i.done {
+    background: var(--ok);
+  }
+  .steps i.now {
+    background: var(--accent);
   }
   .status-dot {
     flex: none;

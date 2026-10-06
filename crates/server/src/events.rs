@@ -7,7 +7,9 @@ use serde::Serialize;
 use tokio::sync::broadcast;
 
 use crate::{
-    models::{DayEntry, DayPlan, FocusSession, FocusTimer, Place, Project, Series, Task},
+    models::{
+        DayEntry, DayPlan, FocusSession, FocusTimer, Place, Project, Series, Task, WorkflowTemplate,
+    },
     visibility,
 };
 
@@ -51,6 +53,14 @@ impl Change {
             kind: "day_plan",
             data: serde_json::to_value(p).unwrap(),
             audience: vec![p.user_id.clone()],
+        }
+    }
+    pub fn workflow(w: &WorkflowTemplate) -> Self {
+        Self {
+            rev: w.rev,
+            kind: "workflow",
+            data: serde_json::to_value(w).unwrap(),
+            audience: visibility::audience(w.owner_user_id.as_deref(), w.owner_group_id.as_deref()),
         }
     }
     pub fn place(p: &Place) -> Self {

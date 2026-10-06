@@ -7,6 +7,7 @@ mod projects;
 mod series;
 mod sync;
 mod tasks;
+mod workflows;
 
 use axum::{
     Router,
@@ -32,6 +33,7 @@ use crate::AppState;
         account::revoke_token, account::list_users, account::create_user, account::patch_user,
         account::delete_user,
         account::patch_prefs, focus::get_focus, focus::post_focus,
+        workflows::list, workflows::create, workflows::patch, workflows::delete, workflows::start,
         places::list, places::create, places::patch, places::delete,
         series::list, series::all_stats, series::create, series::patch, series::delete,
         sync::sync, sync::events, sync::today, sync::task_types,
@@ -49,6 +51,7 @@ use crate::AppState;
         (name = "focus", description = "Focus (Pomodoro) timer"),
         (name = "routines", description = "Recurring tasks and routines"),
         (name = "places", description = "Places where tasks are done"),
+        (name = "workflows", description = "Multi-step workflow templates"),
     )
 )]
 pub struct ApiDoc;
@@ -111,6 +114,12 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/me/prefs", patch(account::patch_prefs))
         .route("/focus", get(focus::get_focus).post(focus::post_focus))
+        .route("/workflows", get(workflows::list).post(workflows::create))
+        .route(
+            "/workflows/{id}",
+            patch(workflows::patch).delete(workflows::delete),
+        )
+        .route("/workflows/{id}/start", post(workflows::start))
         .route("/places", get(places::list).post(places::create))
         .route("/places/{id}", patch(places::patch).delete(places::delete))
         .route("/series", get(series::list).post(series::create))

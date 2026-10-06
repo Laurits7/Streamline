@@ -33,6 +33,10 @@ times_per_window: number | null, window: 'week' | 'month' | null, task_type_id: 
  */
 place_id: string | null, 
 /**
+ * Each occurrence starts this workflow instead of a single task (3b.6).
+ */
+workflow_template_id: string | null, workflow_variant_ids: Array<string>, 
+/**
  * The routine this one replaced when its schedule changed (progress and streaks
  * continue across versions).
  */

@@ -9,8 +9,9 @@ import type { Project } from "./Project";
 import type { Series } from "./Series";
 import type { Task } from "./Task";
 import type { TaskType } from "./TaskType";
+import type { WorkflowTemplate } from "./WorkflowTemplate";
 
-export type SyncResponse = { rev: number, full: boolean, me: Me, today: string, task_types: Array<TaskType>, projects: Array<Project>, tasks: Array<Task>, day_entries: Array<DayEntry>, day_plans: Array<DayPlan>, focus_timer: FocusTimer, focus_sessions: Array<FocusSession>, series: Array<Series>, places: Array<Place>, 
+export type SyncResponse = { rev: number, full: boolean, me: Me, today: string, task_types: Array<TaskType>, projects: Array<Project>, tasks: Array<Task>, day_entries: Array<DayEntry>, day_plans: Array<DayPlan>, focus_timer: FocusTimer, focus_sessions: Array<FocusSession>, series: Array<Series>, places: Array<Place>, workflows: Array<WorkflowTemplate>, 
 /**
  * The server's clock (Unix ms), so clients can correct for clock differences.
  */

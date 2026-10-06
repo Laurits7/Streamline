@@ -171,6 +171,10 @@ pub struct CreateSeries {
     importance: Option<i32>,
     urgency: Option<i32>,
     place_id: Option<String>,
+    /// Start this workflow on each occurrence (instead of a single task).
+    workflow_template_id: Option<String>,
+    /// Which of its variants to run each time (all, if empty).
+    workflow_variant_ids: Option<Vec<String>>,
 }
 
 #[utoipa::path(post, path = "/series", tag = "routines", summary = "Create a routine (its occurrences appear up to tomorrow)", request_body = CreateSeries, responses((status = 200, body = Series), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
@@ -206,6 +210,8 @@ pub async fn create(
         importance: c.importance,
         urgency: c.urgency,
         place_id: c.place_id,
+        workflow_template_id: c.workflow_template_id,
+        workflow_variant_ids: sqlx::types::Json(c.workflow_variant_ids.unwrap_or_default()),
         materialized_through: None,
         split_from: None,
         created_at: ts.clone(),

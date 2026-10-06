@@ -41,6 +41,13 @@ const task = (id: string, extra: Partial<Task> = {}): Task => ({
   ext_url: null,
   place_id: null,
   also_project_ids: [],
+  depends_on: [],
+  blocked: false,
+  wait_min: null,
+  ready_at: null,
+  workflow_instance_id: null,
+  workflow_step: null,
+  workflow_steps: null,
   series_id: null,
   occurrence_key: null,
   occurrence_date: null,
@@ -322,5 +329,27 @@ describe('routine versions', () => {
     })
     expect(store.windowProgress('NEW', '2026-10-07')).toEqual({ done: 1, total: 3 })
     expect(store.windowProgress('OLD', '2026-10-07')).toEqual({ done: 1, total: 3 })
+  })
+})
+
+describe('prerequisites', () => {
+  it('completing a prerequisite unblocks its dependents at once (with their wait time)', async () => {
+    await load({
+      tasks: [
+        task('wash'),
+        task('dry', { depends_on: ['wash'], blocked: true, wait_min: 60 }),
+        task('fold', { depends_on: ['dry'], blocked: true }),
+      ],
+    })
+    mockApi(() => new Promise(() => {}))
+    expect(store.readyStack('2026-10-06').map((t) => t.id)).toEqual(['wash'])
+    store.updateTask('wash', { status: 'done' })
+    const dry = store.tasks.get('dry')!
+    expect(dry.blocked).toBe(false)
+    expect(dry.ready_at! > new Date().toISOString()).toBe(true)
+    expect(store.isReady(dry)).toBe(false)
+    expect(store.tasks.get('fold')!.blocked).toBe(true)
+    store.updateTask('wash', { status: 'open' })
+    expect(store.tasks.get('dry')!.blocked).toBe(true)
   })
 })

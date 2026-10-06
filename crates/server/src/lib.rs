@@ -17,6 +17,7 @@ pub mod routines;
 pub mod static_files;
 pub mod util;
 pub mod visibility;
+pub mod workflows;
 
 use std::{collections::HashMap, net::SocketAddr, sync::Arc, time::Instant};
 

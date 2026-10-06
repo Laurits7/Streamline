@@ -231,6 +231,69 @@ pub struct DayEntry {
     pub rev: i64,
 }
 
+/// One step of a workflow template.
+#[derive(Debug, Clone, Serialize, serde::Deserialize, TS, utoipa::ToSchema)]
+#[ts(export)]
+pub struct WorkflowStep {
+    /// Stable id within the template (variants refer to it).
+    pub id: String,
+    pub title: String,
+    pub estimate_min: Option<i32>,
+    /// Wait this long after this step before the next one is ready (e.g. the machine runs).
+    pub wait_min: Option<i32>,
+    pub difficulty: Option<i32>,
+}
+
+/// A variant of a workflow: the template's steps minus `skip`.
+#[derive(Debug, Clone, Serialize, serde::Deserialize, TS, utoipa::ToSchema)]
+#[ts(export)]
+pub struct WorkflowVariant {
+    pub id: String,
+    pub name: String,
+    pub skip: Vec<String>,
+}
+
+/// A reusable multi-step chore (SPEC §6.3b), e.g. Laundry with variants per load.
+#[derive(Debug, Clone, Serialize, FromRow, TS, utoipa::ToSchema)]
+#[ts(export)]
+pub struct WorkflowTemplate {
+    pub id: String,
+    pub owner_user_id: Option<String>,
+    pub owner_group_id: Option<String>,
+    pub name: String,
+    pub description: String,
+    /// Project the steps go into (optional).
+    pub project_id: Option<String>,
+    #[ts(type = "Array<WorkflowStep>")]
+    #[schema(value_type = Vec<WorkflowStep>)]
+    pub steps: sqlx::types::Json<Vec<WorkflowStep>>,
+    #[ts(type = "Array<WorkflowVariant>")]
+    #[schema(value_type = Vec<WorkflowVariant>)]
+    pub variants: sqlx::types::Json<Vec<WorkflowVariant>>,
+    pub created_at: String,
+    pub updated_at: String,
+    pub deleted_at: Option<String>,
+    #[ts(type = "number")]
+    pub rev: i64,
+}
+
+pub async fn upsert_workflow(
+    conn: &mut SqliteConnection,
+    w: &WorkflowTemplate,
+) -> sqlx::Result<()> {
+    sqlx::query(
+        "INSERT INTO workflow_templates (id, owner_user_id, owner_group_id, name, description, project_id, steps, variants, created_at, updated_at, deleted_at, rev)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+         ON CONFLICT(id) DO UPDATE SET name=excluded.name, description=excluded.description, project_id=excluded.project_id,
+           steps=excluded.steps, variants=excluded.variants, updated_at=excluded.updated_at, deleted_at=excluded.deleted_at, rev=excluded.rev",
+    )
+    .bind(&w.id).bind(&w.owner_user_id).bind(&w.owner_group_id).bind(&w.name).bind(&w.description).bind(&w.project_id)
+    .bind(&w.steps).bind(&w.variants).bind(&w.created_at).bind(&w.updated_at).bind(&w.deleted_at).bind(w.rev)
+    .execute(conn)
+    .await
+    .map(|_| ())
+}
+
 /// Somewhere tasks are done (SPEC §6.16). Coordinates are optional (for GPS detection).
 #[derive(Debug, Clone, Serialize, FromRow, TS, utoipa::ToSchema)]
 #[ts(export)]
@@ -298,6 +361,11 @@ pub struct Series {
     pub urgency: Option<i32>,
     /// Place given to each occurrence.
     pub place_id: Option<String>,
+    /// Each occurrence starts this workflow instead of a single task (3b.6).
+    pub workflow_template_id: Option<String>,
+    #[ts(type = "Array<string>")]
+    #[schema(value_type = Vec<String>)]
+    pub workflow_variant_ids: sqlx::types::Json<Vec<String>>,
     #[serde(skip)]
     #[ts(skip)]
     pub materialized_through: Option<String>,
@@ -450,21 +518,22 @@ pub async fn upsert_series(conn: &mut SqliteConnection, s: &Series) -> sqlx::Res
     sqlx::query(
         "INSERT INTO series (id, owner_user_id, owner_group_id, project_id, title, notes, mode, rrule, dtstart, until,
            start_time, duration_min, times_per_window, window, task_type_id, estimate_min, difficulty, importance, urgency,
-           materialized_through, split_from, place_id, created_at, updated_at, deleted_at, rev)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+           materialized_through, split_from, place_id, workflow_template_id, workflow_variant_ids, created_at, updated_at, deleted_at, rev)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
          ON CONFLICT(id) DO UPDATE SET project_id=excluded.project_id, title=excluded.title, notes=excluded.notes,
            mode=excluded.mode, rrule=excluded.rrule, dtstart=excluded.dtstart, until=excluded.until,
            start_time=excluded.start_time, duration_min=excluded.duration_min, times_per_window=excluded.times_per_window,
            window=excluded.window, task_type_id=excluded.task_type_id, estimate_min=excluded.estimate_min,
            difficulty=excluded.difficulty, importance=excluded.importance, urgency=excluded.urgency,
-           place_id=excluded.place_id,
+           place_id=excluded.place_id, workflow_template_id=excluded.workflow_template_id,
+           workflow_variant_ids=excluded.workflow_variant_ids,
            materialized_through=excluded.materialized_through, updated_at=excluded.updated_at,
            deleted_at=excluded.deleted_at, rev=excluded.rev",
     )
     .bind(&s.id).bind(&s.owner_user_id).bind(&s.owner_group_id).bind(&s.project_id).bind(&s.title).bind(&s.notes)
     .bind(&s.mode).bind(&s.rrule).bind(&s.dtstart).bind(&s.until).bind(&s.start_time).bind(s.duration_min)
     .bind(s.times_per_window).bind(&s.window).bind(&s.task_type_id).bind(s.estimate_min).bind(s.difficulty)
-    .bind(s.importance).bind(s.urgency).bind(&s.materialized_through).bind(&s.split_from).bind(&s.place_id).bind(&s.created_at).bind(&s.updated_at)
+    .bind(s.importance).bind(s.urgency).bind(&s.materialized_through).bind(&s.split_from).bind(&s.place_id).bind(&s.workflow_template_id).bind(&s.workflow_variant_ids).bind(&s.created_at).bind(&s.updated_at)
     .bind(&s.deleted_at).bind(s.rev)
     .execute(conn)
     .await

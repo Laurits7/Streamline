@@ -2129,3 +2129,142 @@ async fn blocked_tasks_do_not_miss() {
 fn now_iso() -> String {
     chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
 }
+
+#[tokio::test]
+async fn workflow_templates_start_chains() {
+    let t = setup().await;
+    let admin = t.admin().await;
+    let laundry = json!({
+        "name": "Laundry",
+        "steps": [
+            {"id": "wash", "title": "Wash", "wait_min": 60, "estimate_min": 5},
+            {"id": "dry", "title": "Dry", "wait_min": 45},
+            {"id": "iron", "title": "Iron"},
+            {"id": "fold", "title": "Fold"}
+        ],
+        "variants": [
+            {"id": "whites", "name": "Whites", "skip": []},
+            {"id": "delicates", "name": "Delicates", "skip": ["dry", "iron"]},
+            {"id": "towels", "name": "Towels", "skip": ["iron"]}
+        ]
+    });
+    let (s, w, _) = t
+        .req(
+            "POST",
+            "/api/v1/workflows",
+            Some(&admin),
+            Some(laundry.clone()),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{w}");
+    let wid = w["id"].as_str().unwrap().to_string();
+
+    // Validation.
+    for bad in [
+        json!({"name": "x", "steps": []}),
+        json!({"name": "x", "steps": [{"id": "a", "title": "A"}, {"id": "a", "title": "B"}]}),
+        json!({"name": "x", "steps": [{"id": "a", "title": "A"}], "variants": [{"id": "v", "name": "V", "skip": ["zzz"]}]}),
+        json!({"name": "x", "steps": [{"id": "a", "title": "A"}], "variants": [{"id": "v", "name": "V", "skip": ["a"]}]}),
+    ] {
+        let (s, _, _) = t
+            .req("POST", "/api/v1/workflows", Some(&admin), Some(bad.clone()))
+            .await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "{bad}");
+    }
+
+    // Two loads: delicates (wash -> fold) and towels (wash -> dry -> fold), first steps planned today.
+    let today = ymd(today_of(&t, &admin).await);
+    let (s, tasks, _) = t
+        .req(
+            "POST",
+            &format!("/api/v1/workflows/{wid}/start"),
+            Some(&admin),
+            Some(json!({"variant_ids": ["delicates", "towels"], "day": today})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{tasks}");
+    let tasks = tasks.as_array().unwrap();
+    let titles: Vec<&str> = tasks.iter().map(|x| x["title"].as_str().unwrap()).collect();
+    assert_eq!(
+        titles,
+        [
+            "Wash (Delicates)",
+            "Fold (Delicates)",
+            "Wash (Towels)",
+            "Dry (Towels)",
+            "Fold (Towels)"
+        ]
+    );
+    assert_eq!(
+        tasks
+            .iter()
+            .map(|x| x["blocked"].as_bool().unwrap())
+            .collect::<Vec<_>>(),
+        [false, true, false, true, true]
+    );
+    assert_eq!(tasks[1]["depends_on"], json!([tasks[0]["id"]]));
+    assert_eq!(
+        tasks[1]["wait_min"], 60,
+        "fold waits for the wash to finish"
+    );
+    assert_eq!(tasks[4]["wait_min"], 45, "after the dryer");
+    assert_eq!(
+        (
+            tasks[3]["workflow_step"].as_i64(),
+            tasks[3]["workflow_steps"].as_i64()
+        ),
+        (Some(2), Some(3))
+    );
+    assert_ne!(
+        tasks[0]["workflow_instance_id"], tasks[2]["workflow_instance_id"],
+        "one run per load"
+    );
+    let (_, day, _) = t
+        .req("GET", &format!("/api/v1/days/{today}"), Some(&admin), None)
+        .await;
+    assert_eq!(
+        day["entries"].as_array().unwrap().len(),
+        2,
+        "the first step of each load is planned"
+    );
+
+    // Washing the delicates makes folding them ready after the hour.
+    let wash = tasks[0]["id"].as_str().unwrap();
+    t.req(
+        "PATCH",
+        &format!("/api/v1/tasks/{wash}"),
+        Some(&admin),
+        Some(json!({"status": "done"})),
+    )
+    .await;
+    let (_, fold, _) = t
+        .req(
+            "GET",
+            &format!("/api/v1/tasks/{}", tasks[1]["id"].as_str().unwrap()),
+            Some(&admin),
+            None,
+        )
+        .await;
+    assert_eq!(fold["blocked"], false);
+    assert!(fold["ready_at"].is_string());
+
+    // Without variants chosen, the whole template runs once.
+    let (_, all, _) = t
+        .req(
+            "POST",
+            &format!("/api/v1/workflows/{wid}/start"),
+            Some(&admin),
+            Some(json!({})),
+        )
+        .await;
+    assert_eq!(all.as_array().unwrap().len(), 4);
+    let (s, _, _) = t
+        .req(
+            "POST",
+            &format!("/api/v1/workflows/{wid}/start"),
+            Some(&admin),
+            Some(json!({"variant_ids": ["nope"]})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+}

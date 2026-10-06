@@ -17,6 +17,7 @@ import type { Series } from './api/types/Series'
 import type { SyncResponse } from './api/types/SyncResponse'
 import type { Task } from './api/types/Task'
 import type { TaskType } from './api/types/TaskType'
+import { isBlocked } from './deps'
 import { keyAt, keyBetween } from './order'
 import { toast } from './toast.svelte'
 import { ulid } from './ulid'
@@ -40,6 +41,7 @@ export type TaskPatch = Partial<
     | 'task_type_id'
     | 'also_project_ids'
     | 'place_id'
+    | 'wait_min'
   >
 >
 export type EntryPatch = Partial<Pick<DayEntry, 'date' | 'position' | 'start_time' | 'duration_min'>>
@@ -384,6 +386,39 @@ class Store {
     return !!t.occurrence_date && t.occurrence_date > day
   }
 
+  /** Ready to work on: no open prerequisite, and any wait time after them is over. */
+  isReady(t: Task): boolean {
+    return !t.blocked && (!t.ready_at || t.ready_at <= new Date().toISOString())
+  }
+
+  /** Tasks that wait for `id`. */
+  dependentsOf(id: string): Task[] {
+    return [...this.tasks.values()].filter((t) => t.depends_on.includes(id))
+  }
+
+  /** Mirror the server: when a task's status changes, update what waits for it right away. */
+  private refreshDependents(id: string) {
+    for (const d of this.dependentsOf(id)) {
+      if (d.status !== 'open') continue
+      const blocked = isBlocked(d.depends_on, (x) => this.tasks.get(x)?.status)
+      if (blocked === d.blocked) continue
+      const ready_at = !blocked && d.wait_min ? new Date(Date.now() + d.wait_min * 60_000).toISOString() : null
+      this.tasks.set(d.id, { ...d, blocked, ready_at })
+    }
+  }
+
+  /** Set a task's prerequisites (the server refuses cycles). */
+  setPrerequisites(id: string, deps: string[]) {
+    const t = this.tasks.get(id)
+    if (!t) return
+    const blocked = isBlocked(deps, (x) => this.tasks.get(x)?.status)
+    this.optimistic(
+      [['task', id]],
+      () => this.tasks.set(id, { ...t, depends_on: deps, blocked, ready_at: blocked ? null : t.ready_at }),
+      async () => [['task', await api.patch<Task>(`/tasks/${id}`, { depends_on: deps })]],
+    )
+  }
+
   /** Tasks in a project (`null` = inbox), ordered. */
   tasksIn(projectId: string | null, status: 'open' | 'closed' = 'open'): Task[] {
     return [...this.tasks.values()]
@@ -409,7 +444,10 @@ class Store {
   readyStack(date: string): Task[] {
     const plannedHere = new Set(this.dayEntries(date).map((e) => e.task_id))
     return [...this.tasks.values()]
-      .filter((t) => t.status === 'open' && !plannedHere.has(t.id) && !this.isUpcoming(t, date) && this.atCurrentPlace(t))
+      .filter(
+        (t) =>
+          t.status === 'open' && !plannedHere.has(t.id) && !this.isUpcoming(t, date) && this.atCurrentPlace(t) && !t.blocked,
+      )
       .sort(byPosition)
   }
 
@@ -450,6 +488,13 @@ class Store {
       ext_url: null,
       place_id: input.place_id ?? (projectId ? (this.projects.get(projectId)?.default_place_id ?? null) : null),
       also_project_ids: [],
+      depends_on: [],
+      blocked: false,
+      wait_min: null,
+      ready_at: null,
+      workflow_instance_id: null,
+      workflow_step: null,
+      workflow_steps: null,
       series_id: null,
       occurrence_key: null,
       occurrence_date: null,
@@ -512,7 +557,10 @@ class Store {
     }
     this.optimistic(
       [['task', id]],
-      () => this.tasks.set(id, local),
+      () => {
+        this.tasks.set(id, local)
+        if (patch.status && patch.status !== cur.status) this.refreshDependents(id)
+      },
       async () => [['task', await api.patch<Task>(`/tasks/${id}`, patch)]],
     )
   }
