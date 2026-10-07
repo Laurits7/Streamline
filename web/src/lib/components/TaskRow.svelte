@@ -8,6 +8,7 @@
   import { ui } from '../ui.svelte'
   import Check from './Check.svelte'
   import Icon from './Icon.svelte'
+  import { checkBackDue, checkBackLabel, isWaiting } from '../waiting'
 
   let {
     task,
@@ -44,6 +45,7 @@
       ? new Intl.DateTimeFormat('en-GB', { timeZone: store.me?.timezone ?? 'UTC', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(task.ready_at))
       : null,
   )
+  const backAt = (iso: string) => checkBackLabel(iso, store.me?.timezone ?? 'UTC', Date.now(), store.me?.locale || undefined)
   const statusLabel: Record<string, string> = { missed: 'Missed', skipped: 'Skipped', wont_do: "Won't do" }
 </script>
 
@@ -84,6 +86,12 @@
         <span class="tag waiting" title="Can't start until these are done">⏳ Waiting on “{waitingOn[0]!.title}”{waitingOn.length > 1 ? ` +${waitingOn.length - 1}` : ''}</span>
       {/if}
       {#if readyAt}<span class="tag waiting">⏱ Ready at {readyAt}</span>{/if}
+      {#if isWaiting(task)}
+        <span class="tag waiting" title={task.waiting_note ? `Waiting for ${task.waiting_note}` : 'Waiting for results'}
+          ><Icon name="hourglass" size={11} />{task.check_back_at ? `Check back ${backAt(task.check_back_at)}` : 'Waiting'}</span>
+      {:else if checkBackDue(task)}
+        <span class="tag warn"><Icon name="hourglass" size={11} />Check back now</span>
+      {/if}
       {#if task.workflow_steps && task.workflow_step}
         <span class="steps" title="Step {task.workflow_step} of {task.workflow_steps}" aria-label="Step {task.workflow_step} of {task.workflow_steps}">
           {#each Array.from({ length: task.workflow_steps }, (_, i) => i + 1) as i (i)}<i class:done={i < task.workflow_step} class:now={i === task.workflow_step}></i>{/each}

@@ -53,4 +53,20 @@ occurrence_date: string | null,
 /**
  * For "N times per week/month" routines: the last day of the window.
  */
-window_end: string | null, created_at: string, updated_at: string, deleted_at: string | null, rev: number, };
+window_end: string | null, 
+/**
+ * Waiting for a result (D-70): set while nothing needs doing.
+ */
+waiting_since: string | null, 
+/**
+ * When to check back. Still set after `waiting_since` clears: "check back now".
+ */
+check_back_at: string | null, 
+/**
+ * What's being waited for.
+ */
+waiting_note: string, 
+/**
+ * Who set the task waiting (gets the check-back reminder).
+ */
+waiting_by: string | null, created_at: string, updated_at: string, deleted_at: string | null, rev: number, };

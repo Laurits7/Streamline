@@ -224,6 +224,14 @@ pub struct Task {
     pub occurrence_date: Option<String>,
     /// For "N times per week/month" routines: the last day of the window.
     pub window_end: Option<String>,
+    /// Waiting for a result (D-70): set while nothing needs doing.
+    pub waiting_since: Option<String>,
+    /// When to check back. Still set after `waiting_since` clears: "check back now".
+    pub check_back_at: Option<String>,
+    /// What's being waited for.
+    pub waiting_note: String,
+    /// Who set the task waiting (gets the check-back reminder).
+    pub waiting_by: Option<String>,
     pub created_at: String,
     pub updated_at: String,
     pub deleted_at: Option<String>,
@@ -537,8 +545,9 @@ pub async fn upsert_task(conn: &mut SqliteConnection, t: &Task) -> sqlx::Result<
            due_date, estimate_min, difficulty, importance, urgency, actual_min, task_type_id, carry_count, started_at, completed_at,
            completed_by, ext_source, ext_id, ext_url, place_id, event_id, also_project_ids, depends_on, blocked, wait_min, ready_at,
            workflow_instance_id, workflow_step, workflow_steps, series_id, occurrence_key, occurrence_date, window_end,
+           waiting_since, check_back_at, waiting_note, waiting_by,
            created_at, updated_at, deleted_at, rev)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
          ON CONFLICT(id) DO UPDATE SET owner_user_id=excluded.owner_user_id, owner_group_id=excluded.owner_group_id,
            assignee_user_id=excluded.assignee_user_id, project_id=excluded.project_id, title=excluded.title,
            notes=excluded.notes, status=excluded.status, position=excluded.position, due_date=excluded.due_date,
@@ -551,6 +560,8 @@ pub async fn upsert_task(conn: &mut SqliteConnection, t: &Task) -> sqlx::Result<
            workflow_instance_id=excluded.workflow_instance_id, workflow_step=excluded.workflow_step,
            workflow_steps=excluded.workflow_steps,
            occurrence_date=excluded.occurrence_date, window_end=excluded.window_end,
+           waiting_since=excluded.waiting_since, check_back_at=excluded.check_back_at,
+           waiting_note=excluded.waiting_note, waiting_by=excluded.waiting_by,
            updated_at=excluded.updated_at, deleted_at=excluded.deleted_at, rev=excluded.rev",
     )
     .bind(&t.id).bind(&t.owner_user_id).bind(&t.owner_group_id).bind(&t.assignee_user_id).bind(&t.project_id)
@@ -559,6 +570,7 @@ pub async fn upsert_task(conn: &mut SqliteConnection, t: &Task) -> sqlx::Result<
     .bind(t.carry_count).bind(&t.started_at).bind(&t.completed_at).bind(&t.completed_by).bind(&t.ext_source).bind(&t.ext_id)
     .bind(&t.ext_url).bind(&t.place_id).bind(&t.event_id).bind(&t.also_project_ids).bind(&t.depends_on).bind(t.blocked)
     .bind(t.wait_min).bind(&t.ready_at).bind(&t.workflow_instance_id).bind(t.workflow_step).bind(t.workflow_steps).bind(&t.series_id).bind(&t.occurrence_key).bind(&t.occurrence_date).bind(&t.window_end)
+    .bind(&t.waiting_since).bind(&t.check_back_at).bind(&t.waiting_note).bind(&t.waiting_by)
     .bind(&t.created_at).bind(&t.updated_at).bind(&t.deleted_at).bind(t.rev)
     .execute(conn)
     .await

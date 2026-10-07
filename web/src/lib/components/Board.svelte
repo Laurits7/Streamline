@@ -31,6 +31,8 @@
       return [
         { id: 'todo', title: 'To do', tasks: open.filter((t) => statusColumn(t) === 'todo').sort(byPosition) },
         { id: 'doing', title: 'In progress', tasks: open.filter((t) => statusColumn(t) === 'doing').sort(byPosition) },
+        // Waiting for results (D-70): soonest check-back first.
+        { id: 'waiting', title: 'Waiting', tasks: store.waitingTasks().filter((t) => open.includes(t)) },
         {
           id: 'done',
           title: 'Done (last 2 weeks)',
@@ -68,7 +70,13 @@
     const already = col.tasks.some((x) => x.id === t.id)
     if (group === 'status') {
       if (col.id === 'done') store.updateTask(t.id, { status: 'done' })
-      else {
+      else if (col.id === 'waiting') {
+        // Keeps a check-back time it already has; set one in the task.
+        if (!t.waiting_since) store.waitFor(t.id, null, undefined, t.status === 'open' ? {} : { status: 'open' })
+      } else if (t.waiting_since && t.status === 'open') {
+        if (col.id === 'doing') store.stopWaiting(t.id)
+        else store.setInProgress(t.id, false)
+      } else {
         store.updateTask(t.id, t.status === 'open' ? { position } : { status: 'open', position })
         if ((col.id === 'doing') !== !!t.started_at || t.status !== 'open') store.setInProgress(t.id, col.id === 'doing')
       }

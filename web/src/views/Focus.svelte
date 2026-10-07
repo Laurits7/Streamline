@@ -8,6 +8,7 @@
   import { store } from '../lib/store.svelte'
   import { toast } from '../lib/toast.svelte'
   import { ui } from '../lib/ui.svelte'
+  import WaitPicker from '../lib/components/WaitPicker.svelte'
 
   const t = $derived(store.focusTimer)
   const task = $derived(t.task_id ? store.tasks.get(t.task_id) : null)
@@ -22,9 +23,9 @@
     store
       .dayEntries(store.today)
       .map((e) => store.tasks.get(e.task_id))
-      .filter((x): x is NonNullable<typeof x> => !!x && x.status === 'open'),
+      .filter((x): x is NonNullable<typeof x> => !!x && x.status === 'open' && !x.waiting_since),
   )
-  const inProgress = $derived([...store.tasks.values()].filter((x) => x.status === 'open' && x.started_at && !todays.includes(x)))
+  const inProgress = $derived([...store.tasks.values()].filter((x) => x.status === 'open' && x.started_at && !x.waiting_since && !todays.includes(x)))
   const next = $derived(todays.find((x) => x.id !== task?.id) ?? null)
   const todayStart = $derived(new Date(Date.now() - 864e5).toISOString())
   const sessionsToday = $derived(task ? store.sessions({ taskId: task.id, kind: 'work', since: todayStart }) : [])
@@ -38,6 +39,15 @@
     if (next) store.focus('start', next.id)
     else store.focus('stop')
     toast(`Completed “${task.title}”`)
+  }
+  // Handed off (a training run, a reply): wait for results and move on (D-70).
+  let waitOpen = $state(false)
+  function waited() {
+    if (!task) return
+    waitOpen = false
+    if (next) store.focus('start', next.id)
+    else store.focus('stop')
+    toast(`Waiting for results on “${task.title}”`)
   }
   function snooze() {
     if (!task) return
@@ -112,12 +122,14 @@
         {#if task.notes.trim()}<div class="notes">{task.notes}</div>{/if}
         <div class="row">
           <button class="btn primary" onclick={done}><Icon name="check" size={16} /> Done</button>
+          <button class="btn" aria-expanded={waitOpen} onclick={() => (waitOpen = !waitOpen)}><Icon name="hourglass" size={16} /> Wait for results…</button>
           <button class="btn" onclick={snooze}>Snooze to tomorrow</button>
           <button class="btn" onclick={() => (ui.editing = task.id)}><Icon name="edit" size={16} /> Details</button>
           {#if next}
             <button class="btn" onclick={() => store.focus('start', next.id)}>Next: {next.title} <Icon name="right" size={14} /></button>
           {/if}
         </div>
+        {#if waitOpen}<WaitPicker taskId={task.id} ondone={waited} />{/if}
       </article>
     {:else if t.phase !== 'idle'}
       <p class="muted center">Focusing without a task.</p>

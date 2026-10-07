@@ -5241,3 +5241,137 @@ async fn projects_get_distinct_marks() {
         (&json!("#dc2626"), &json!("circle"))
     );
 }
+
+#[tokio::test]
+async fn waiting_for_results() {
+    let t = setup().await;
+    let admin = t.admin().await;
+    let today = today_of(&t, &admin).await;
+    let (_, task, _) = t
+        .req(
+            "POST",
+            "/api/v1/tasks",
+            Some(&admin),
+            Some(json!({"title": "Train the model", "task_type_id": "tt_expires", "day": ymd(today)})),
+        )
+        .await;
+    let id = task["id"].as_str().unwrap().to_string();
+    let path = format!("/api/v1/tasks/{id}");
+    let patch = |body: Value| {
+        let (t, admin, path) = (&t, &admin, &path);
+        async move { t.req("PATCH", path, Some(admin), Some(body)).await }
+    };
+
+    // Bad input.
+    let (s, _, _) = patch(json!({"waiting": true, "check_back_at": "at four"})).await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    let (s, _, _) = patch(json!({"waiting_note": "loss curve"})).await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+
+    // Start waiting: in progress, with a check-back time (stored in UTC) and a note.
+    let (s, v, _) = patch(json!({"waiting": true, "check_back_at": "2099-01-01T12:00:00+02:00", "waiting_note": " loss curve "})).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert!(v["waiting_since"].is_string());
+    assert!(v["started_at"].is_string());
+    assert_eq!(v["check_back_at"], "2099-01-01T10:00:00.000Z");
+    assert_eq!(v["waiting_note"], "loss curve");
+
+    // The planner leaves it alone.
+    let (_, plan, _) = t
+        .req(
+            "POST",
+            &format!(
+                "/api/v1/days/{}/suggest",
+                ymd(today + chrono::Duration::days(1))
+            ),
+            Some(&admin),
+            None,
+        )
+        .await;
+    let mentions = |plan: &Value| plan.to_string().contains(&id);
+    assert!(!mentions(&plan));
+
+    // Its day passes: an "expires" task that is waiting carries on instead of missing.
+    sqlx::query("UPDATE day_entries SET date = ? WHERE task_id = ?")
+        .bind(ymd(today - chrono::Duration::days(1)))
+        .bind(&id)
+        .execute(&t.state.db.write)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE users SET last_rollover_date = NULL")
+        .execute(&t.state.db.write)
+        .await
+        .unwrap();
+    t.req("GET", "/api/v1/sync", Some(&admin), None).await;
+    let (_, v, _) = t.req("GET", &path, Some(&admin), None).await;
+    assert_eq!(v["status"], "open");
+    assert_eq!(v["carry_count"], 1);
+    let date: String = sqlx::query_scalar("SELECT date FROM day_entries WHERE task_id = ?")
+        .bind(&id)
+        .fetch_one(&t.state.db.read)
+        .await
+        .unwrap();
+    assert_eq!(date, ymd(today));
+
+    // Check-back time comes: waiting ends once (in progress, "check back now").
+    sqlx::query("UPDATE tasks SET check_back_at = '2000-01-01T00:00:00.000Z' WHERE id = ?")
+        .bind(&id)
+        .execute(&t.state.db.write)
+        .await
+        .unwrap();
+    streamline::waiting::check_back(&t.state).await.unwrap();
+    streamline::waiting::check_back(&t.state).await.unwrap();
+    let (_, v, _) = t.req("GET", &path, Some(&admin), None).await;
+    assert!(v["waiting_since"].is_null());
+    assert_eq!(v["check_back_at"], "2000-01-01T00:00:00.000Z");
+    assert!(v["started_at"].is_string());
+    let checks: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM task_events WHERE task_id = ? AND kind = 'check_back'",
+    )
+    .bind(&id)
+    .fetch_one(&t.state.db.read)
+    .await
+    .unwrap();
+    assert_eq!(checks, 1);
+
+    // Waiting again without a time: the used-up check-back is dropped.
+    let (_, v, _) = patch(json!({"waiting": true})).await;
+    assert!(v["waiting_since"].is_string());
+    assert!(v["check_back_at"].is_null());
+    assert_eq!(v["waiting_note"], "loss curve");
+
+    // Completing clears waiting; a finished task can't wait.
+    let (_, v, _) = patch(json!({"status": "done"})).await;
+    assert!(v["waiting_since"].is_null());
+    assert_eq!(v["waiting_note"], "");
+    let (s, _, _) = patch(json!({"waiting": true})).await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+
+    // Ending a wait by hand keeps the task in progress.
+    let (_, other, _) = t
+        .req(
+            "POST",
+            "/api/v1/tasks",
+            Some(&admin),
+            Some(json!({"title": "Reply from the bank"})),
+        )
+        .await;
+    let opath = format!("/api/v1/tasks/{}", other["id"].as_str().unwrap());
+    t.req(
+        "PATCH",
+        &opath,
+        Some(&admin),
+        Some(json!({"waiting": true})),
+    )
+    .await;
+    let (_, v, _) = t
+        .req(
+            "PATCH",
+            &opath,
+            Some(&admin),
+            Some(json!({"waiting": false})),
+        )
+        .await;
+    assert!(v["waiting_since"].is_null());
+    assert!(v["started_at"].is_string());
+}

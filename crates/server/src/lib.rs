@@ -27,6 +27,7 @@ pub mod static_files;
 pub mod tracking;
 pub mod util;
 pub mod visibility;
+pub mod waiting;
 pub mod workflows;
 
 use std::{collections::HashMap, net::SocketAddr, sync::Arc, time::Instant};

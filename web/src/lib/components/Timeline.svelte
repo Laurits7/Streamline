@@ -16,7 +16,18 @@
   import Icon from './Icon.svelte'
 
   type Item = { entry: DayEntry; task: Task }
-  let { date, items, now = null }: { date: string; items: Item[]; now?: string | null } = $props()
+  let {
+    date,
+    items,
+    now = null,
+    markers = [],
+  }: {
+    date: string
+    items: Item[]
+    now?: string | null
+    /** Check-back times of tasks waiting for results (D-70). */
+    markers?: { id: string; title: string; time: string }[]
+  } = $props()
   const events = $derived(store.dayEvents(date).timed)
   const timeBlocks = $derived(store.blocksOn(date))
   // Tasks and events are marked only for clashes involving a task; blocks for any (D-58).
@@ -298,6 +309,11 @@
           </div>
         {/each}
       </div>
+      {#each markers as m (m.id)}
+        <button class="checkback" style:top="{toMin(m.time) * PX}px" onclick={() => (ui.editing = m.id)} title="Check back on “{m.title}” at {m.time}">
+          <span><Icon name="hourglass" size={10} /> {m.time} {m.title}</span>
+        </button>
+      {/each}
       {#if nowMin !== null}
         <div class="now" style:top="{nowMin * PX}px"><span>{now}</span></div>
       {/if}
@@ -550,6 +566,33 @@
     border-top: 2px solid var(--danger);
     z-index: 3;
     pointer-events: none;
+  }
+  .checkback {
+    position: absolute;
+    left: 48px;
+    right: 0;
+    height: 0;
+    padding: 0;
+    border-top: 2px dashed var(--warn);
+    z-index: 2;
+  }
+  .checkback span {
+    position: absolute;
+    left: 4px;
+    top: -9px;
+    max-width: calc(100% - 60px);
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    font-size: 10px;
+    font-weight: 700;
+    background: var(--warn-soft);
+    color: var(--warn);
+    border-radius: 999px;
+    padding: 1px 6px;
   }
   /* Label at the right end, clear of the hour numbers on the left. */
   .now span {

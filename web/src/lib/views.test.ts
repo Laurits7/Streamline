@@ -33,9 +33,11 @@ describe('eisenhower matrix (D-22: scores 0-3, threshold 2)', () => {
 
 describe('board status columns', () => {
   it('maps open/started/done', () => {
-    expect(statusColumn({ status: 'open', started_at: null })).toBe('todo')
-    expect(statusColumn({ status: 'open', started_at: '2026-10-06T10:00:00Z' })).toBe('doing')
-    expect(statusColumn({ status: 'done', started_at: null })).toBe('done')
-    expect(statusColumn({ status: 'wont_do', started_at: null })).toBeNull()
+    const w = { waiting_since: null }
+    expect(statusColumn({ status: 'open', started_at: null, ...w })).toBe('todo')
+    expect(statusColumn({ status: 'open', started_at: '2026-10-06T10:00:00Z', ...w })).toBe('doing')
+    expect(statusColumn({ status: 'open', started_at: '2026-10-06T10:00:00Z', waiting_since: '2026-10-06T11:00:00Z' })).toBe('waiting')
+    expect(statusColumn({ status: 'done', started_at: null, ...w })).toBe('done')
+    expect(statusColumn({ status: 'wont_do', started_at: null, ...w })).toBeNull()
   })
 })

@@ -9,7 +9,7 @@ use crate::{AppState, events::Change};
 #[derive(Debug, Clone, Serialize, TS)]
 #[ts(export)]
 pub struct Notification {
-    /// e.g. `plan_evening`, `plan_morning`, `ready`, `focus`, `conflict`, `metric`.
+    /// e.g. `plan_evening`, `plan_morning`, `ready`, `check_back`, `focus`, `conflict`, `metric`.
     pub kind: String,
     pub title: String,
     pub body: String,
@@ -21,6 +21,8 @@ pub struct Notification {
 pub fn group_of(kind: &str) -> &str {
     match kind {
         "plan_evening" | "plan_morning" => "planning",
+        // A waited-for task needing a look is "ready" again (D-70).
+        "check_back" => "ready",
         k => k,
     }
 }

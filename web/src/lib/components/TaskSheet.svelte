@@ -9,6 +9,8 @@
   import { describeSeries } from '../rrule'
   import { createsCycle } from '../deps'
   import { localTime } from '../calendar'
+  import { checkBackDue, checkBackLabel, isWaiting } from '../waiting'
+  import WaitPicker from './WaitPicker.svelte'
 
   let { id }: { id: string } = $props()
 
@@ -61,6 +63,13 @@
     deadline: 'Carries on until its due date, then shows as overdue.',
   }
 
+  let picking = $state(false)
+  $effect.pre(() => {
+    void id
+    picking = false
+  })
+  const backLabel = (iso: string) => checkBackLabel(iso, store.me?.timezone ?? 'UTC', Date.now(), store.me?.locale || undefined)
+
   let customDate = $state('')
   function planOn(date: string) {
     if (date) store.plan(id, date)
@@ -78,7 +87,7 @@
     {#snippet header()}
       <div class="head">
         <Check done={task.status === 'done'} onclick={() => store.toggleDone(id)} label="Toggle done" />
-        <span class="muted">{task.status === 'open' ? (task.started_at ? 'In progress' : 'Open') : task.status === 'done' ? 'Done' : task.status.replace('_', ' ')}</span>
+        <span class="muted">{task.status === 'open' ? (isWaiting(task) ? 'Waiting for results' : task.started_at ? 'In progress' : 'Open') : task.status === 'done' ? 'Done' : task.status.replace('_', ' ')}</span>
       </div>
     {/snippet}
 
@@ -150,8 +159,37 @@
         <button class="chip" class:on={!!task.started_at} aria-pressed={!!task.started_at} onclick={() => store.setInProgress(id, !task.started_at)}>
           In progress
         </button>
+        {#if !isWaiting(task) && !checkBackDue(task)}
+          <button class="chip" class:on={picking} aria-expanded={picking} onclick={() => (picking = !picking)}>
+            <Icon name="hourglass" size={13} /> Wait for results…
+          </button>
+        {/if}
         {#if task.actual_min}<span class="muted spent"><Icon name="clock" size={12} /> {fmtMinutes(task.actual_min)} spent</span>{/if}
       </div>
+      {#if isWaiting(task) || checkBackDue(task)}
+        <div class="routine-box wait-box" class:due={checkBackDue(task)}>
+          <Icon name="hourglass" size={16} />
+          <span>
+            {#if checkBackDue(task)}
+              <strong>Time to check back</strong>{task.waiting_note ? ` on ${task.waiting_note}` : ''}
+            {:else}
+              Waiting{task.waiting_note ? ` for ${task.waiting_note}` : ' for results'}
+              <span class="muted"> · {task.check_back_at ? `check back ${backLabel(task.check_back_at)}` : 'no check-back time'}</span>
+            {/if}
+          </span>
+          <div class="acts">
+            {#if checkBackDue(task)}
+              <button class="btn small primary" onclick={() => store.toggleDone(id)}>Done</button>
+              <button class="btn small" onclick={() => (picking = !picking)}>Wait more…</button>
+              <button class="btn small" onclick={() => store.stopWaiting(id)}>Back to work</button>
+            {:else}
+              <button class="btn small" onclick={() => (picking = !picking)}>Change</button>
+              <button class="btn small" onclick={() => store.stopWaiting(id)}>Stop waiting</button>
+            {/if}
+          </div>
+        </div>
+      {/if}
+      {#if picking}<WaitPicker taskId={id} ondone={() => (picking = false)} />{/if}
     {/if}
 
     <section>
@@ -512,6 +550,10 @@
     background: var(--accent-soft);
     color: var(--accent);
     font-size: 14px;
+  }
+  .wait-box.due {
+    background: var(--warn-soft);
+    color: var(--warn);
   }
   .routine-box > span {
     flex: 1 1 200px;

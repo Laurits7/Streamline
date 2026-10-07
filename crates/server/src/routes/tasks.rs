@@ -292,6 +292,10 @@ pub async fn create(
         occurrence_key: None,
         occurrence_date: None,
         window_end: None,
+        waiting_since: None,
+        check_back_at: None,
+        waiting_note: String::new(),
+        waiting_by: None,
         created_at: ts.clone(),
         updated_at: ts.clone(),
         deleted_at: None,
@@ -368,6 +372,31 @@ pub struct PatchTask {
     /// For a task without a project: share it with a group (`null` = just you).
     #[serde(default, deserialize_with = "double_option")]
     owner_group_id: Option<Option<String>>,
+    /// Waiting for results (D-70): `true` starts waiting (or changes the check-back time
+    /// and note while waiting), `false` ends it; the task stays in progress.
+    waiting: Option<bool>,
+    /// When to check back (RFC 3339); `null` = no time, wait until changed by hand.
+    #[serde(default, deserialize_with = "double_option")]
+    check_back_at: Option<Option<String>>,
+    /// What's being waited for.
+    waiting_note: Option<String>,
+}
+
+/// A check-back time as the server stores timestamps (UTC, milliseconds).
+fn check_back_time(v: &str) -> ApiResult<String> {
+    chrono::DateTime::parse_from_rfc3339(v)
+        .map(|d| {
+            d.with_timezone(&chrono::Utc)
+                .to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+        })
+        .map_err(|_| bad("check_back_at must be an RFC 3339 time"))
+}
+
+fn clear_waiting(t: &mut Task) {
+    t.waiting_since = None;
+    t.check_back_at = None;
+    t.waiting_note = String::new();
+    t.waiting_by = None;
 }
 
 /// Validate prerequisites: visible, not the task itself, no cycles, at most 20.
@@ -554,8 +583,55 @@ pub async fn patch(
         t.started_at = if p {
             Some(t.started_at.clone().unwrap_or_else(now))
         } else {
+            clear_waiting(&mut t);
             None
         };
+    }
+    if t.status != "open" {
+        // Finished (or dropped): nothing left to wait for.
+        clear_waiting(&mut t);
+    }
+    match c.waiting {
+        Some(true) => {
+            if t.status != "open" {
+                return Err(bad("only an open task can wait for results"));
+            }
+            let check_back = match c.check_back_at {
+                Some(Some(v)) => Some(check_back_time(&v)?),
+                Some(None) => None,
+                // Keep a time already set while still waiting; a due one is used up.
+                None => t
+                    .check_back_at
+                    .clone()
+                    .filter(|_| t.waiting_since.is_some()),
+            };
+            let note = c.waiting_note.unwrap_or_else(|| t.waiting_note.clone());
+            if note.chars().count() > 500 {
+                return Err(bad("waiting note must be at most 500 characters"));
+            }
+            let started = t.waiting_since.is_none();
+            t.waiting_since = Some(t.waiting_since.clone().unwrap_or_else(now));
+            t.started_at = Some(t.started_at.clone().unwrap_or_else(now));
+            t.waiting_by = Some(user.id().into());
+            t.check_back_at = check_back;
+            t.waiting_note = note.trim().to_string();
+            if started {
+                log_task_event(
+                    &mut tx,
+                    &t.id,
+                    Some(user.id()),
+                    "waiting",
+                    Some(serde_json::json!({"check_back_at": t.check_back_at})),
+                )
+                .await?;
+            }
+        }
+        Some(false) => clear_waiting(&mut t),
+        None => {
+            if c.check_back_at.is_some() || c.waiting_note.is_some() {
+                return Err(bad("set waiting to change the check-back time or note"));
+            }
+        }
     }
     t.updated_at = now();
     t.rev = next_rev(&mut tx).await?;

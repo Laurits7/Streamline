@@ -2,6 +2,12 @@
 
 ## Unreleased (1.2)
 
+- Waiting for results: a task whose work is handed off (a model training, a reply to an
+  e-mail) can wait, with what it waits for and when to check back (quick choices or a time).
+  It needs no action meanwhile: out of Up next, the ready stack, the planner and overlaps,
+  never missed, carried on. Today has a *Waiting for results* section, the board a *Waiting*
+  column, the timeline a check-back marker. At the check-back time a reminder is sent and the
+  task returns to the top of Up next (D-70).
 - Every project has a colour and a shape (circle, square, triangle, diamond, hexagon, star),
   picked automatically so each looks different; subprojects keep their parent's colour with
   their own shape. Existing projects get theirs on upgrade. Ideas show an empty grey circle

@@ -145,6 +145,17 @@
       deleted, the waiting task is freed.
     </p>
     <p>
+      <strong>Waiting for results.</strong> Some work is done but you can't finish it yet: a model is training, a build
+      runs, you've sent an e-mail and need the reply. Open the task and choose <em>Wait for results…</em> (or the same
+      button in the focus view), say what you're waiting for and when to check back: in 30 minutes, 1, 2 or 4 hours,
+      tomorrow morning, at a time you pick, or no time. While it waits it needs nothing from you: it leaves Up next and
+      the ready stack, takes no time on the timeline (a dashed line marks the check-back time), isn't counted as
+      missed and carries on to the next day. Today lists it under <em>Waiting for results</em>, and the board has a
+      <em>Waiting</em> column. At the check-back time you get a reminder and the task comes back at the top of Up next
+      with <em>Check back</em>: mark it done, wait more, or go back to work on it. Without a time it waits until you
+      change it.
+    </p>
+    <p>
       <strong>Multi-step chores</strong> (on the <a href="/routines">Routines</a> page) do this for you. Laundry is a
       chain: wash → dry → iron → fold, with variants that leave steps out (delicates skip the dryer, towels skip
       ironing). <em>Start</em> it, pick the loads, and each load gets its own chain; only the current step of each shows
@@ -161,7 +172,7 @@
     <ul>
       <li><strong>List</strong>: the normal ordered list.</li>
       <li>
-        <strong>Board</strong>: columns by <em>status</em> (To do, In progress, Done), <em>project</em>
+        <strong>Board</strong>: columns by <em>status</em> (To do, In progress, Waiting, Done), <em>project</em>
         (subprojects inside a project), <em>difficulty</em> or <em>task type</em>. Drag a card to another column to change
         that property, or within a column to reorder. Marked something done by mistake? Drag it from <em>Done</em>
         back to <em>To do</em>.
@@ -186,7 +197,7 @@
       <li>Pause, resume, skip or stop at any time. A chime and a buzz tell you when an interval ends.</li>
       <li>The timer runs on the server: start it on your phone and the same countdown shows on your computer. Leave the focus view and a small timer stays in the corner.</li>
       <li>Focus time is added to the task's <em>time spent</em>, so you can compare it with your estimate. Starting focus also marks the task <em>in progress</em>.</li>
-      <li>From the focus view: mark the task done (the next planned task starts), snooze it to tomorrow, or jump to the next task.</li>
+      <li>From the focus view: mark the task done (the next planned task starts), set it <em>waiting for results</em> and move on, snooze it to tomorrow, or jump to the next task.</li>
     </ul>
   </section>
 

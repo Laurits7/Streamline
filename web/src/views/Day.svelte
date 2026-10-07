@@ -19,6 +19,7 @@
   import { store } from '../lib/store.svelte'
   import { toast } from '../lib/toast.svelte'
   import { ui } from '../lib/ui.svelte'
+  import { localParts } from '../lib/waiting'
 
   let { date: dateProp = null }: { date?: string | null } = $props()
   const date = $derived(dateProp ?? store.today)
@@ -33,9 +34,19 @@
       // A shared task someone else finished (e.g. the group's dog walk) leaves my day.
       .filter((i) => !(i.task.owner_group_id && i.task.status === 'done' && i.task.completed_by && i.task.completed_by !== store.me?.id)),
   )
-  const open = $derived(items.filter((i) => i.task.status === 'open'))
-  const timed = $derived(items.filter((i) => i.entry.start_time))
+  // Waiting for results takes no planned time (D-70): listed in its own section.
+  const open = $derived(items.filter((i) => i.task.status === 'open' && !i.task.waiting_since))
+  const timed = $derived(items.filter((i) => i.entry.start_time && !(i.task.status === 'open' && i.task.waiting_since)))
   const flexible = $derived(open.filter((i) => !i.entry.start_time))
+  const waiting = $derived(isToday ? store.waitingTasks() : [])
+  const checkBacks = $derived(isToday ? store.checkBacks() : [])
+  const tz = $derived(store.me?.timezone ?? 'UTC')
+  const markers = $derived(
+    store
+      .waitingTasks()
+      .filter((t) => t.check_back_at && localParts(t.check_back_at, tz).date === date)
+      .map((t) => ({ id: t.id, title: t.title, time: localParts(t.check_back_at!, tz).time })),
+  )
   const closed = $derived(items.filter((i) => i.task.status !== 'open'))
   const plannedIds = $derived(new Set(items.map((i) => i.task.id)))
   // "N times a week/month" routines whose window includes this day (doable any day of it).
@@ -109,7 +120,13 @@
   const upcoming = $derived(
     open.filter((i) => i.entry.start_time && i.entry.start_time >= now).sort((a, b) => (a.entry.start_time! < b.entry.start_time! ? -1 : 1)),
   )
-  const next = $derived(isToday ? (upcoming[0] ?? flexible[0] ?? null) : null)
+  // A due check-back comes first (D-70), then the next scheduled task, then the plan.
+  const next = $derived.by((): { task: Task; label: string } | null => {
+    if (!isToday) return null
+    if (checkBacks[0]) return { task: checkBacks[0], label: 'Check back' }
+    const i = upcoming[0] ?? flexible[0]
+    return i ? { task: i.task, label: i.entry.start_time ? `Next · ${i.entry.start_time}` : 'Up next' } : null
+  })
 
   // Wide screens show the timeline beside the plan; phones show it above.
   // Very wide screens get a third column (tracking and the activity log).
@@ -173,7 +190,7 @@
       {/each}
     </ul>
   {/if}
-  <Timeline {date} items={timed} now={isToday ? now : null} />
+  <Timeline {date} items={timed} now={isToday ? now : null} {markers} />
 {/snippet}
 
 {#snippet side()}
@@ -245,8 +262,9 @@
     {#if next}
       <div class="next card">
         <button class="next-main" onclick={() => (ui.editing = next.task.id)}>
-          <span class="label">{next.entry.start_time ? `Next · ${next.entry.start_time}` : 'Up next'}</span>
+          <span class="label">{next.label}</span>
           <span class="next-title">{next.task.title}</span>
+          {#if next.label === 'Check back' && next.task.waiting_note}<span class="muted next-note">{next.task.waiting_note}</span>{/if}
         </button>
         <button
           class="btn small"
@@ -284,6 +302,20 @@
         </div>
       {/each}
     </div>
+
+    {#if checkBacks.length > 1}
+      <h2 class="section-title"><Icon name="hourglass" size={14} /> Check back</h2>
+      <div class="card list">
+        {#each checkBacks as t (t.id)}<TaskRow task={t} showProject />{/each}
+      </div>
+    {/if}
+
+    {#if waiting.length}
+      <h2 class="section-title"><Icon name="hourglass" size={14} /> Waiting for results</h2>
+      <div class="card list">
+        {#each waiting as t (t.id)}<TaskRow task={t} showProject />{/each}
+      </div>
+    {/if}
 
     {#if windowed.length}
       <h2 class="section-title"><Icon name="repeat" size={14} /> This week / month</h2>
@@ -505,6 +537,9 @@
   .next-title {
     font-size: 17px;
     font-weight: 600;
+  }
+  .next-note {
+    font-size: 13px;
   }
   .list {
     overflow: hidden;

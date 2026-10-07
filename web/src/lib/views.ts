@@ -45,11 +45,12 @@ export function matrixPatch(t: Pick<Task, 'importance' | 'urgency'>, q: Quadrant
 
 // ---- board --------------------------------------------------------------------
 
-export type StatusColumn = 'todo' | 'doing' | 'done'
+export type StatusColumn = 'todo' | 'doing' | 'waiting' | 'done'
 
-export function statusColumn(t: Pick<Task, 'status' | 'started_at'>): StatusColumn | null {
+export function statusColumn(t: Pick<Task, 'status' | 'started_at' | 'waiting_since'>): StatusColumn | null {
   if (t.status === 'done') return 'done'
   if (t.status !== 'open') return null
+  if (t.waiting_since) return 'waiting'
   return t.started_at ? 'doing' : 'todo'
 }
 

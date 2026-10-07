@@ -47,6 +47,7 @@ import { keyAt, keyBetween } from './order'
 import { toast } from './toast.svelte'
 import { ulid } from './ulid'
 import { pickSub, pickTop, type Shape } from './marks'
+import { checkBackDue, isWaiting } from './waiting'
 
 type Kind =
   | 'task'
@@ -112,6 +113,7 @@ export type TaskPatch = Partial<
 export type EntryPatch = Partial<Pick<DayEntry, 'date' | 'position' | 'start_time' | 'duration_min'>>
 
 const now = () => new Date().toISOString()
+const NOT_WAITING = { waiting_since: null, check_back_at: null, waiting_note: '', waiting_by: null }
 function readLocal(key: string, fallback: string): string {
   try {
     return localStorage.getItem(key) ?? fallback
@@ -639,6 +641,7 @@ class Store {
           !this.isUpcoming(t, date) &&
           this.atCurrentPlace(t) &&
           !t.blocked &&
+          !t.waiting_since &&
           !this.inIdea(t),
       )
       .sort(byPosition)
@@ -693,6 +696,10 @@ class Store {
       occurrence_key: null,
       occurrence_date: null,
       window_end: null,
+      waiting_since: null,
+      check_back_at: null,
+      waiting_note: '',
+      waiting_by: null,
       created_at: ts,
       updated_at: ts,
       deleted_at: null,
@@ -748,6 +755,7 @@ class Store {
       local.completed_at = patch.status === 'done' ? now() : null
       local.completed_by = patch.status === 'done' ? (this.me?.id ?? null) : null
       if (patch.status === 'open') local.started_at = null
+      Object.assign(local, NOT_WAITING)
     }
     this.optimistic(
       [['task', id]],
@@ -1149,9 +1157,67 @@ class Store {
     if (!cur) return
     this.optimistic(
       [['task', id]],
-      () => this.tasks.set(id, { ...cur, started_at: inProgress ? (cur.started_at ?? now()) : null, updated_at: now() }),
+      () =>
+        this.tasks.set(id, {
+          ...cur,
+          ...(inProgress ? {} : NOT_WAITING),
+          started_at: inProgress ? (cur.started_at ?? now()) : null,
+          updated_at: now(),
+        }),
       async () => [['task', await api.patch<Task>(`/tasks/${id}`, { in_progress: inProgress })]],
     )
+  }
+
+  // ---- waiting for results (D-70) ---------------------------------------------
+
+  /** Mark a task as waiting for results, with an optional check-back time (ISO) and note. */
+  waitFor(id: string, checkBackAt: string | null, note?: string, extra: Pick<TaskPatch, 'position'> & { status?: 'open' } = {}) {
+    const cur = this.tasks.get(id)
+    if (!cur) return
+    const ts = now()
+    this.optimistic(
+      [['task', id]],
+      () =>
+        this.tasks.set(id, {
+          ...cur,
+          ...(extra.status ? { status: 'open', completed_at: null, completed_by: null } : {}),
+          ...(extra.position ? { position: extra.position } : {}),
+          waiting_since: cur.waiting_since ?? ts,
+          started_at: cur.started_at ?? ts,
+          check_back_at: checkBackAt,
+          waiting_note: (note ?? cur.waiting_note).trim(),
+          waiting_by: this.me?.id ?? null,
+          updated_at: ts,
+        }),
+      async () => [
+        ['task', await api.patch<Task>(`/tasks/${id}`, { ...extra, waiting: true, check_back_at: checkBackAt, ...(note !== undefined ? { waiting_note: note } : {}) })],
+      ],
+    )
+  }
+
+  /** Stop waiting (or dismiss a due check-back): the task stays in progress. */
+  stopWaiting(id: string) {
+    const cur = this.tasks.get(id)
+    if (!cur) return
+    this.optimistic(
+      [['task', id]],
+      () => this.tasks.set(id, { ...cur, ...NOT_WAITING, updated_at: now() }),
+      async () => [['task', await api.patch<Task>(`/tasks/${id}`, { waiting: false })]],
+    )
+  }
+
+  /** Open tasks waiting for results, soonest check-back first (no time last). */
+  waitingTasks(): Task[] {
+    return [...this.tasks.values()]
+      .filter((t) => isWaiting(t) && !this.inIdea(t))
+      .sort((a, b) => (a.check_back_at ?? '~').localeCompare(b.check_back_at ?? '~') || byPosition(a, b))
+  }
+
+  /** Waits whose check-back time has come, oldest first. */
+  checkBacks(): Task[] {
+    return [...this.tasks.values()]
+      .filter((t) => checkBackDue(t) && !this.inIdea(t))
+      .sort((a, b) => a.check_back_at!.localeCompare(b.check_back_at!))
   }
 
   // ---- preferences ----------------------------------------------------------
@@ -1401,7 +1467,8 @@ class Store {
     const items: Item[] = []
     for (const e of this.dayEntries(date)) {
       const t = this.tasks.get(e.task_id)
-      if (!e.start_time || !t || t.status !== 'open') continue
+      // Waiting for results takes no time (D-70).
+      if (!e.start_time || !t || t.status !== 'open' || t.waiting_since) continue
       const start = m(e.start_time)
       items.push({ id: e.id, kind: 'task', start, end: Math.min(1440, start + (e.duration_min ?? t.estimate_min ?? 30)) })
     }

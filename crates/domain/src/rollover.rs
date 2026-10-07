@@ -47,10 +47,14 @@ pub enum Outcome {
 
 /// Decide the outcome for an open task whose planned day has passed.
 /// Window and deadline types carry over until their window/deadline logic lands
-/// (Phase 3); they never miss early.
-pub fn day_end_outcome(behavior: DayEndBehavior, blocked: bool) -> Outcome {
+/// (Phase 3); they never miss early. A task waiting for results (D-70) needs no
+/// action, so it carries on whatever its type.
+pub fn day_end_outcome(behavior: DayEndBehavior, blocked: bool, waiting: bool) -> Outcome {
     if blocked {
         return Outcome::Keep;
+    }
+    if waiting {
+        return Outcome::CarryTo;
     }
     match behavior {
         DayEndBehavior::Carry | DayEndBehavior::Window | DayEndBehavior::Deadline => {
@@ -91,15 +95,30 @@ mod tests {
     #[test]
     fn outcomes() {
         assert_eq!(
-            day_end_outcome(DayEndBehavior::Carry, false),
+            day_end_outcome(DayEndBehavior::Carry, false, false),
             Outcome::CarryTo
         );
         assert_eq!(
-            day_end_outcome(DayEndBehavior::Expire, false),
+            day_end_outcome(DayEndBehavior::Expire, false, false),
             Outcome::Miss
         );
-        assert_eq!(day_end_outcome(DayEndBehavior::Expire, true), Outcome::Keep);
-        assert_eq!(day_end_outcome(DayEndBehavior::Carry, true), Outcome::Keep);
+        assert_eq!(
+            day_end_outcome(DayEndBehavior::Expire, true, false),
+            Outcome::Keep
+        );
+        assert_eq!(
+            day_end_outcome(DayEndBehavior::Carry, true, false),
+            Outcome::Keep
+        );
+        // Waiting for results: never missed, carried on.
+        assert_eq!(
+            day_end_outcome(DayEndBehavior::Expire, false, true),
+            Outcome::CarryTo
+        );
+        assert_eq!(
+            day_end_outcome(DayEndBehavior::Carry, false, true),
+            Outcome::CarryTo
+        );
     }
 
     #[test]

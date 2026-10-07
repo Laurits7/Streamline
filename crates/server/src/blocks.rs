@@ -244,6 +244,8 @@ pub async fn day_items(
         "SELECT e.id, e.start_time, e.duration_min, t.estimate_min FROM day_entries e JOIN tasks t ON t.id = e.task_id
          WHERE e.user_id = ?1 AND e.date = ?2 AND e.deleted_at IS NULL AND e.start_time IS NOT NULL
            AND t.deleted_at IS NULL AND t.status = 'open'
+           -- waiting for results takes no time (D-70)
+           AND t.waiting_since IS NULL
            AND (t.owner_user_id = ?1 OR t.owner_group_id IN (SELECT group_id FROM group_members WHERE user_id = ?1))",
     )
     .bind(&user.id)
@@ -365,7 +367,7 @@ pub async fn unscheduled(
     sqlx::query_as(
         "SELECT t.* FROM day_entries e JOIN tasks t ON t.id = e.task_id
          WHERE e.user_id = ?1 AND e.date = ?2 AND e.deleted_at IS NULL AND e.start_time IS NULL
-           AND t.deleted_at IS NULL AND t.status = 'open'
+           AND t.deleted_at IS NULL AND t.status = 'open' AND t.waiting_since IS NULL
            AND (t.owner_user_id = ?1 OR t.owner_group_id IN (SELECT group_id FROM group_members WHERE user_id = ?1))
          ORDER BY e.position",
     )

@@ -43,6 +43,9 @@ async fn run_once(state: AppState) {
     if let Err(e) = crate::deps::release_waiting(&state).await {
         tracing::warn!("wait-time job failed: {e:#}");
     }
+    if let Err(e) = crate::waiting::check_back(&state).await {
+        tracing::warn!("check-back job failed: {e:#}");
+    }
     if let Err(e) = crate::routes::focus::advance_all(&state).await {
         tracing::warn!("focus job failed: {e:#}");
     }

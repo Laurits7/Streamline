@@ -69,7 +69,7 @@
   // Notifications
   const KINDS = [
     ['planning', 'Planning reminders'],
-    ['ready', 'A waiting task is ready'],
+    ['ready', 'A waiting task is ready, or it is time to check back'],
     ['focus', 'Focus timer: interval over'],
     ['conflict', 'Overlaps with your calendar'],
     ['metric', 'Tracking reminders'],

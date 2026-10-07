@@ -556,12 +556,12 @@ later (a model training, a slow build, an e-mail waiting for a reply). Default t
 tasks with a checklist ("Do laundry": sort, wash, hang, fold) created in two taps. Project
 ideas: projects that aren't started yet, kept with a description.
 
-- [ ] **7a.1 Server**: `tasks.waiting_since`, `check_back_at`, `waiting_note` (migration);
-      `POST /tasks/{id}/wait` and clearing it; waiting tasks carry on at day end whatever their
+- [x] **7a.1 Server**: `tasks.waiting_since`, `check_back_at`, `waiting_note`, `waiting_by` (migration);
+      `PATCH /tasks/{id}` with `waiting` / `check_back_at` / `waiting_note`, and clearing it; waiting tasks carry on at day end whatever their
       type; at `check_back_at` a reminder through the usual channels (in-app, push, ntfy) and
       the task stops waiting; overlaps and the planner ignore waiting tasks; tests (rollover,
       reminder once, completing or editing clears waiting).
-- [ ] **7a.2 UI**: "Waiting" column on the status board (between In progress and Done);
+- [x] **7a.2 UI**: "Waiting" column on the status board (between In progress and Done);
       "Wait for results…" in the task sheet and when ending a focus session, with quick
       choices (in 30 min, 1 h, 2 h, 4 h, tomorrow morning, a time, no time); waiting tasks
       leave Up next and the ready stack and show a "check back 15:30" chip; a check-back
