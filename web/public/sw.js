@@ -4,7 +4,8 @@
 //  - Data: GET API reads are fetched fresh and the last answer is kept, so the app opens
 //    read-only without a connection (the response is marked `X-Streamline-Offline`).
 //  - Push: shows notifications sent by the server, and opens the right page on tap.
-const SHELL = 'sl-shell-v1'
+// Bump SHELL when files in /icons change: they are served cache-first and aren't content-hashed.
+const SHELL = 'sl-shell-v2'
 const DATA = 'sl-data-v1'
 // Reads worth keeping for offline use (not the live event stream).
 const KEEP = [/^\/api\/v1\/(sync|me|today|namedays|setup)(\?|$)/, /^\/api\/v1\/days\/[^/]+(\/summary)?$/]
@@ -13,7 +14,7 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     caches
       .open(SHELL)
-      .then((c) => c.addAll(['/', '/manifest.webmanifest', '/icons/icon-192.png']))
+      .then((c) => c.addAll(['/', '/manifest.webmanifest', '/icons/icon-192.png', '/icons/icon.svg']))
       .then(() => self.skipWaiting()),
   )
 })

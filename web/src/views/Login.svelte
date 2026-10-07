@@ -32,7 +32,7 @@
 <main>
   <form class="card" onsubmit={submit}>
     <div class="logo" aria-hidden="true">
-      <svg viewBox="0 0 64 64" width="44" height="44"><rect width="64" height="64" rx="14" fill="var(--accent)" /><path d="M18 34l9 9 19-21" fill="none" stroke="var(--accent-text)" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" /></svg>
+      <img src="/icons/icon.svg" width="44" height="44" alt="" />
     </div>
     <h1>{setup ? 'Welcome to Streamline' : 'Sign in'}</h1>
     {#if setup}<p class="muted">Create the admin account for this household. You can add more people later in Settings.</p>{/if}

@@ -143,7 +143,7 @@
   <div class="shell">
     <aside class="sidebar">
       <div class="brand">
-        <svg viewBox="0 0 64 64" width="26" height="26" aria-hidden="true"><rect width="64" height="64" rx="14" fill="var(--accent)" /><path d="M18 34l9 9 19-21" fill="none" stroke="var(--accent-text)" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" /></svg>
+        <img src="/icons/icon.svg" width="26" height="26" alt="" />
         Streamline
         <span class="live" class:on={store.live} title={store.live ? 'Live sync connected' : 'Reconnecting…'}></span>
       </div>

@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased (1.2)
+
+- New logo: a stone in a stream, with the water parting around it. Used for the browser tab,
+  the installed app, notifications, the sidebar and sign-in; the accent colour is now the
+  logo's blue (D-73).
+
 ## 1.0.0 (2026-10-07)
 
 The first complete version. Built in phases (see `docs/WORKPLAN.md`); decisions are in
