@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.0.0 (unreleased)
+## 1.0.0 (2026-10-07)
 
 The first complete version. Built in phases (see `docs/WORKPLAN.md`); decisions are in
 `docs/DECISIONS.md` (D-numbers below).

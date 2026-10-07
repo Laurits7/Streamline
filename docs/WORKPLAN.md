@@ -520,7 +520,7 @@ Legend: **Deliverables** = what exists afterwards · **Tests** = what must be co
       (contrast, focus order, reduced motion).
 - [x] **6.4b Calendar events ↔ work** (owner request, D-68): assign an event (all instances of
       a recurring one) to a project; attach todos to an event; event sheet, project page list.
-- [~] **6.5 Release v1.0** (README, CHANGELOG and version done; merging to `main` and the `v1.0.0` tag wait for the owner): complete README (install, proxy setups for Caddy, Traefik and
+- [x] **6.5 Release v1.0** (owner go-ahead 2026-10-07): complete README (install, proxy setups for Caddy, Traefik and
       Tailscale, backup, upgrade), CHANGELOG, tagged multi-arch image, final resource report.
 
 ---
@@ -546,6 +546,30 @@ Legend: **Deliverables** = what exists afterwards · **Tests** = what must be co
       events to a dedicated calendar.
 - [ ] **7.8 Native app** *(on hold: owner prefers the web app, D-61)*: evaluate Tauri 2 reusing `web/`, with token auth and the
       change feed.
+
+---
+
+### Phase 8: Sync between Streamline servers (v1.1, D-69)
+
+Shared projects across instances: each collaborator keeps their own server. Home-server model:
+the sharer's server is authoritative; members' servers hold a replica and forward writes.
+
+- [ ] **8.1 Federated identities**: remote members (`name@host`) as login-less user rows; group
+      membership for remote members; how they're shown (name, server).
+- [ ] **8.2 Invites and handshake**: per-project invite link (expiring, single use); the
+      collaborator's server redeems it over HTTPS and gets a per-link secret (revocable);
+      server identity check; outbound calls through `net.rs`.
+- [ ] **8.3 Replication feed**: project-scoped change feed and live stream for a link (project,
+      subprojects, tasks, routines); the replica server applies changes as read-only mirrors;
+      routines, rollover of shared items and occurrences run only on the home server.
+- [ ] **8.4 Forwarded writes**: edits to replicated items go to the home server as the remote
+      member (same permission checks as local members); the result comes back via the feed.
+      Home unreachable → read-only with a banner (D-69).
+- [ ] **8.5 UI**: invite/join flow, remote members in groups, server status per shared project,
+      leaving/removing (replica deleted).
+- [ ] **8.6 Tests and security review**: two servers in one test process (join, edit both ways,
+      remove, revoke, home down, hostile peer input); compose file with two instances; review
+      of the new server-to-server surface.
 
 ---
 
