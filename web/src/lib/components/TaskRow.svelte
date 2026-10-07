@@ -126,6 +126,10 @@
         {@const prog = task.window_end ? store.windowProgress(task.series_id, store.today) : null}
         <span title="Routine"><Icon name="repeat" size={12} />{prog && prog.total > 1 ? ` ${prog.done}/${prog.total} this ${store.series.get(task.series_id)?.window ?? 'week'}` : ''}</span>
       {/if}
+      {#if task.checklist.length}
+        {@const n = task.checklist.filter((i) => i.done).length}
+        <span class:all={n === task.checklist.length} title="{n} of {task.checklist.length} steps done"><Icon name="checklist" size={12} />{n}/{task.checklist.length}</span>
+      {/if}
       {#if task.notes.trim()}<span title="Has notes">¶</span>{/if}
     </span>
   </button>
@@ -257,6 +261,9 @@
   }
   .row.blocked .main .title {
     color: var(--muted);
+  }
+  .meta .all {
+    color: var(--ok, var(--accent));
   }
   .tag.waiting {
     background: var(--surface-2);

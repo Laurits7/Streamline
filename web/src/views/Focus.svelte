@@ -9,6 +9,7 @@
   import { toast } from '../lib/toast.svelte'
   import { ui } from '../lib/ui.svelte'
   import WaitPicker from '../lib/components/WaitPicker.svelte'
+  import Checklist from '../lib/components/Checklist.svelte'
 
   const t = $derived(store.focusTimer)
   const task = $derived(t.task_id ? store.tasks.get(t.task_id) : null)
@@ -119,6 +120,9 @@
           <span><Icon name="clock" size={14} /> {fmtMinutes(task.actual_min)} spent{task.estimate_min ? ` of ${fmtMinutes(task.estimate_min)}` : ''}</span>
           <span>{sessionsToday.length} focus interval{sessionsToday.length === 1 ? '' : 's'} today</span>
         </p>
+        {#if task.checklist.length}
+          <Checklist items={task.checklist} onchange={(checklist) => store.updateTask(task.id, { checklist })} ontick={(item) => store.tickItem(task.id, item)} />
+        {/if}
         {#if task.notes.trim()}<div class="notes">{task.notes}</div>{/if}
         <div class="row">
           <button class="btn primary" onclick={done}><Icon name="check" size={16} /> Done</button>

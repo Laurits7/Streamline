@@ -2,6 +2,7 @@
 //! Everything here is deterministic and unit-tested.
 
 pub mod calendar;
+pub mod checklist;
 pub mod conflicts;
 pub mod deps;
 pub mod focus;

@@ -58,6 +58,7 @@ const task = (id: string, extra: Partial<Task> = {}): Task => ({
   check_back_at: null,
   waiting_note: '',
   waiting_by: null,
+  checklist: [],
   created_at: TS,
   updated_at: TS,
   deleted_at: null,
@@ -376,7 +377,7 @@ describe('routine versions', () => {
       id, owner_user_id: 'U1', owner_group_id: null, project_id: null, title: 'Laundry', notes: '', mode: 'flexible' as const,
       rrule: null, dtstart: '2026-10-05', until: null, start_time: null, duration_min: null, times_per_window: 2,
       window: 'week' as const, task_type_id: 'tt_window', estimate_min: null, difficulty: null, importance: null, urgency: null,
-      split_from, place_id: null, workflow_template_id: null, workflow_variant_ids: [], created_at: TS, updated_at: TS, deleted_at: null, rev: 1,
+      split_from, place_id: null, workflow_template_id: null, workflow_variant_ids: [], checklist: [], created_at: TS, updated_at: TS, deleted_at: null, rev: 1,
     })
     const slot = (id: string, sid: string, status: Task['status']) =>
       task(id, { series_id: sid, occurrence_key: `2026-10-05#${id}`, occurrence_date: '2026-10-05', window_end: '2026-10-11', status })
@@ -444,5 +445,42 @@ describe('calendar events and work (D-68)', () => {
     store.createTask({ title: 'Prepare agenda', project_id: 'P1', event_id: 'E1', due_date: store.eventDate(store.events.get('E1')!) })
     expect(store.eventTasks('E1').map((t) => [t.title, t.due_date])).toEqual([['Prepare agenda', '2026-10-07']])
     expect(store.eventTasks('E2')).toEqual([])
+  })
+})
+
+describe('checklists and waiting (D-70, D-71)', () => {
+  it('offers to complete the task when the last step is ticked', async () => {
+    const items = [
+      { id: 'a', text: 'Sort', done: true },
+      { id: 'b', text: 'Wash', done: false },
+    ]
+    await load({ tasks: [task('T1', { checklist: items })] })
+    mockApi((_m, _p, body) => task('T1', { checklist: (body as { checklist: typeof items }).checklist }))
+    store.tickItem('T1', 'b')
+    expect(store.tasks.get('T1')!.checklist.every((i) => i.done)).toBe(true)
+    expect(toasts.at(-1)).toMatchObject({ text: 'All steps done', action: { label: 'Complete task' } })
+    await tick()
+    expect(calls[0]).toMatchObject({ method: 'PATCH', path: '/tasks/T1', body: { checklist: [{ id: 'a', done: true }, { id: 'b', done: true }] } })
+  })
+
+  it('keeps waiting tasks out of the ready stack and lists them by check-back time', async () => {
+    await load({
+      tasks: [
+        task('A'),
+        task('B', { waiting_since: TS, check_back_at: '2026-10-06T15:00:00.000Z' }),
+        task('C', { waiting_since: TS }),
+        task('D', { waiting_since: TS, check_back_at: '2026-10-06T12:00:00.000Z' }),
+        task('E', { check_back_at: '2026-10-06T09:00:00.000Z' }),
+      ],
+    })
+    expect(store.readyStack('2026-10-06').map((t) => t.id)).toEqual(['A', 'E'])
+    expect(store.waitingTasks().map((t) => t.id)).toEqual(['D', 'B', 'C'])
+    expect(store.checkBacks().map((t) => t.id)).toEqual(['E'])
+    mockApi(() => task('A', { waiting_since: TS }))
+    store.waitFor('A', null, 'reply')
+    expect(store.tasks.get('A')).toMatchObject({ waiting_note: 'reply', check_back_at: null })
+    expect(store.tasks.get('A')!.started_at).not.toBeNull()
+    await tick()
+    expect(calls[0].body).toEqual({ waiting: true, check_back_at: null, waiting_note: 'reply' })
   })
 })

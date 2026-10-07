@@ -195,6 +195,9 @@ pub struct CreateSeries {
     workflow_variant_ids: Option<Vec<String>>,
     /// Share a routine without a project with a group (routines in a project follow it).
     owner_group_id: Option<String>,
+    /// Checklist each occurrence starts with (D-71).
+    #[serde(default)]
+    checklist: Vec<crate::models::ChecklistItem>,
 }
 
 #[utoipa::path(post, path = "/series", tag = "routines", summary = "Create a routine (its occurrences appear up to tomorrow)", request_body = CreateSeries, responses((status = 200, body = Series), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
@@ -239,6 +242,7 @@ pub async fn create(
         place_id: c.place_id,
         workflow_template_id: c.workflow_template_id,
         workflow_variant_ids: sqlx::types::Json(c.workflow_variant_ids.unwrap_or_default()),
+        checklist: sqlx::types::Json(crate::models::checklist(c.checklist).map_err(bad)?),
         materialized_through: None,
         split_from: None,
         created_at: ts.clone(),
@@ -290,6 +294,8 @@ pub struct PatchSeries {
     #[serde(default, deserialize_with = "double_option")]
     workflow_template_id: Option<Option<String>>,
     workflow_variant_ids: Option<Vec<String>>,
+    /// Checklist for occurrences from `from` on; open ones keep ticks of items still there.
+    checklist: Option<Vec<crate::models::ChecklistItem>>,
     // Schedule: changing any of these splits the routine at `from`.
     mode: Option<String>,
     rrule: Option<String>,
@@ -404,6 +410,10 @@ pub async fn patch(
     }
     if let Some(v) = c.workflow_variant_ids {
         next.workflow_variant_ids = sqlx::types::Json(v);
+    }
+    let checklist_changed = c.checklist.is_some();
+    if let Some(v) = c.checklist {
+        next.checklist = sqlx::types::Json(crate::models::checklist(v).map_err(bad)?);
     }
     let mut schedule_changed = false;
     if let Some(v) = c.mode.filter(|v| *v != old.mode) {
@@ -526,6 +536,14 @@ pub async fn patch(
             t.importance = next.importance;
             t.urgency = next.urgency;
             t.place_id = next.place_id.clone();
+            if checklist_changed {
+                t.checklist =
+                    sqlx::types::Json(crate::models::with_checklist(&next.checklist, |new| {
+                        let old: Vec<streamline_domain::checklist::Item> =
+                            t.checklist.0.iter().cloned().map(Into::into).collect();
+                        streamline_domain::checklist::keep_ticks(new, &old)
+                    }));
+            }
             t.updated_at = ts.clone();
             t.rev = rev;
             upsert_task(&mut tx, &t).await?;

@@ -232,11 +232,61 @@ pub struct Task {
     pub waiting_note: String,
     /// Who set the task waiting (gets the check-back reminder).
     pub waiting_by: Option<String>,
+    /// Steps inside the task (D-71).
+    #[ts(as = "Vec<ChecklistItem>")]
+    #[schema(value_type = Vec<ChecklistItem>)]
+    pub checklist: sqlx::types::Json<Vec<ChecklistItem>>,
     pub created_at: String,
     pub updated_at: String,
     pub deleted_at: Option<String>,
     #[ts(type = "number")]
     pub rev: i64,
+}
+
+/// One item of a task's checklist (D-71).
+#[derive(Debug, Clone, Serialize, serde::Deserialize, TS, utoipa::ToSchema, PartialEq)]
+#[ts(export)]
+pub struct ChecklistItem {
+    /// Stable within the list (client-chosen).
+    pub id: String,
+    pub text: String,
+    pub done: bool,
+}
+
+impl From<ChecklistItem> for streamline_domain::checklist::Item {
+    fn from(i: ChecklistItem) -> Self {
+        Self {
+            id: i.id,
+            text: i.text,
+            done: i.done,
+        }
+    }
+}
+
+impl From<streamline_domain::checklist::Item> for ChecklistItem {
+    fn from(i: streamline_domain::checklist::Item) -> Self {
+        Self {
+            id: i.id,
+            text: i.text,
+            done: i.done,
+        }
+    }
+}
+
+/// Validate a checklist from a request (see `domain::checklist::normalize`).
+pub fn checklist(items: Vec<ChecklistItem>) -> Result<Vec<ChecklistItem>, &'static str> {
+    streamline_domain::checklist::normalize(items.into_iter().map(Into::into).collect())
+        .map(|v| v.into_iter().map(Into::into).collect())
+}
+
+/// Apply `f` to a checklist in domain form.
+pub fn with_checklist(
+    items: &[ChecklistItem],
+    f: impl FnOnce(&[streamline_domain::checklist::Item]) -> Vec<streamline_domain::checklist::Item>,
+) -> Vec<ChecklistItem> {
+    let d: Vec<streamline_domain::checklist::Item> =
+        items.iter().cloned().map(Into::into).collect();
+    f(&d).into_iter().map(Into::into).collect()
 }
 
 #[derive(Debug, Clone, Copy, Serialize, TS, utoipa::ToSchema)]
@@ -439,6 +489,10 @@ pub struct Series {
     #[ts(type = "Array<string>")]
     #[schema(value_type = Vec<String>)]
     pub workflow_variant_ids: sqlx::types::Json<Vec<String>>,
+    /// Checklist each occurrence starts with, unticked (D-71).
+    #[ts(as = "Vec<ChecklistItem>")]
+    #[schema(value_type = Vec<ChecklistItem>)]
+    pub checklist: sqlx::types::Json<Vec<ChecklistItem>>,
     #[serde(skip)]
     #[ts(skip)]
     pub materialized_through: Option<String>,
@@ -545,9 +599,9 @@ pub async fn upsert_task(conn: &mut SqliteConnection, t: &Task) -> sqlx::Result<
            due_date, estimate_min, difficulty, importance, urgency, actual_min, task_type_id, carry_count, started_at, completed_at,
            completed_by, ext_source, ext_id, ext_url, place_id, event_id, also_project_ids, depends_on, blocked, wait_min, ready_at,
            workflow_instance_id, workflow_step, workflow_steps, series_id, occurrence_key, occurrence_date, window_end,
-           waiting_since, check_back_at, waiting_note, waiting_by,
+           waiting_since, check_back_at, waiting_note, waiting_by, checklist,
            created_at, updated_at, deleted_at, rev)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
          ON CONFLICT(id) DO UPDATE SET owner_user_id=excluded.owner_user_id, owner_group_id=excluded.owner_group_id,
            assignee_user_id=excluded.assignee_user_id, project_id=excluded.project_id, title=excluded.title,
            notes=excluded.notes, status=excluded.status, position=excluded.position, due_date=excluded.due_date,
@@ -561,7 +615,7 @@ pub async fn upsert_task(conn: &mut SqliteConnection, t: &Task) -> sqlx::Result<
            workflow_steps=excluded.workflow_steps,
            occurrence_date=excluded.occurrence_date, window_end=excluded.window_end,
            waiting_since=excluded.waiting_since, check_back_at=excluded.check_back_at,
-           waiting_note=excluded.waiting_note, waiting_by=excluded.waiting_by,
+           waiting_note=excluded.waiting_note, waiting_by=excluded.waiting_by, checklist=excluded.checklist,
            updated_at=excluded.updated_at, deleted_at=excluded.deleted_at, rev=excluded.rev",
     )
     .bind(&t.id).bind(&t.owner_user_id).bind(&t.owner_group_id).bind(&t.assignee_user_id).bind(&t.project_id)
@@ -570,7 +624,7 @@ pub async fn upsert_task(conn: &mut SqliteConnection, t: &Task) -> sqlx::Result<
     .bind(t.carry_count).bind(&t.started_at).bind(&t.completed_at).bind(&t.completed_by).bind(&t.ext_source).bind(&t.ext_id)
     .bind(&t.ext_url).bind(&t.place_id).bind(&t.event_id).bind(&t.also_project_ids).bind(&t.depends_on).bind(t.blocked)
     .bind(t.wait_min).bind(&t.ready_at).bind(&t.workflow_instance_id).bind(t.workflow_step).bind(t.workflow_steps).bind(&t.series_id).bind(&t.occurrence_key).bind(&t.occurrence_date).bind(&t.window_end)
-    .bind(&t.waiting_since).bind(&t.check_back_at).bind(&t.waiting_note).bind(&t.waiting_by)
+    .bind(&t.waiting_since).bind(&t.check_back_at).bind(&t.waiting_note).bind(&t.waiting_by).bind(&t.checklist)
     .bind(&t.created_at).bind(&t.updated_at).bind(&t.deleted_at).bind(t.rev)
     .execute(conn)
     .await
@@ -596,22 +650,22 @@ pub async fn upsert_series(conn: &mut SqliteConnection, s: &Series) -> sqlx::Res
     sqlx::query(
         "INSERT INTO series (id, owner_user_id, owner_group_id, project_id, title, notes, mode, rrule, dtstart, until,
            start_time, duration_min, times_per_window, window, task_type_id, estimate_min, difficulty, importance, urgency,
-           materialized_through, split_from, place_id, workflow_template_id, workflow_variant_ids, created_at, updated_at, deleted_at, rev)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+           materialized_through, split_from, place_id, workflow_template_id, workflow_variant_ids, checklist, created_at, updated_at, deleted_at, rev)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
          ON CONFLICT(id) DO UPDATE SET project_id=excluded.project_id, title=excluded.title, notes=excluded.notes,
            mode=excluded.mode, rrule=excluded.rrule, dtstart=excluded.dtstart, until=excluded.until,
            start_time=excluded.start_time, duration_min=excluded.duration_min, times_per_window=excluded.times_per_window,
            window=excluded.window, task_type_id=excluded.task_type_id, estimate_min=excluded.estimate_min,
            difficulty=excluded.difficulty, importance=excluded.importance, urgency=excluded.urgency,
            place_id=excluded.place_id, workflow_template_id=excluded.workflow_template_id,
-           workflow_variant_ids=excluded.workflow_variant_ids,
+           workflow_variant_ids=excluded.workflow_variant_ids, checklist=excluded.checklist,
            materialized_through=excluded.materialized_through, updated_at=excluded.updated_at,
            deleted_at=excluded.deleted_at, rev=excluded.rev",
     )
     .bind(&s.id).bind(&s.owner_user_id).bind(&s.owner_group_id).bind(&s.project_id).bind(&s.title).bind(&s.notes)
     .bind(&s.mode).bind(&s.rrule).bind(&s.dtstart).bind(&s.until).bind(&s.start_time).bind(s.duration_min)
     .bind(s.times_per_window).bind(&s.window).bind(&s.task_type_id).bind(s.estimate_min).bind(s.difficulty)
-    .bind(s.importance).bind(s.urgency).bind(&s.materialized_through).bind(&s.split_from).bind(&s.place_id).bind(&s.workflow_template_id).bind(&s.workflow_variant_ids).bind(&s.created_at).bind(&s.updated_at)
+    .bind(s.importance).bind(s.urgency).bind(&s.materialized_through).bind(&s.split_from).bind(&s.place_id).bind(&s.workflow_template_id).bind(&s.workflow_variant_ids).bind(&s.checklist).bind(&s.created_at).bind(&s.updated_at)
     .bind(&s.deleted_at).bind(s.rev)
     .execute(conn)
     .await

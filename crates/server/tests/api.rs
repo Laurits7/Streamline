@@ -5375,3 +5375,99 @@ async fn waiting_for_results() {
     assert!(v["waiting_since"].is_null());
     assert!(v["started_at"].is_string());
 }
+
+#[tokio::test]
+async fn checklists_on_tasks_and_routines() {
+    let t = setup().await;
+    let admin = t.admin().await;
+    let item = |id: &str, text: &str, done: bool| json!({"id": id, "text": text, "done": done});
+
+    let (s, task, _) = t
+        .req(
+            "POST",
+            "/api/v1/tasks",
+            Some(&admin),
+            Some(json!({"title": "Do laundry", "checklist": [item("a", " Sort ", false), item("b", "Wash", false), item("x", "  ", false)]})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{task}");
+    assert_eq!(
+        task["checklist"],
+        json!([item("a", "Sort", false), item("b", "Wash", false)])
+    );
+    let path = format!("/api/v1/tasks/{}", task["id"].as_str().unwrap());
+    let (_, v, _) = t
+        .req(
+            "PATCH",
+            &path,
+            Some(&admin),
+            Some(json!({"checklist": [item("b", "Wash", true), item("a", "Sort", true)]})),
+        )
+        .await;
+    assert_eq!(v["checklist"][0]["id"], "b");
+    assert_eq!(v["checklist"][1]["done"], true);
+    for bad in [
+        json!([item("a", "x", false), item("a", "y", false)]),
+        json!([item("has space", "x", false)]),
+        json!(
+            (0..51)
+                .map(|i| item(&i.to_string(), "x", false))
+                .collect::<Vec<_>>()
+        ),
+    ] {
+        let (s, _, _) = t
+            .req(
+                "PATCH",
+                &path,
+                Some(&admin),
+                Some(json!({"checklist": bad})),
+            )
+            .await;
+        assert_eq!(s, StatusCode::BAD_REQUEST);
+    }
+
+    // A routine's occurrences start with its checklist, unticked.
+    let (s, r, _) = t
+        .req(
+            "POST",
+            "/api/v1/series",
+            Some(&admin),
+            Some(json!({"title": "Laundry", "mode": "repeat", "rrule": "FREQ=DAILY", "checklist": [item("s", "Sort", true), item("w", "Wash", false)]})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{r}");
+    let rid = r["id"].as_str().unwrap().to_string();
+    let occ = occurrences(&t, &admin, &rid).await;
+    assert!(!occ.is_empty());
+    assert_eq!(
+        occ[0]["checklist"],
+        json!([item("s", "Sort", false), item("w", "Wash", false)])
+    );
+
+    // Tick one, then change the routine's list: ticks of items still there are kept.
+    let oid = occ[0]["id"].as_str().unwrap().to_string();
+    t.req(
+        "PATCH",
+        &format!("/api/v1/tasks/{oid}"),
+        Some(&admin),
+        Some(json!({"checklist": [item("s", "Sort", true), item("w", "Wash", false)]})),
+    )
+    .await;
+    let today = today_of(&t, &admin).await;
+    let (s, v, _) = t
+        .req(
+            "PATCH",
+            &format!("/api/v1/series/{rid}"),
+            Some(&admin),
+            Some(json!({"from": ymd(today - chrono::Duration::days(1)), "checklist": [item("s", "Sort", false), item("h", "Hang", false)]})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    let (_, o, _) = t
+        .req("GET", &format!("/api/v1/tasks/{oid}"), Some(&admin), None)
+        .await;
+    assert_eq!(
+        o["checklist"],
+        json!([item("s", "Sort", true), item("h", "Hang", false)])
+    );
+}

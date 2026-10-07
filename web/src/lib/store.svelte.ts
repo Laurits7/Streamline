@@ -108,6 +108,7 @@ export type TaskPatch = Partial<
     | 'place_id'
     | 'event_id'
     | 'wait_min'
+    | 'checklist'
   >
 >
 export type EntryPatch = Partial<Pick<DayEntry, 'date' | 'position' | 'start_time' | 'duration_min'>>
@@ -700,6 +701,7 @@ class Store {
       check_back_at: null,
       waiting_note: '',
       waiting_by: null,
+      checklist: input.checklist ?? [],
       created_at: ts,
       updated_at: ts,
       deleted_at: null,
@@ -765,6 +767,17 @@ class Store {
       },
       async () => [['task', await api.patch<Task>(`/tasks/${id}`, patch)]],
     )
+  }
+
+  /** Tick or untick a checklist item; ticking the last one offers to complete the task (D-71). */
+  tickItem(id: string, itemId: string) {
+    const t = this.tasks.get(id)
+    if (!t) return
+    const checklist = t.checklist.map((i) => (i.id === itemId ? { ...i, done: !i.done } : i))
+    this.updateTask(id, { checklist })
+    const ticked = checklist.find((i) => i.id === itemId)?.done
+    if (ticked && t.status === 'open' && checklist.every((i) => i.done))
+      toast('All steps done', 'info', { label: 'Complete task', run: () => this.toggleDone(id) })
   }
 
   toggleDone(id: string) {
@@ -1210,7 +1223,11 @@ class Store {
   waitingTasks(): Task[] {
     return [...this.tasks.values()]
       .filter((t) => isWaiting(t) && !this.inIdea(t))
-      .sort((a, b) => (a.check_back_at ?? '~').localeCompare(b.check_back_at ?? '~') || byPosition(a, b))
+      .sort((a, b) => {
+        const x = a.check_back_at ?? '~'
+        const y = b.check_back_at ?? '~'
+        return x < y ? -1 : x > y ? 1 : byPosition(a, b)
+      })
   }
 
   /** Waits whose check-back time has come, oldest first. */

@@ -209,7 +209,8 @@
       <li><strong>Project</strong> and <strong>due date</strong>.</li>
       <li><strong>Estimate</strong>: how long you think it takes. Used for “time left” on the Today view and as the default block length on the timeline.</li>
       <li><strong>Difficulty</strong> (easy, medium, hard), <strong>importance</strong> and <strong>urgency</strong>. Important and urgent tasks get a label in lists. Later these will drive the planner and the priority matrix.</li>
-      <li><strong>Notes</strong>: details, links, a checklist in plain text.</li>
+      <li><strong>Checklist</strong>: the steps inside a task (Do laundry: sort, wash, hang, fold). Tick them as you go; lists, the timeline and the board show how far along it is (2/4). Ticking the last step offers to complete the task. A task carried to the next day keeps its ticks. Routines can have a checklist too: each occurrence starts unticked.</li>
+      <li><strong>Notes</strong>: details and links.</li>
       <li><strong>Won't do</strong> closes a task without completing it. <strong>Delete</strong> removes it.</li>
     </ul>
     <p>Completing a task shows an <em>Undo</em> button for a few seconds.</p>

@@ -12,7 +12,9 @@ use crate::{
     db::next_rev,
     error::{ApiResult, AppError, bad},
     events::Change,
-    models::{DayEntry, TASK_STATUSES, Task, log_task_event, upsert_entry, upsert_task},
+    models::{
+        ChecklistItem, DayEntry, TASK_STATUSES, Task, log_task_event, upsert_entry, upsert_task,
+    },
     util::{check_position, check_range, double_option, id_or_new, now, parse_date},
     visibility,
 };
@@ -184,6 +186,9 @@ pub struct CreateTask {
     day_entry_id: Option<String>,
     /// Share a task without a project with a group (tasks in a project follow the project).
     owner_group_id: Option<String>,
+    /// Steps inside the task (D-71).
+    #[serde(default)]
+    checklist: Vec<ChecklistItem>,
 }
 
 #[utoipa::path(post, path = "/tasks", tag = "tasks", summary = "Create a task (optionally planned into a day)", request_body = CreateTask, responses((status = 200, body = Task), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
@@ -206,6 +211,7 @@ pub async fn create(
         check_position(p)?;
     }
     let entry_id = id_or_new(c.day_entry_id)?;
+    let checklist = crate::models::checklist(c.checklist).map_err(bad)?;
     let task_type_id = c.task_type_id.unwrap_or_else(|| DEFAULT_TASK_TYPE.into());
 
     let mut tx = state.db.write.begin().await?;
@@ -296,6 +302,7 @@ pub async fn create(
         check_back_at: None,
         waiting_note: String::new(),
         waiting_by: None,
+        checklist: sqlx::types::Json(checklist),
         created_at: ts.clone(),
         updated_at: ts.clone(),
         deleted_at: None,
@@ -380,6 +387,8 @@ pub struct PatchTask {
     check_back_at: Option<Option<String>>,
     /// What's being waited for.
     waiting_note: Option<String>,
+    /// Steps inside the task (replaces the list; D-71).
+    checklist: Option<Vec<ChecklistItem>>,
 }
 
 /// A check-back time as the server stores timestamps (UTC, milliseconds).
@@ -524,6 +533,9 @@ pub async fn patch(
     }
     if let Some(v) = c.also_project_ids {
         t.also_project_ids = sqlx::types::Json(check_also(&mut tx, &user, &t.project_id, v).await?);
+    }
+    if let Some(v) = c.checklist {
+        t.checklist = sqlx::types::Json(crate::models::checklist(v).map_err(bad)?);
     }
     if let Some(v) = c.position {
         check_position(&v)?;

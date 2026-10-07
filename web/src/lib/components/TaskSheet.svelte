@@ -11,6 +11,7 @@
   import { localTime } from '../calendar'
   import { checkBackDue, checkBackLabel, isWaiting } from '../waiting'
   import WaitPicker from './WaitPicker.svelte'
+  import Checklist from './Checklist.svelte'
 
   let { id }: { id: string } = $props()
 
@@ -191,6 +192,11 @@
       {/if}
       {#if picking}<WaitPicker taskId={id} ondone={() => (picking = false)} />{/if}
     {/if}
+
+    <section>
+      <h3><Icon name="checklist" size={14} /> Checklist</h3>
+      <Checklist items={task.checklist} onchange={(checklist) => store.updateTask(id, { checklist })} ontick={(item) => store.tickItem(id, item)} />
+    </section>
 
     <section>
       <h3><Icon name="sun" size={14} /> Day plan</h3>
@@ -402,7 +408,7 @@
 
     <section>
       <h3>Notes</h3>
-      <textarea bind:value={notes} onblur={saveNotes} rows="5" placeholder="Details, links, checklist…"></textarea>
+      <textarea bind:value={notes} onblur={saveNotes} rows="5" placeholder="Details, links…"></textarea>
     </section>
 
     <footer>

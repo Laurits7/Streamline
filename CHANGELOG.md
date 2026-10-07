@@ -2,6 +2,10 @@
 
 ## Unreleased (1.2)
 
+- Checklists: a task can hold its steps (Do laundry: sort, wash, hang, fold), ticked in the
+  task sheet or the focus view, with progress (2/4) on rows, board cards and the timeline.
+  Ticking the last step offers to complete the task. Routines can carry a checklist; each
+  occurrence starts unticked (D-71).
 - Waiting for results: a task whose work is handed off (a model training, a reply to an
   e-mail) can wait, with what it waits for and when to check back (quick choices or a time).
   It needs no action meanwhile: out of Up next, the ready stack, the planner and overlaps,

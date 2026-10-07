@@ -567,7 +567,7 @@ ideas: projects that aren't started yet, kept with a description.
       leave Up next and the ready stack and show a "check back 15:30" chip; a check-back
       marker on the timeline; a Waiting section in Today; due check-backs at the top of Up
       next; help and CHANGELOG.
-- [ ] **7a.3 Checklists**: `tasks.checklist` (JSON items `{id, text, done}`, ≤ 50, migration)
+- [x] **7a.3 Checklists**: `tasks.checklist` (JSON items `{id, text, done}`, ≤ 50, migration)
       and on routines (each occurrence gets a fresh copy); edit, tick and reorder in the task
       sheet and the focus view; "2/4" on task rows, the timeline and board cards; ticking the
       last item offers to complete the task; carried-over tasks keep their ticks; tests.

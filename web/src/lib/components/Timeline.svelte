@@ -289,7 +289,7 @@
               title="{b.task.title} · {b.entry.start_time}–{hhmm(Math.min(b.start + b.dur, 1440))}"
               onclick={() => (ui.editing = b.task.id)}>
               <span class="title">{#if clashes.has(b.entry.id)}<span class="warn" aria-label="Overlaps">⚠</span> {/if}{b.task.title}</span>
-              <span class="time">{b.entry.start_time}–{hhmm(Math.min(b.start + b.dur, 1440))} · {fmtMinutes(b.dur)}</span>
+              <span class="time">{b.entry.start_time}–{hhmm(Math.min(b.start + b.dur, 1440))} · {fmtMinutes(b.dur)}{b.task.checklist.length ? ` · ${b.task.checklist.filter((i) => i.done).length}/${b.task.checklist.length}` : ''}</span>
             </button>
             {#if b.task.status === 'open'}
               <div

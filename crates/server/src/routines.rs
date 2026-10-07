@@ -225,6 +225,10 @@ async fn occurrence_task(
         check_back_at: None,
         waiting_note: String::new(),
         waiting_by: None,
+        checklist: sqlx::types::Json(crate::models::with_checklist(
+            &s.checklist,
+            streamline_domain::checklist::fresh,
+        )),
         created_at: ts.clone(),
         updated_at: ts,
         deleted_at: None,

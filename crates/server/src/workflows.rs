@@ -155,6 +155,7 @@ pub async fn start(
                 check_back_at: None,
                 waiting_note: String::new(),
                 waiting_by: None,
+                checklist: sqlx::types::Json(vec![]),
                 created_at: ts.clone(),
                 updated_at: ts.clone(),
                 deleted_at: None,

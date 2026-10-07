@@ -1,4 +1,6 @@
 <script lang="ts">
+  import type { ChecklistItem } from '../api/types/ChecklistItem'
+  import Checklist from './Checklist.svelte'
   // Create or edit a routine (SPEC §6.3). Edits apply "from a date on"; earlier
   // occurrences keep their history. Editing one occurrence happens in the task sheet.
   import { untrack } from 'svelte'
@@ -29,6 +31,7 @@
   const workflow = $derived(workflowId ? store.workflows.get(workflowId) : null)
   let typeId = $state(existing?.task_type_id ?? '')
   let estimate = $state<number | null>(existing?.estimate_min ?? null)
+  let checklist = $state<ChecklistItem[]>(existing ? existing.checklist.map((i) => ({ ...i, done: false })) : [])
   let difficulty = $state<number | null>(existing?.difficulty ?? null)
   let dtstart = $state(existing?.dtstart ?? store.today)
   let until = $state(existing?.until ?? '')
@@ -96,6 +99,7 @@
       task_type_id: effectiveType,
       estimate_min: estimate,
       difficulty,
+      checklist: workflowId ? [] : checklist,
       until: until || null,
     }
     const ok = existing
@@ -283,6 +287,14 @@
     </div>
   </section>
 
+  {#if !workflowId}
+    <section>
+      <h3>Checklist</h3>
+      <Checklist items={checklist} onchange={(v) => (checklist = v)} tickable={false} />
+      <p class="muted hint">Each occurrence starts with these steps unticked.</p>
+    </section>
+  {/if}
+
   <section>
     <h3>Notes</h3>
     <textarea bind:value={notes} rows="3" placeholder="Copied to each occurrence"></textarea>
@@ -295,6 +307,10 @@
 </Sheet>
 
 <style>
+  .hint {
+    font-size: 12px;
+    margin: 4px 0 0;
+  }
   .title-input {
     font-size: 19px !important;
     font-weight: 600;
