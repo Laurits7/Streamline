@@ -13,6 +13,7 @@
   import { ui } from '../ui.svelte'
   import BlockSheet from './BlockSheet.svelte'
   import Check from './Check.svelte'
+  import Icon from './Icon.svelte'
 
   type Item = { entry: DayEntry; task: Task }
   let { date, items, now = null }: { date: string; items: Item[]; now?: string | null } = $props()
@@ -225,7 +226,11 @@
           </div>
         {/if}
         {#each eventBlocks as ev (ev.event.id)}
-          <div
+          {@const project = store.eventProject(ev.event)}
+          {@const todos = store.eventTasks(ev.event.id)}
+          {@const openTodos = todos.filter((t) => t.status === 'open').length}
+          <button
+            type="button"
             class="event"
             class:short={ev.dur < 40}
             class:free={!ev.event.busy}
@@ -235,10 +240,14 @@
             style:height="{Math.max(ev.dur, SNAP) * PX - 2}px"
             style:left="{(ev.lane / ev.lanes) * 100}%"
             style:width="calc({100 / ev.lanes}% - 3px)"
-            title="{ev.event.title} · {timeRange(ev)}{ev.event.location ? ` · ${ev.event.location}` : ''}">
-            <span class="title">{ev.event.title}</span>
-            <span class="time">{timeRange(ev)}{ev.event.location ? ` · ${ev.event.location}` : ''}</span>
-          </div>
+            title="{ev.event.title} · {timeRange(ev)}{ev.event.location ? ` · ${ev.event.location}` : ''}{project ? ` · ${project.name}` : ''}"
+            onclick={() => (ui.event = ev.event.id)}>
+            <span class="title">
+              {ev.event.title}
+              {#if todos.length}<span class="todos" class:all={!openTodos} aria-label="{openTodos} of {todos.length} todos open"><Icon name="check" size={11} />{todos.length - openTodos}/{todos.length}</span>{/if}
+            </span>
+            <span class="time">{timeRange(ev)}{ev.event.location ? ` · ${ev.event.location}` : ''}{#if project}<span class="proj">{' · '}<i style:background={project.color ?? 'var(--faint)'}></i>{project.name}</span>{/if}</span>
+          </button>
         {/each}
         {#each blocks as b (b.entry.id)}
           <div
@@ -421,7 +430,33 @@
     border-left: 3px solid var(--cal);
     overflow: hidden;
     font-size: 13px;
-    cursor: default;
+    cursor: pointer;
+    text-align: left;
+  }
+  .event:hover {
+    background: color-mix(in srgb, var(--cal) 24%, var(--surface));
+  }
+  .event .todos {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    margin-left: 4px;
+    padding: 0 5px;
+    border-radius: 8px;
+    font-size: 11px;
+    font-weight: 600;
+    background: var(--surface);
+    color: var(--muted);
+  }
+  .event .todos.all {
+    color: var(--ok, #15803d);
+  }
+  .event .proj i {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    margin-right: 3px;
   }
   .event.free {
     background: repeating-linear-gradient(

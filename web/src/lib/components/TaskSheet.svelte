@@ -8,6 +8,7 @@
   import { router } from '../router.svelte'
   import { describeSeries } from '../rrule'
   import { createsCycle } from '../deps'
+  import { localTime } from '../calendar'
 
   let { id }: { id: string } = $props()
 
@@ -88,6 +89,20 @@
       onblur={saveTitle}
       onkeydown={(e) => e.key === 'Enter' && (e.currentTarget as HTMLInputElement).blur()}
       aria-label="Title" />
+
+    {#if task.event_id && store.events.get(task.event_id)}
+      {@const ev = store.events.get(task.event_id)!}
+      <div class="routine-box">
+        <Icon name="calendar" size={16} />
+        <span>
+          For <button class="link" onclick={() => { ui.event = ev.id; ui.editing = null }}>{ev.title}</button>
+          <span class="muted"> · {shortDate(store.eventDate(ev), store.today)}{ev.all_day ? '' : `, ${localTime(ev.start_at!, store.me?.timezone ?? 'UTC')}`}</span>
+        </span>
+        <div class="acts">
+          <button class="btn small" onclick={() => store.updateTask(id, { event_id: null })}>Detach</button>
+        </div>
+      </div>
+    {/if}
 
     {#if task.series_id}
       {@const series = store.series.get(task.series_id)}
@@ -574,5 +589,10 @@
     justify-content: space-between;
     gap: 8px;
     margin-top: 28px;
+  }
+  .link {
+    color: var(--accent);
+    font-weight: 600;
+    text-decoration: underline;
   }
 </style>

@@ -9,9 +9,9 @@ use tokio::sync::broadcast;
 use crate::models::{DayRecord, Goal, MetricDefinition, MetricEntry};
 use crate::{
     models::{
-        Calendar, CalendarAccountView, CalendarEvent, DayEntry, DayPlan, DayTemplate, FocusSession,
-        FocusTimer, Group, OccasionTemplate, Person, Place, Project, Series, Task, TimeBlock,
-        WorkflowTemplate,
+        Calendar, CalendarAccountView, CalendarEvent, DayEntry, DayPlan, DayTemplate, EventProject,
+        FocusSession, FocusTimer, Group, OccasionTemplate, Person, Place, Project, Series, Task,
+        TimeBlock, WorkflowTemplate,
     },
     visibility,
 };
@@ -189,6 +189,14 @@ impl Change {
             kind: "goal",
             data: serde_json::to_value(g).unwrap(),
             audience: visibility::audience(g.owner_user_id.as_deref(), g.owner_group_id.as_deref()),
+        }
+    }
+    pub fn event_project(e: &EventProject) -> Self {
+        Self {
+            rev: e.rev,
+            kind: "event_project",
+            data: serde_json::to_value(e).unwrap(),
+            audience: vec![e.user_id.clone()],
         }
     }
     pub fn person(p: &Person) -> Self {

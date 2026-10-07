@@ -43,6 +43,8 @@ The first complete version. Built in phases (see `docs/WORKPLAN.md`); decisions 
 - Read-only CalDAV (Nextcloud, Fastmail, iCloud, Radicale, …): events on the timeline and in
   a week agenda, busy time subtracted from free time, recurring events, exceptions and time
   zones handled. The password is stored encrypted (D-55, D-56).
+- Tap an event to assign it (every instance of a recurring one) to a project and to attach
+  todos to it; the project lists its upcoming events (D-68).
 
 ### Reflection and tracking
 - Day summary with a month calendar; a private journal with prompts, also in the planner.

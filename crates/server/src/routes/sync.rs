@@ -21,9 +21,9 @@ use crate::{
     db::current_rev,
     error::ApiResult,
     models::{
-        Calendar, CalendarAccountView, CalendarEvent, DayEntry, DayPlan, DayTemplate, FocusSession,
-        FocusTimer, Group, Me, OccasionTemplate, Person, Place, Project, Series, Task, TaskType,
-        TimeBlock, WorkflowTemplate,
+        Calendar, CalendarAccountView, CalendarEvent, DayEntry, DayPlan, DayTemplate, EventProject,
+        FocusSession, FocusTimer, Group, Me, OccasionTemplate, Person, Place, Project, Series,
+        Task, TaskType, TimeBlock, WorkflowTemplate,
     },
     rollover,
 };
@@ -60,6 +60,8 @@ pub struct SyncResponse {
     pub calendars: Vec<Calendar>,
     /// Calendar event instances (a full sync covers the last 30 days onwards).
     pub events: Vec<CalendarEvent>,
+    /// Calendar events assigned to projects.
+    pub event_projects: Vec<EventProject>,
     pub day_templates: Vec<DayTemplate>,
     /// Time blocks (a full sync covers the last 30 days onwards).
     pub time_blocks: Vec<TimeBlock>,
@@ -206,6 +208,14 @@ pub async fn sync(
     .fetch_all(db)
     .await?;
 
+    let event_projects = sqlx::query_as(
+        "SELECT * FROM event_projects WHERE user_id = ?1 AND (?2 = 0 AND deleted_at IS NULL OR ?2 > 0 AND rev > ?2)",
+    )
+    .bind(user.id())
+    .bind(since)
+    .fetch_all(db)
+    .await?;
+
     let day_templates = sqlx::query_as(
         "SELECT * FROM day_templates WHERE owner_user_id = ?1 AND (?2 = 0 AND deleted_at IS NULL OR ?2 > 0 AND rev > ?2) ORDER BY position",
     )
@@ -303,6 +313,7 @@ pub async fn sync(
         calendar_account,
         calendars,
         events,
+        event_projects,
         day_templates,
         time_blocks,
         day_records,

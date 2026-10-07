@@ -48,7 +48,7 @@ use crate::AppState;
         workflows::list, workflows::create, workflows::patch, workflows::delete, workflows::start,
         places::list, places::create, places::patch, places::delete,
         series::list, series::all_stats, series::create, series::patch, series::delete,
-        calendar::get_account, calendar::put_account, calendar::delete_account, calendar::test, calendar::sync_now, calendar::patch_calendar,
+        calendar::get_account, calendar::put_account, calendar::delete_account, calendar::test, calendar::sync_now, calendar::patch_calendar, calendar::put_event_project,
         occasions::calendar, occasions::search, occasions::load, occasions::create_person, occasions::patch_person, occasions::delete_person, occasions::put_template,
         blocks::create_template, blocks::patch_template, blocks::delete_template, blocks::apply_template, blocks::create_block, blocks::patch_block, blocks::delete_block, blocks::suggest,
         tracking::put_record, tracking::summary, tracking::glance, tracking::create_metric, tracking::patch_metric, tracking::delete_metric, tracking::create_entry, tracking::patch_entry, tracking::delete_entry, tracking::metric_csv, tracking::import_csv, tracking::export,
@@ -177,6 +177,10 @@ pub fn router(state: AppState) -> Router {
         .route("/calendar/test", post(calendar::test))
         .route("/calendar/sync", post(calendar::sync_now))
         .route("/calendars/{id}", patch(calendar::patch_calendar))
+        .route(
+            "/calendar/event-projects",
+            axum::routing::put(calendar::put_event_project),
+        )
         .route("/namedays", get(occasions::calendar).post(occasions::load))
         .route("/namedays/search", get(occasions::search))
         .route("/people", post(occasions::create_person))

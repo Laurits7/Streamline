@@ -153,7 +153,11 @@
   {#if dayEvents.allDay.length}
     <ul class="allday" aria-label="All-day events">
       {#each dayEvents.allDay as d (d.event.id)}
-        <li style:--cal={d.color} title={d.event.location ?? ''}>{d.event.title}</li>
+        <li style:--cal={d.color}>
+          <button title={d.event.location ?? ''} onclick={() => (ui.event = d.event.id)}>
+            {d.event.title}{#if store.eventTasks(d.event.id).length}<span class="evtodos"> · {store.eventTasks(d.event.id).filter((t) => t.status !== 'open').length}/{store.eventTasks(d.event.id).length}</span>{/if}
+          </button>
+        </li>
       {/each}
     </ul>
   {/if}
@@ -386,6 +390,10 @@
     border-radius: 999px;
     background: color-mix(in srgb, var(--cal) 16%, var(--surface));
     border-left: 3px solid var(--cal);
+  }
+  .evtodos {
+    font-weight: 500;
+    color: var(--muted);
   }
   .day.wide {
     display: grid;

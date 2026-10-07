@@ -103,6 +103,9 @@
       {#if task.place_id && store.places.get(task.place_id)}
         <span class="placechip" class:here={task.place_id === store.currentPlace}><Icon name="pin" size={12} />{store.places.get(task.place_id)?.name}</span>
       {/if}
+      {#if task.event_id && store.events.get(task.event_id)}
+        <span class="evchip" title="For this calendar event"><Icon name="calendar" size={12} />{store.events.get(task.event_id)?.title}</span>
+      {/if}
       {#if task.due_date}<span class:overdue><Icon name="calendar" size={12} />{shortDate(task.due_date, store.today)}</span>{/if}
       {#if task.estimate_min}<span><Icon name="clock" size={12} />{fmtMinutes(task.estimate_min)}</span>{/if}
       {#if task.difficulty}<span class="diff" title="Difficulty">{'●'.repeat(task.difficulty)}{'○'.repeat(3 - task.difficulty)}</span>{/if}
@@ -215,6 +218,12 @@
   .placechip.here {
     color: var(--accent);
     font-weight: 600;
+  }
+  .evchip {
+    max-width: 14em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .overdue {
     color: var(--danger);

@@ -19,7 +19,7 @@
   const days = $derived(Array.from({ length: 7 }, (_, i) => addDays(start, i)))
 
   type Row =
-    | { kind: 'event'; key: string; at: number; label: string; title: string; sub: string | null; color: string }
+    | { kind: 'event'; key: string; at: number; label: string; title: string; sub: string | null; color: string; todos: number; open: number }
     | { kind: 'task'; key: string; at: number; label: string; title: string; taskId: string; done: boolean }
 
   function agenda(date: string) {
@@ -30,8 +30,10 @@
       at: d.start,
       label: timeRange(d),
       title: d.event.title,
-      sub: d.event.location,
+      sub: [d.event.location, store.eventProject(d.event)?.name].filter(Boolean).join(' · ') || null,
       color: d.color,
+      todos: store.eventTasks(d.event.id).length,
+      open: store.eventTasks(d.event.id).filter((t) => t.status === 'open').length,
     }))
     let untimed = 0
     for (const e of store.dayEntries(date)) {
@@ -81,14 +83,16 @@
         <div class="occasion"><Icon name="gift" size={13} /> {o.person.name}: {o.kind === 'birthday' ? 'birthday' : 'nameday'}</div>
       {/each}
       {#each a.allDay as d (d.event.id)}
-        <div class="allday" style:--cal={d.color}>{d.event.title}</div>
+        <button class="allday" style:--cal={d.color} onclick={() => (ui.event = d.event.id)}>{d.event.title}</button>
       {/each}
       {#each a.rows as r (r.key)}
         {#if r.kind === 'event'}
           <div class="row" style:--cal={r.color}>
             <span class="time">{r.label}</span>
             <span class="dot" aria-hidden="true"></span>
-            <span class="what">{r.title}{#if r.sub}<span class="muted">{` · ${r.sub}`}</span>{/if}</span>
+            <button class="what" onclick={() => (ui.event = r.key)}>
+              {r.title}{#if r.sub}<span class="muted">{` · ${r.sub}`}</span>{/if}{#if r.todos}<span class="muted">{` · ✓ ${r.todos - r.open}/${r.todos}`}</span>{/if}
+            </button>
           </div>
         {:else}
           <div class="row task" class:done={r.done}>
@@ -169,6 +173,9 @@
     margin: 6px 0 0;
   }
   .allday {
+    display: block;
+    width: 100%;
+    text-align: left;
     font-size: 13px;
     font-weight: 600;
     padding: 3px 8px;

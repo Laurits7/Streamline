@@ -634,6 +634,7 @@ pub async fn export(State(state): State<AppState>, user: AuthUser) -> ApiResult<
         ("people", "people", "owner_user_id"),
         ("day_templates", "day_templates", "owner_user_id"),
         ("time_blocks", "time_blocks", "user_id"),
+        ("event_projects", "event_projects", "user_id"),
     ] {
         let cols: Vec<String> = sqlx::query_scalar("SELECT name FROM pragma_table_info(?)")
             .bind(table)

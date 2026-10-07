@@ -9,6 +9,8 @@ export const ui = $state({
   /** Workflow template being edited ('new' or an id), or started. */
   workflow: null as string | null,
   startWorkflow: null as string | null,
+  /** Calendar event (instance id) shown in the event sheet. */
+  event: null as string | null,
 })
 
 // Collapsed projects in project trees (remembered in this browser only).

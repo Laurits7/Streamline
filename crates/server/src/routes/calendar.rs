@@ -16,8 +16,11 @@ use crate::{
     db::next_rev,
     error::{ApiResult, AppError, bad},
     events::Change,
-    models::{Calendar, CalendarAccount, CalendarAccountView, upsert_calendar},
-    util::{double_option, new_id, now},
+    models::{
+        Calendar, CalendarAccount, CalendarAccountView, EventProject, upsert_calendar,
+        upsert_event_project,
+    },
+    util::{double_option, id_or_new, new_id, now},
 };
 
 #[utoipa::path(get, path = "/calendar/account", tag = "calendar", summary = "Your calendar account (null if none)", responses((status = 200, body = Option<CalendarAccountView>), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
@@ -287,4 +290,82 @@ pub async fn patch_calendar(
         });
     }
     Ok(Json(cal))
+}
+
+#[derive(Deserialize, utoipa::ToSchema)]
+pub struct PutEventProject {
+    /// Client-chosen id, used when the event has no project yet.
+    id: Option<String>,
+    calendar_id: String,
+    /// The event's UID: every instance of a recurring event goes with it.
+    uid: String,
+    /// `null` takes the event out of its project.
+    project_id: Option<String>,
+}
+
+/// Put a calendar event (all its instances) into a project, or take it out (D-68).
+#[utoipa::path(put, path = "/calendar/event-projects", tag = "calendar", summary = "Assign a calendar event (all instances) to a project, or clear it", request_body = PutEventProject, responses((status = 200, body = EventProject), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
+pub async fn put_event_project(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Json(c): Json<PutEventProject>,
+) -> ApiResult<Json<EventProject>> {
+    let mut tx = state.db.write.begin().await?;
+    let known: Option<String> = sqlx::query_scalar(
+        "SELECT id FROM events WHERE calendar_id = ? AND uid = ? AND user_id = ? LIMIT 1",
+    )
+    .bind(&c.calendar_id)
+    .bind(&c.uid)
+    .bind(user.id())
+    .fetch_optional(&mut *tx)
+    .await?;
+    if known.is_none() {
+        return Err(bad("unknown calendar event"));
+    }
+    if let Some(p) = &c.project_id {
+        crate::routes::projects::load_visible(&mut tx, &user, p)
+            .await
+            .map_err(|_| bad("unknown project"))?;
+    }
+    let existing: Option<EventProject> = sqlx::query_as(
+        "SELECT * FROM event_projects WHERE user_id = ? AND calendar_id = ? AND uid = ?",
+    )
+    .bind(user.id())
+    .bind(&c.calendar_id)
+    .bind(&c.uid)
+    .fetch_optional(&mut *tx)
+    .await?;
+    let ts = now();
+    let mut e = match existing {
+        Some(e) => e,
+        None => {
+            let Some(project_id) = c.project_id.clone() else {
+                return Err(bad("the event has no project"));
+            };
+            EventProject {
+                id: id_or_new(c.id)?,
+                user_id: user.id().into(),
+                calendar_id: c.calendar_id,
+                uid: c.uid,
+                project_id,
+                created_at: ts.clone(),
+                updated_at: ts.clone(),
+                deleted_at: None,
+                rev: 0,
+            }
+        }
+    };
+    match c.project_id {
+        Some(p) => {
+            e.project_id = p;
+            e.deleted_at = None;
+        }
+        None => e.deleted_at = Some(ts.clone()),
+    }
+    e.updated_at = ts;
+    e.rev = next_rev(&mut tx).await?;
+    upsert_event_project(&mut tx, &e).await?;
+    tx.commit().await?;
+    state.bus.publish([Change::event_project(&e)]);
+    Ok(Json(e))
 }

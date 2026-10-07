@@ -45,6 +45,12 @@ export function zoned(iso: string, timeZone: string): { date: string; min: numbe
   }
 }
 
+/** Local clock time (`HH:MM`) of an instant in a time zone. */
+export function localTime(iso: string, timeZone: string): string {
+  const m = zoned(iso, timeZone).min
+  return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
+}
+
 const dayNumber = (date: string) => Date.UTC(+date.slice(0, 4), +date.slice(5, 7) - 1, +date.slice(8, 10)) / 86_400_000
 
 /** Minutes from local midnight of `date` to the instant (negative = earlier day). */

@@ -189,6 +189,8 @@ pub struct Task {
     pub ext_url: Option<String>,
     /// Where the task has to be done; `null` = anywhere.
     pub place_id: Option<String>,
+    /// The calendar event (instance) the task is for; only its owner can resolve it.
+    pub event_id: Option<String>,
     /// Other projects the task is also listed in (besides its main `project_id`).
     #[ts(type = "Array<string>")]
     #[schema(value_type = Vec<String>)]
@@ -526,10 +528,10 @@ pub async fn upsert_task(conn: &mut SqliteConnection, t: &Task) -> sqlx::Result<
     sqlx::query(
         "INSERT INTO tasks (id, owner_user_id, owner_group_id, assignee_user_id, project_id, title, notes, status, position,
            due_date, estimate_min, difficulty, importance, urgency, actual_min, task_type_id, carry_count, started_at, completed_at,
-           completed_by, ext_source, ext_id, ext_url, place_id, also_project_ids, depends_on, blocked, wait_min, ready_at,
+           completed_by, ext_source, ext_id, ext_url, place_id, event_id, also_project_ids, depends_on, blocked, wait_min, ready_at,
            workflow_instance_id, workflow_step, workflow_steps, series_id, occurrence_key, occurrence_date, window_end,
            created_at, updated_at, deleted_at, rev)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
          ON CONFLICT(id) DO UPDATE SET owner_user_id=excluded.owner_user_id, owner_group_id=excluded.owner_group_id,
            assignee_user_id=excluded.assignee_user_id, project_id=excluded.project_id, title=excluded.title,
            notes=excluded.notes, status=excluded.status, position=excluded.position, due_date=excluded.due_date,
@@ -537,7 +539,7 @@ pub async fn upsert_task(conn: &mut SqliteConnection, t: &Task) -> sqlx::Result<
            urgency=excluded.urgency, actual_min=excluded.actual_min, task_type_id=excluded.task_type_id,
            carry_count=excluded.carry_count, started_at=excluded.started_at, completed_at=excluded.completed_at, completed_by=excluded.completed_by,
            ext_source=excluded.ext_source, ext_id=excluded.ext_id, ext_url=excluded.ext_url,
-           also_project_ids=excluded.also_project_ids, place_id=excluded.place_id,
+           also_project_ids=excluded.also_project_ids, place_id=excluded.place_id, event_id=excluded.event_id,
            depends_on=excluded.depends_on, blocked=excluded.blocked, wait_min=excluded.wait_min, ready_at=excluded.ready_at,
            workflow_instance_id=excluded.workflow_instance_id, workflow_step=excluded.workflow_step,
            workflow_steps=excluded.workflow_steps,
@@ -548,7 +550,7 @@ pub async fn upsert_task(conn: &mut SqliteConnection, t: &Task) -> sqlx::Result<
     .bind(&t.title).bind(&t.notes).bind(&t.status).bind(&t.position).bind(&t.due_date).bind(t.estimate_min)
     .bind(t.difficulty).bind(t.importance).bind(t.urgency).bind(t.actual_min).bind(&t.task_type_id)
     .bind(t.carry_count).bind(&t.started_at).bind(&t.completed_at).bind(&t.completed_by).bind(&t.ext_source).bind(&t.ext_id)
-    .bind(&t.ext_url).bind(&t.place_id).bind(&t.also_project_ids).bind(&t.depends_on).bind(t.blocked)
+    .bind(&t.ext_url).bind(&t.place_id).bind(&t.event_id).bind(&t.also_project_ids).bind(&t.depends_on).bind(t.blocked)
     .bind(t.wait_min).bind(&t.ready_at).bind(&t.workflow_instance_id).bind(t.workflow_step).bind(t.workflow_steps).bind(&t.series_id).bind(&t.occurrence_key).bind(&t.occurrence_date).bind(&t.window_end)
     .bind(&t.created_at).bind(&t.updated_at).bind(&t.deleted_at).bind(t.rev)
     .execute(conn)
@@ -792,6 +794,41 @@ pub async fn upsert_person(conn: &mut SqliteConnection, p: &Person) -> sqlx::Res
     )
     .bind(&p.id).bind(&p.owner_user_id).bind(&p.name).bind(&p.nameday_name).bind(&p.birthday)
     .bind(&p.created_at).bind(&p.updated_at).bind(&p.deleted_at).bind(p.rev)
+    .execute(conn)
+    .await
+    .map(|_| ())
+}
+
+/// A calendar event (every instance of a recurring one) assigned to a project (D-68).
+#[derive(Debug, Clone, Serialize, FromRow, TS, utoipa::ToSchema)]
+#[ts(export)]
+pub struct EventProject {
+    pub id: String,
+    pub user_id: String,
+    pub calendar_id: String,
+    /// The event's iCalendar UID (shared by all instances of a recurring event).
+    pub uid: String,
+    pub project_id: String,
+    pub created_at: String,
+    pub updated_at: String,
+    pub deleted_at: Option<String>,
+    #[ts(type = "number")]
+    pub rev: i64,
+}
+
+pub async fn upsert_event_project(
+    conn: &mut SqliteConnection,
+    e: &EventProject,
+) -> sqlx::Result<()> {
+    sqlx::query(
+        "INSERT INTO event_projects (id, user_id, calendar_id, uid, project_id, created_at, updated_at, deleted_at, rev)
+         VALUES (?,?,?,?,?,?,?,?,?)
+         ON CONFLICT(id) DO UPDATE SET project_id=excluded.project_id, updated_at=excluded.updated_at,
+           deleted_at=excluded.deleted_at, rev=excluded.rev
+         WHERE event_projects.user_id = excluded.user_id",
+    )
+    .bind(&e.id).bind(&e.user_id).bind(&e.calendar_id).bind(&e.uid).bind(&e.project_id)
+    .bind(&e.created_at).bind(&e.updated_at).bind(&e.deleted_at).bind(e.rev)
     .execute(conn)
     .await
     .map(|_| ())

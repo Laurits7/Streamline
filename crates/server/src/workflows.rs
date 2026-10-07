@@ -149,6 +149,7 @@ pub async fn start(
                     .as_ref()
                     .map(|o| format!("{}/{run_index}/{}", o.1, c.number)),
                 occurrence_date: opts.occurrence.as_ref().map(|o| o.2.clone()),
+                event_id: None,
                 window_end: None,
                 created_at: ts.clone(),
                 updated_at: ts.clone(),

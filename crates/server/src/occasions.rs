@@ -254,6 +254,7 @@ async fn create_occasion(
             series_id: None,
             occurrence_key: None,
             occurrence_date: None,
+            event_id: None,
             window_end: None,
             created_at: ts.clone(),
             updated_at: ts,

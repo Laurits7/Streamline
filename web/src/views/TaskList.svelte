@@ -8,6 +8,9 @@
   import { droppable, dropList, type DragItem } from '../lib/dnd.svelte'
   import { keyAt } from '../lib/order'
   import { store } from '../lib/store.svelte'
+  import { ui } from '../lib/ui.svelte'
+  import { localTime } from '../lib/calendar'
+  import { shortDate } from '../lib/dates'
 
   let { projectId = null }: { projectId?: string | null } = $props()
 
@@ -16,6 +19,7 @@
   const closed = $derived(store.tasksIn(projectId, 'closed'))
   const crumbs = $derived(projectId ? store.ancestors(projectId) : [])
   const children = $derived(projectId ? store.childProjects(projectId) : [])
+  const upcoming = $derived(projectId ? store.projectEvents(projectId) : [])
   // Valid new parents for "Move under…": anything outside this project's own subtree.
   const parentChoices = $derived(
     projectId ? store.projectTree().filter(({ project: p }) => store.canMoveProject(projectId, p.id)) : [],
@@ -141,6 +145,24 @@
       </div>
     {/if}
   </header>
+
+  {#if upcoming.length}
+    <section class="events" aria-label="Upcoming events">
+      <h2><Icon name="calendar" size={14} /> Upcoming events</h2>
+      <ul>
+        {#each upcoming as ev (ev.id)}
+          {@const todos = store.eventTasks(ev.id)}
+          <li>
+            <button onclick={() => (ui.event = ev.id)}>
+              <span class="when">{shortDate(store.eventDate(ev), store.today)}{ev.all_day ? '' : ` ${localTime(ev.start_at!, store.me?.timezone ?? 'UTC')}`}</span>
+              <span class="what">{ev.title}</span>
+              {#if todos.length}<span class="muted">✓ {todos.filter((t) => t.status !== 'open').length}/{todos.length}</span>{/if}
+            </button>
+          </li>
+        {/each}
+      </ul>
+    </section>
+  {/if}
 
   <TaskViews scope={projectId ? { kind: 'project', id: projectId } : { kind: 'inbox' }}>
     {#snippet list()}
@@ -348,5 +370,47 @@
     width: 20px;
     height: 20px;
     border-radius: 50%;
+  }
+  .events {
+    margin: 0 0 16px;
+  }
+  .events h2 {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    font-weight: 650;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin: 0 0 6px;
+  }
+  .events ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .events button {
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
+    padding: 6px 12px;
+    border-radius: 10px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    font-size: 14px;
+    max-width: 100%;
+  }
+  .events .when {
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .events .what {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 </style>

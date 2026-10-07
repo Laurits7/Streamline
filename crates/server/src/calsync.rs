@@ -22,8 +22,8 @@ use crate::{
     db::next_rev,
     events::Change,
     models::{
-        Calendar, CalendarAccount, CalendarAccountView, CalendarEvent, User, upsert_calendar,
-        upsert_event,
+        Calendar, CalendarAccount, CalendarAccountView, CalendarEvent, EventProject, User,
+        upsert_calendar, upsert_event, upsert_event_project,
     },
     rollover::today_for,
     util::{new_id, now},
@@ -306,6 +306,19 @@ pub async fn remove_calendar(
     cal: &Calendar,
 ) -> anyhow::Result<Vec<Change>> {
     let mut changes = clear_calendar(conn, cal).await?;
+    // Its events won't come back, nor will their project assignments.
+    let links: Vec<EventProject> =
+        sqlx::query_as("SELECT * FROM event_projects WHERE calendar_id = ? AND deleted_at IS NULL")
+            .bind(&cal.id)
+            .fetch_all(&mut *conn)
+            .await?;
+    for mut l in links {
+        l.deleted_at = Some(now());
+        l.updated_at = now();
+        l.rev = next_rev(conn).await?;
+        upsert_event_project(conn, &l).await?;
+        changes.push(Change::event_project(&l));
+    }
     let mut c = cal.clone();
     c.deleted_at = Some(now());
     c.updated_at = now();

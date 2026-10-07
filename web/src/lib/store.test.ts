@@ -1,6 +1,7 @@
 // Store behaviour that makes the UI feel instant and stay correct: optimistic
 // updates, rollback on failure, merging live changes, and project-tree rules.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { CalendarEvent } from './api/types/CalendarEvent'
 import type { DayEntry } from './api/types/DayEntry'
 import type { Project } from './api/types/Project'
 import type { SyncResponse } from './api/types/SyncResponse'
@@ -40,6 +41,7 @@ const task = (id: string, extra: Partial<Task> = {}): Task => ({
   ext_id: null,
   ext_url: null,
   place_id: null,
+  event_id: null,
   also_project_ids: [],
   depends_on: [],
   blocked: false,
@@ -115,7 +117,7 @@ function mockApi(handler: Handler) {
 function syncResponse(data: Partial<SyncResponse> = {}): SyncResponse {
   return { rev: 10, full: true, me: ME, today: '2026-10-06', task_types: [], projects: [], tasks: [], day_entries: [], day_plans: [],
     focus_timer: { task_id: null, phase: 'idle', running_since_ms: null, elapsed_ms: 0, length_min: 0, cycle_done: 0, rev: 0 },
-    focus_sessions: [], series: [], places: [], workflows: [], groups: [], calendar_account: null, calendars: [], events: [], people: [], occasion_templates: [], day_templates: [], time_blocks: [], day_records: [], metrics: [], metric_entries: [], goals: [], server_now: Date.now(), ...data }
+    focus_sessions: [], series: [], places: [], workflows: [], groups: [], calendar_account: null, calendars: [], events: [], event_projects: [], people: [], occasion_templates: [], day_templates: [], time_blocks: [], day_records: [], metrics: [], metric_entries: [], goals: [], server_now: Date.now(), ...data }
 }
 
 /** Load the store with a full sync of the given data. */
@@ -351,5 +353,41 @@ describe('prerequisites', () => {
     expect(store.tasks.get('fold')!.blocked).toBe(true)
     store.updateTask('wash', { status: 'open' })
     expect(store.tasks.get('dry')!.blocked).toBe(true)
+  })
+})
+
+describe('calendar events and work (D-68)', () => {
+  const ev = (id: string, start_at: string, extra: Partial<CalendarEvent> = {}): CalendarEvent => ({
+    id, user_id: 'U1', calendar_id: 'C1', uid: 'meeting', instance_key: start_at, title: 'Team meeting', location: null, all_day: false,
+    start_at, end_at: start_at.replace('T09', 'T10'), start_date: null, end_date: null, busy: true, recurring: true,
+    updated_at: TS, deleted_at: null, rev: 1, ...extra,
+  })
+  const project: Project = {
+    id: 'P1', owner_user_id: 'U1', owner_group_id: null, parent_id: null, name: 'Team', color: null, position: 'V',
+    archived_at: null, default_place_id: null, created_at: TS, updated_at: TS, deleted_at: null, rev: 1,
+  }
+
+  it('assigns every instance to a project, lists upcoming ones, and attaches todos', async () => {
+    await load({
+      projects: [project],
+      events: [ev('E0', '2026-10-05T09:00:00Z'), ev('E1', '2026-10-07T09:00:00Z'), ev('E2', '2026-10-14T09:00:00Z'), ev('X', '2026-10-08T09:00:00Z', { uid: 'other' })],
+    })
+    let put: unknown = null
+    mockApi((method, path, body) => {
+      if (method === 'PUT' && path === '/calendar/event-projects') {
+        put = body
+        return { ...(body as object), user_id: 'U1', created_at: TS, updated_at: TS, deleted_at: null, rev: 20 }
+      }
+      return new Promise(() => {})
+    })
+    await store.setEventProject(store.events.get('E1')!, 'P1')
+    expect(put).toMatchObject({ calendar_id: 'C1', uid: 'meeting', project_id: 'P1' })
+    expect(store.eventProject(store.events.get('E2')!)?.name).toBe('Team')
+    expect(store.eventProject(store.events.get('X')!)).toBeUndefined()
+    expect(store.projectEvents('P1').map((e) => e.id)).toEqual(['E1', 'E2'])
+
+    store.createTask({ title: 'Prepare agenda', project_id: 'P1', event_id: 'E1', due_date: store.eventDate(store.events.get('E1')!) })
+    expect(store.eventTasks('E1').map((t) => [t.title, t.due_date])).toEqual([['Prepare agenda', '2026-10-07']])
+    expect(store.eventTasks('E2')).toEqual([])
   })
 })

@@ -6,6 +6,7 @@ import type { DayEntry } from "./DayEntry";
 import type { DayPlan } from "./DayPlan";
 import type { DayRecord } from "./DayRecord";
 import type { DayTemplate } from "./DayTemplate";
+import type { EventProject } from "./EventProject";
 import type { FocusSession } from "./FocusSession";
 import type { FocusTimer } from "./FocusTimer";
 import type { Goal } from "./Goal";
@@ -31,7 +32,11 @@ calendar_account: CalendarAccountView | null, calendars: Array<Calendar>,
 /**
  * Calendar event instances (a full sync covers the last 30 days onwards).
  */
-events: Array<CalendarEvent>, day_templates: Array<DayTemplate>, 
+events: Array<CalendarEvent>, 
+/**
+ * Calendar events assigned to projects.
+ */
+event_projects: Array<EventProject>, day_templates: Array<DayTemplate>, 
 /**
  * Time blocks (a full sync covers the last 30 days onwards).
  */

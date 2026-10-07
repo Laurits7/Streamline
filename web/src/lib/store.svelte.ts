@@ -7,6 +7,7 @@ import { api, ApiError } from './api/client'
 import type { Calendar } from './api/types/Calendar'
 import type { CalendarAccountView } from './api/types/CalendarAccountView'
 import type { CalendarEvent } from './api/types/CalendarEvent'
+import type { EventProject } from './api/types/EventProject'
 import type { DayEntry } from './api/types/DayEntry'
 import type { Goal } from './api/types/Goal'
 import type { GoalProgress } from './api/types/GoalProgress'
@@ -37,7 +38,7 @@ import type { WorkflowTemplate } from './api/types/WorkflowTemplate'
 import type { SyncResponse } from './api/types/SyncResponse'
 import type { Task } from './api/types/Task'
 import type { TaskType } from './api/types/TaskType'
-import { busyIntervals, eventsOn } from './calendar'
+import { busyIntervals, eventsOn, zoned } from './calendar'
 import { daily } from './tracking'
 import { reviewDue, type Cadence } from './goals'
 import { findConflicts, nextFreeSlot, type Conflict, type Item } from './conflicts'
@@ -58,6 +59,7 @@ type Kind =
   | 'group'
   | 'calendar'
   | 'event'
+  | 'event_project'
   | 'person'
   | 'day_template'
   | 'time_block'
@@ -77,6 +79,7 @@ type Entity =
   | Group
   | Calendar
   | CalendarEvent
+  | EventProject
   | Person
   | DayTemplate
   | TimeBlock
@@ -101,6 +104,7 @@ export type TaskPatch = Partial<
     | 'task_type_id'
     | 'also_project_ids'
     | 'place_id'
+    | 'event_id'
     | 'wait_min'
   >
 >
@@ -160,6 +164,8 @@ class Store {
   groups = new SvelteMap<string, Group>()
   calendars = new SvelteMap<string, Calendar>()
   events = new SvelteMap<string, CalendarEvent>()
+  /** Calendar events (by calendar + UID) assigned to projects. */
+  eventProjects = new SvelteMap<string, EventProject>()
   calendarAccount = $state<CalendarAccountView | null>(null)
   people = new SvelteMap<string, Person>()
   dayTemplates = new SvelteMap<string, DayTemplate>()
@@ -226,6 +232,7 @@ class Store {
     this.groups.clear()
     this.calendars.clear()
     this.events.clear()
+    this.eventProjects.clear()
     this.calendarAccount = null
     this.people.clear()
     this.dayTemplates.clear()
@@ -333,6 +340,7 @@ class Store {
     for (const x of r.workflows) this.applyRemote('workflow', x)
     for (const x of r.calendars) this.applyRemote('calendar', x)
     for (const x of r.events) this.applyRemote('event', x)
+    for (const x of r.event_projects) this.applyRemote('event_project', x)
     for (const x of r.people) this.applyRemote('person', x)
     for (const x of r.day_templates) this.applyRemote('day_template', x)
     for (const x of r.time_blocks) this.applyRemote('time_block', x)
@@ -383,6 +391,7 @@ class Store {
         c.kind === 'workflow' ||
         c.kind === 'calendar' ||
         c.kind === 'event' ||
+        c.kind === 'event_project' ||
         c.kind === 'person' ||
         c.kind === 'day_template' ||
         c.kind === 'time_block' ||
@@ -424,6 +433,7 @@ class Store {
       group: this.groups,
       calendar: this.calendars,
       event: this.events,
+      event_project: this.eventProjects,
       person: this.people,
       day_template: this.dayTemplates,
       time_block: this.timeBlocks,
@@ -653,6 +663,7 @@ class Store {
       ext_source: null,
       ext_id: null,
       ext_url: null,
+      event_id: input.event_id ?? null,
       place_id: input.place_id ?? (projectId ? (this.projects.get(projectId)?.default_place_id ?? null) : null),
       also_project_ids: [],
       depends_on: [],
@@ -1245,6 +1256,81 @@ class Store {
     const ev = this.dayEvents(date)
     const allDay = ev.allDay.some((d) => this.calendars.get(d.event.calendar_id)?.all_day_busy)
     return allDay ? [['00:00', 1440]] : busyIntervals(ev.timed)
+  }
+
+  /** The project link of an event (all instances of a recurring one), if any (D-68). */
+  eventLink(ev: CalendarEvent): EventProject | undefined {
+    for (const l of this.eventProjects.values()) if (l.calendar_id === ev.calendar_id && l.uid === ev.uid) return l
+    return undefined
+  }
+
+  /** The project an event belongs to, if it's still visible. */
+  eventProject(ev: CalendarEvent): Project | undefined {
+    const l = this.eventLink(ev)
+    return l ? this.projects.get(l.project_id) : undefined
+  }
+
+  /** Put an event (every instance) into a project, or take it out (`null`). */
+  setEventProject(ev: CalendarEvent, projectId: string | null) {
+    const cur = this.eventLink(ev)
+    if (!cur && !projectId) return
+    const id = cur?.id ?? ulid()
+    const ts = now()
+    return this.optimistic(
+      [['event_project', id]],
+      () => {
+        if (!projectId) this.eventProjects.delete(id)
+        else
+          this.eventProjects.set(id, {
+            id,
+            user_id: this.me?.id ?? '',
+            calendar_id: ev.calendar_id,
+            uid: ev.uid,
+            project_id: projectId,
+            created_at: cur?.created_at ?? ts,
+            updated_at: ts,
+            deleted_at: null,
+            rev: cur?.rev ?? 0,
+          })
+      },
+      async () => [
+        [
+          'event_project',
+          await api.put<EventProject>('/calendar/event-projects', {
+            id,
+            calendar_id: ev.calendar_id,
+            uid: ev.uid,
+            project_id: projectId,
+          }),
+        ],
+      ],
+    )
+  }
+
+  /** Todos attached to an event instance, open ones first. */
+  eventTasks(eventId: string): Task[] {
+    return [...this.tasks.values()]
+      .filter((t) => t.event_id === eventId && !t.deleted_at)
+      .sort((a, b) => Number(a.status !== 'open') - Number(b.status !== 'open') || (a.position < b.position ? -1 : 1))
+  }
+
+  /** The local date an event starts on. */
+  eventDate(ev: CalendarEvent): string {
+    return ev.all_day ? ev.start_date! : zoned(ev.start_at!, this.me?.timezone ?? 'UTC').date
+  }
+
+  /** Upcoming events of a project (from today on), soonest first. */
+  projectEvents(projectId: string, limit = 5): CalendarEvent[] {
+    const uids = new Set(
+      [...this.eventProjects.values()].filter((l) => l.project_id === projectId).map((l) => `${l.calendar_id}|${l.uid}`),
+    )
+    if (!uids.size) return []
+    const start = (e: CalendarEvent) => (e.all_day ? e.start_date! : e.start_at!)
+    return [...this.events.values()]
+      .filter((e) => !e.deleted_at && uids.has(`${e.calendar_id}|${e.uid}`) && this.eventDate(e) >= this.today)
+      .filter((e) => this.calendars.get(e.calendar_id)?.enabled !== false)
+      .sort((a, b) => (this.eventDate(a) + start(a) < this.eventDate(b) + start(b) ? -1 : 1))
+      .slice(0, limit)
   }
 
   // ---- blocks, templates and conflicts --------------------------------------

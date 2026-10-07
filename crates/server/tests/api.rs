@@ -4764,3 +4764,170 @@ async fn parallel_login_bursts_are_throttled() {
         .await;
     assert_eq!(s, StatusCode::TOO_MANY_REQUESTS);
 }
+
+#[tokio::test]
+async fn calendar_events_link_to_tasks_and_projects() {
+    let t = setup().await;
+    let admin = t.admin().await;
+    let anna = t.user(&admin, "anna").await;
+    let ben = t.user(&admin, "ben").await;
+    let (url, dav) = mock_dav().await;
+    let tomorrow = (chrono::Utc::now() + chrono::Duration::days(1))
+        .date_naive()
+        .and_hms_opt(9, 0, 0)
+        .unwrap()
+        .and_utc();
+    {
+        let mut d = dav.lock().unwrap();
+        d.ctag = 1;
+        d.objects.insert(
+            "/dav/anna/work/b.ics".into(),
+            (
+                "\"1\"".into(),
+                vevent(
+                    "b",
+                    tomorrow,
+                    "SUMMARY:Team meeting\r\nRRULE:FREQ=WEEKLY;COUNT=3\r\n",
+                ),
+            ),
+        );
+    }
+    let (s, _, _) = t
+        .req(
+            "PUT",
+            "/api/v1/calendar/account",
+            Some(&anna),
+            Some(json!({"url": url, "username": "anna", "password": "secret"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    let (_, full, _) = t.req("GET", "/api/v1/sync", Some(&anna), None).await;
+    let events = full["events"].as_array().unwrap();
+    assert_eq!(events.len(), 3);
+    let cal = events[0]["calendar_id"].as_str().unwrap().to_string();
+    let first = events
+        .iter()
+        .min_by_key(|e| e["start_at"].as_str().unwrap().to_string())
+        .unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let (_, project, _) = t
+        .req(
+            "POST",
+            "/api/v1/projects",
+            Some(&anna),
+            Some(json!({"name": "Team"})),
+        )
+        .await;
+    let pid = project["id"].as_str().unwrap();
+
+    // The whole series goes into the project; it syncs to anna only.
+    let put = |auth: String, body: Value| {
+        let t = &t;
+        async move {
+            t.req(
+                "PUT",
+                "/api/v1/calendar/event-projects",
+                Some(&auth),
+                Some(body),
+            )
+            .await
+        }
+    };
+    let (s, _, _) = put(
+        anna.clone(),
+        json!({"calendar_id": cal, "uid": "b", "project_id": null}),
+    )
+    .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST, "nothing to clear");
+    let (s, _, _) = put(
+        anna.clone(),
+        json!({"calendar_id": cal, "uid": "b", "project_id": "nope"}),
+    )
+    .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST, "unknown project");
+    let (s, link, _) = put(
+        anna.clone(),
+        json!({"calendar_id": cal, "uid": "b", "project_id": pid}),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK, "{link}");
+    assert_eq!(link["project_id"], pid);
+    let (s, _, _) = put(
+        ben.clone(),
+        json!({"calendar_id": cal, "uid": "b", "project_id": null}),
+    )
+    .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST, "not ben's event");
+    let (_, full, _) = t.req("GET", "/api/v1/sync", Some(&anna), None).await;
+    assert_eq!(full["event_projects"][0]["id"], link["id"]);
+    let (_, bens, _) = t.req("GET", "/api/v1/sync", Some(&ben), None).await;
+    assert_eq!(bens["event_projects"], json!([]));
+
+    // A todo for one meeting; only the event's owner can link to it.
+    let (s, task, _) = t
+        .req(
+            "POST",
+            "/api/v1/tasks",
+            Some(&anna),
+            Some(json!({"title": "Prepare agenda", "project_id": pid, "event_id": first})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{task}");
+    assert_eq!(task["event_id"], first.as_str());
+    let (s, _, _) = t
+        .req(
+            "POST",
+            "/api/v1/tasks",
+            Some(&ben),
+            Some(json!({"title": "Snoop", "event_id": first})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    let tid = task["id"].as_str().unwrap();
+    let (s, v, _) = t
+        .req(
+            "PATCH",
+            &format!("/api/v1/tasks/{tid}"),
+            Some(&anna),
+            Some(json!({"event_id": null})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(v["event_id"], Value::Null);
+
+    // Taking the series out of the project arrives as a tombstone; moving it back revives it.
+    let rev = full["rev"].as_i64().unwrap();
+    let (s, v, _) = put(
+        anna.clone(),
+        json!({"calendar_id": cal, "uid": "b", "project_id": null}),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK);
+    assert!(v["deleted_at"].is_string());
+    let (_, delta, _) = t
+        .req(
+            "GET",
+            &format!("/api/v1/sync?since={rev}"),
+            Some(&anna),
+            None,
+        )
+        .await;
+    assert!(delta["event_projects"][0]["deleted_at"].is_string());
+    let (_, v, _) = put(
+        anna.clone(),
+        json!({"calendar_id": cal, "uid": "b", "project_id": pid}),
+    )
+    .await;
+    assert_eq!(v["id"], link["id"]);
+    assert_eq!(v["deleted_at"], Value::Null);
+
+    // Disconnecting the calendar drops its project assignments.
+    let (s, _, _) = t
+        .req("DELETE", "/api/v1/calendar/account", Some(&anna), None)
+        .await;
+    assert_eq!(s, StatusCode::NO_CONTENT);
+    let (_, full, _) = t.req("GET", "/api/v1/sync", Some(&anna), None).await;
+    assert_eq!(full["event_projects"], json!([]));
+}

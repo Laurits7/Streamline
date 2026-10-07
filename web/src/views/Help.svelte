@@ -338,9 +338,10 @@
       <li>Events show on the day's timeline in their calendar's colour, next to your scheduled tasks. All-day events appear above it.</li>
       <li>Busy events count against the day's free time in the planner; events marked “free” are striped and don't.</li>
       <li><a href="/agenda">Agenda</a> shows a week at a time: events and timed tasks, day by day.</li>
+      <li><strong>Tap an event</strong> to put it in a project (for a repeating event, every time it repeats) and to add todos for it, e.g. “Prepare the agenda” for a meeting. Todos are due on the event's day and go into its project; the event shows how many are done (✓ 1/2), the project page lists its upcoming events, and the todo links back to its event.</li>
       <li>Streamline only reads your calendar. It checks for changes every 15 minutes, or press <em>Sync now</em>.</li>
       <li>Untick a calendar to hide it, or pick another colour. If the server can't be reached, the last known events stay and Settings shows the error.</li>
-      <li>Your password is stored encrypted on the server and never sent back to the browser. Other people never see your events.</li>
+      <li>Your password is stored encrypted on the server and never sent back to the browser. Other people never see your events: a todo for one of your events in a shared project is visible to the group, but not the event it's for.</li>
     </ul>
   </section>
 

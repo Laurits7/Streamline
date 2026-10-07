@@ -11,6 +11,10 @@ started_at: string | null, completed_at: string | null, completed_by: string | n
  */
 place_id: string | null, 
 /**
+ * The calendar event (instance) the task is for; only its owner can resolve it.
+ */
+event_id: string | null, 
+/**
  * Other projects the task is also listed in (besides its main `project_id`).
  */
 also_project_ids: Array<string>, 

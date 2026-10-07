@@ -214,6 +214,7 @@ async fn occurrence_task(
         series_id: Some(s.id.clone()),
         occurrence_key: Some(o.key.clone()),
         occurrence_date: Some(fmt(o.date)),
+        event_id: None,
         window_end: o.window_end.map(fmt),
         created_at: ts.clone(),
         updated_at: ts,

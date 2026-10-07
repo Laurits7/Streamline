@@ -68,6 +68,25 @@ async fn check_project(
     Ok(())
 }
 
+/// A linked event must be one of the user's own (events are personal).
+async fn check_event(
+    conn: &mut sqlx::SqliteConnection,
+    user: &AuthUser,
+    id: &Option<String>,
+) -> ApiResult<()> {
+    if let Some(id) = id {
+        let ok: Option<String> = sqlx::query_scalar(
+            "SELECT id FROM events WHERE id = ? AND user_id = ? AND deleted_at IS NULL",
+        )
+        .bind(id)
+        .bind(user.id())
+        .fetch_optional(conn)
+        .await?;
+        ok.ok_or_else(|| bad("unknown calendar event"))?;
+    }
+    Ok(())
+}
+
 async fn check_task_type(
     conn: &mut sqlx::SqliteConnection,
     user: &AuthUser,
@@ -153,6 +172,8 @@ pub struct CreateTask {
     task_type_id: Option<String>,
     /// Where it has to be done; defaults to the project's default place.
     place_id: Option<String>,
+    /// The calendar event (instance id) the task is for.
+    event_id: Option<String>,
     /// Also plan the new task into this day (`YYYY-MM-DD`).
     day: Option<String>,
     /// Client-chosen id for that day entry.
@@ -203,6 +224,7 @@ pub async fn create(
     };
     check_task_type(&mut tx, &user, &task_type_id).await?;
     crate::routes::places::check_place(&mut tx, &user, &c.place_id).await?;
+    check_event(&mut tx, &user, &c.event_id).await?;
     let place_id = match (&c.place_id, &c.project_id) {
         (Some(p), _) => Some(p.clone()),
         (None, Some(project)) => {
@@ -253,6 +275,7 @@ pub async fn create(
         ext_id: None,
         ext_url: None,
         place_id,
+        event_id: c.event_id,
         also_project_ids: sqlx::types::Json(vec![]),
         depends_on: sqlx::types::Json(vec![]),
         blocked: false,
@@ -326,6 +349,9 @@ pub struct PatchTask {
     /// Where it has to be done; `null` = anywhere.
     #[serde(default, deserialize_with = "double_option")]
     place_id: Option<Option<String>>,
+    /// The calendar event (instance id) the task is for; `null` = none.
+    #[serde(default, deserialize_with = "double_option")]
+    event_id: Option<Option<String>>,
     /// Tasks that must be finished first (replaces the current list). Cycles are refused.
     depends_on: Option<Vec<String>>,
     /// Minutes to wait after the last prerequisite is done before this becomes ready.
@@ -453,6 +479,10 @@ pub async fn patch(
     if let Some(v) = c.place_id {
         crate::routes::places::check_place(&mut tx, &user, &v).await?;
         t.place_id = v;
+    }
+    if let Some(v) = c.event_id {
+        check_event(&mut tx, &user, &v).await?;
+        t.event_id = v;
     }
     if let Some(v) = c.also_project_ids {
         t.also_project_ids = sqlx::types::Json(check_also(&mut tx, &user, &t.project_id, v).await?);

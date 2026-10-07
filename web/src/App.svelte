@@ -5,6 +5,7 @@
   import Icon from './lib/components/Icon.svelte'
   import PullSheet from './lib/components/PullSheet.svelte'
   import TaskSheet from './lib/components/TaskSheet.svelte'
+  import EventSheet from './lib/components/EventSheet.svelte'
   import Toasts from './lib/components/Toasts.svelte'
   import FocusTicker from './lib/components/FocusTicker.svelte'
   import MiniTimer from './lib/components/MiniTimer.svelte'
@@ -235,6 +236,7 @@
   </div>
 
   {#if ui.editing}<TaskSheet id={ui.editing} />{/if}
+  {#if ui.event}<EventSheet id={ui.event} />{/if}
   {#if ui.pullFor}<PullSheet date={ui.pullFor} />{/if}
   {#if ui.routine}{#key ui.routine}<RoutineSheet id={ui.routine} />{/key}{/if}
   {#if ui.workflow}{#key ui.workflow}<WorkflowSheet id={ui.workflow} />{/key}{/if}

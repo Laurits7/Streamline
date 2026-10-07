@@ -518,6 +518,8 @@ Legend: **Deliverables** = what exists afterwards · **Tests** = what must be co
 - [x] **6.4 Performance and accessibility pass** (D-66): Lighthouse on a mid-range phone profile,
       bundle audit, query plans/indices for the day aggregate, accessibility audit
       (contrast, focus order, reduced motion).
+- [x] **6.4b Calendar events ↔ work** (owner request, D-68): assign an event (all instances of
+      a recurring one) to a project; attach todos to an event; event sheet, project page list.
 - [~] **6.5 Release v1.0** (README, CHANGELOG and version done; merging to `main` and the `v1.0.0` tag wait for the owner): complete README (install, proxy setups for Caddy, Traefik and
       Tailscale, backup, upgrade), CHANGELOG, tagged multi-arch image, final resource report.
 
