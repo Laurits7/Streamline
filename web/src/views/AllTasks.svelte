@@ -1,5 +1,6 @@
 <script lang="ts">
   // Every open task, across the inbox and all projects, in any view.
+  import ProjectMark from '../lib/components/ProjectMark.svelte'
   import Icon from '../lib/components/Icon.svelte'
   import QuickAdd from '../lib/components/QuickAdd.svelte'
   import TaskRow from '../lib/components/TaskRow.svelte'
@@ -48,7 +49,7 @@
     {#each sections.filter((s) => s.tasks.length || s.id === null) as s (s.id ?? 'inbox')}
       <div class="group">
       <h2 class="section-title">
-        {#if s.id}<i class="dot" style:background={s.color ?? 'var(--faint)'}></i>{:else}<Icon name="inbox" size={14} />{/if}
+        {#if s.id}<ProjectMark project={store.projects.get(s.id)} />{:else}<Icon name="inbox" size={14} />{/if}
         <a href={s.id ? `/projects/${s.id}` : '/inbox'}>{s.name}</a>
         <span class="n">{s.tasks.length}</span>
       </h2>
@@ -104,11 +105,6 @@
     .groups {
       grid-template-columns: 1fr;
     }
-  }
-  .dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
   }
   .section-title a:hover {
     color: var(--accent);

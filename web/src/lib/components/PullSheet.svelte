@@ -1,5 +1,7 @@
 <script lang="ts">
   // The ready stack: open tasks that can be pulled into a day.
+  import type { Project } from '../api/types/Project'
+  import ProjectMark from './ProjectMark.svelte'
   import { fmtMinutes, shortDate } from '../dates'
   import { store } from '../store.svelte'
   import { ui } from '../ui.svelte'
@@ -12,12 +14,12 @@
   const groups = $derived.by(() => {
     const needle = q.trim().toLowerCase()
     const tasks = store.readyStack(date).filter((t) => !needle || t.title.toLowerCase().includes(needle))
-    const out: { name: string; color: string | null; tasks: typeof tasks }[] = []
+    const out: { name: string; project: Project | null; tasks: typeof tasks }[] = []
     const inbox = tasks.filter((t) => !t.project_id)
-    if (inbox.length) out.push({ name: 'Inbox', color: null, tasks: inbox })
+    if (inbox.length) out.push({ name: 'Inbox', project: null, tasks: inbox })
     for (const { project: p } of store.projectTree()) {
       const ts = tasks.filter((t) => t.project_id === p.id)
-      if (ts.length) out.push({ name: store.projectPath(p.id), color: p.color, tasks: ts })
+      if (ts.length) out.push({ name: store.projectPath(p.id), project: p, tasks: ts })
     }
     return out
   })
@@ -36,7 +38,7 @@
     {#if elsewhere}· {elsewhere} at other places hidden{/if}
   </p>
   {#each groups as g (g.name)}
-    <h3><i style:background={g.color ?? 'var(--faint)'}></i>{g.name}</h3>
+    <h3><ProjectMark project={g.project} />{g.name}</h3>
     <div class="card list">
       {#each g.tasks as t (t.id)}
         {@const other = store.entryForTask(t.id)}
@@ -71,11 +73,6 @@
     display: flex;
     align-items: center;
     gap: 8px;
-  }
-  h3 i {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
   }
   .list {
     overflow: hidden;

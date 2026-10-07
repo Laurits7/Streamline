@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ProjectMark from '../lib/components/ProjectMark.svelte'
   import Icon from '../lib/components/Icon.svelte'
   import ProjectTree from '../lib/components/ProjectTree.svelte'
   import QuickAdd from '../lib/components/QuickAdd.svelte'
@@ -71,7 +72,7 @@
     <div class="card list">
       {#each archived as p (p.id)}
         <a class="item" href="/projects/{p.id}">
-          <i class="dot" style:background={p.color ?? 'var(--faint)'}></i>
+          <ProjectMark project={p} />
           <span class="name muted">{store.projectPath(p.id)}</span>
         </a>
       {/each}
@@ -128,12 +129,6 @@
   .icon {
     color: var(--accent);
     display: grid;
-  }
-  .dot {
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    flex: none;
   }
   .name {
     flex: 1;

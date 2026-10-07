@@ -1,5 +1,6 @@
 <script lang="ts">
   // Inbox (projectId = null) or a single project's todo list.
+  import ProjectMark from '../lib/components/ProjectMark.svelte'
   import Icon from '../lib/components/Icon.svelte'
   import QuickAdd from '../lib/components/QuickAdd.svelte'
   import TaskRow from '../lib/components/TaskRow.svelte'
@@ -13,6 +14,7 @@
   import { shortDate } from '../lib/dates'
   import { linkify } from '../lib/text'
   import { toast } from '../lib/toast.svelte'
+  import { PALETTE, SHAPES } from '../lib/marks'
 
   let { projectId = null }: { projectId?: string | null } = $props()
 
@@ -87,7 +89,7 @@
     const others = list.filter((t) => t.id !== item.taskId).map((t) => t.position)
     store.moveToProject(item.taskId, target, keyAt(others, index))
   }
-  const colors = ['#4f46e5', '#0891b2', '#16a34a', '#ca8a04', '#ea580c', '#dc2626', '#db2777', '#7c3aed', '#64748b']
+  let subIdea = $state(false)
 </script>
 
 {#if projectId && !project}
@@ -101,7 +103,7 @@
         </nav>
       {/if}
       <h1>
-        {#if project}<i class="dot" style:background={project.color ?? 'var(--faint)'}></i>{project.name}{#if project.status === 'idea'}<span class="idea-tag big">Idea</span>{/if}{:else}Inbox{/if}
+        {#if project}<ProjectMark {project} size={14} />{project.name}{#if project.status === 'idea'}<span class="idea-tag big">Idea</span>{/if}{:else}Inbox{/if}
         {#if project?.owner_group_id}<span class="shared" title="Shared with {store.groupName(project.owner_group_id)}"><Icon name="users" size={16} /> {store.groupName(project.owner_group_id)}</span>{/if}
       </h1>
       <p class="muted">
@@ -120,9 +122,27 @@
         {#if menu}
           <div class="menu card" role="menu">
             <button role="menuitem" onclick={rename}><Icon name="edit" size={16} /> Rename</button>
-            <div class="colors">
-              {#each colors as c (c)}
-                <button class="swatch" style:background={c} aria-label="Color {c}" onclick={() => { store.updateProject(projectId!, { color: c }); menu = false }}></button>
+            <div class="colors" role="group" aria-label="Colour">
+              {#each PALETTE as c (c)}
+                <button
+                  class="swatch"
+                  class:on={project.color === c}
+                  style:background={c}
+                  aria-label="Colour {c}"
+                  aria-pressed={project.color === c}
+                  onclick={() => store.updateProject(projectId!, { color: c })}></button>
+              {/each}
+            </div>
+            <div class="colors" role="group" aria-label="Shape">
+              {#each SHAPES as sh (sh)}
+                <button
+                  class="shape"
+                  class:on={project.shape === sh}
+                  aria-label="Shape {sh}"
+                  aria-pressed={project.shape === sh}
+                  onclick={() => store.updateProject(projectId!, { shape: sh })}>
+                  <ProjectMark project={{ ...project, shape: sh, status: 'active' }} size={14} />
+                </button>
               {/each}
             </div>
             {#if project.parent_id}
@@ -263,8 +283,9 @@
             href="/projects/{c.id}"
             draggable="false"
             use:droppable={{ accepts: (it) => it.kind === 'task', drop: (it) => it.kind === 'task' && store.moveToProject(it.taskId, c.id) }}>
-            <i class="dot small" style:background={c.color ?? 'var(--faint)'}></i>
+            <ProjectMark project={c} />
             <span class="sub-name">{c.name}</span>
+            {#if c.status === 'idea' && project.status !== 'idea'}<span class="idea-tag">Idea</span>{/if}
             {#if subs}<span class="muted small">{subs} sub</span>{/if}
             <span class="muted small">{store.openCountDeep(c.id)} open</span>
             <Icon name="right" size={16} />
@@ -284,7 +305,15 @@
           </div>
         </div>
       {/each}
-      <QuickAdd placeholder="Add a subproject…" onadd={(name) => store.createProject(name, projectId)} />
+      <QuickAdd
+        placeholder={subIdea && project.status !== 'idea' ? 'Add an idea…' : 'Add a subproject…'}
+        onadd={(name) => store.createProject(name, projectId, subIdea)} />
+      {#if project.status !== 'idea'}
+        <label class="as-idea">
+          <input type="checkbox" bind:checked={subIdea} />
+          Just an idea for now <span class="muted">(stays out of your day until you activate it)</span>
+        </label>
+      {/if}
     {/if}
 
     {#if closed.length}
@@ -370,10 +399,6 @@
     padding: 14px;
     margin: 0;
   }
-  .dot.small {
-    width: 10px;
-    height: 10px;
-  }
   .move {
     display: block;
     padding: 6px 10px;
@@ -386,11 +411,6 @@
   }
   .move select {
     padding: 6px 8px;
-  }
-  .dot {
-    width: 12px;
-    height: 12px;
-    border-radius: 50%;
   }
   .head p {
     margin: 2px 0 0;
@@ -440,6 +460,32 @@
     width: 20px;
     height: 20px;
     border-radius: 50%;
+  }
+  .swatch.on {
+    box-shadow:
+      0 0 0 2px var(--surface),
+      0 0 0 4px var(--text);
+  }
+  .shape {
+    width: 26px;
+    height: 26px;
+    display: grid;
+    place-items: center;
+    border-radius: var(--radius-sm);
+  }
+  .shape.on {
+    background: var(--surface-3);
+  }
+  .as-idea {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 6px;
+    font-size: 14px;
+    margin: 10px 4px 0;
+  }
+  .as-idea .muted {
+    font-size: 13px;
   }
   .events {
     margin: 0 0 16px;

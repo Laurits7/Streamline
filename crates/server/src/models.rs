@@ -147,6 +147,9 @@ pub struct Project {
     pub parent_id: Option<String>,
     pub name: String,
     pub color: Option<String>,
+    /// Shown with the colour to tell projects apart: circle, square, triangle, diamond,
+    /// hexagon or star (D-74).
+    pub shape: String,
     pub position: String,
     pub archived_at: Option<String>,
     /// Place given to new tasks created in this project.
@@ -514,14 +517,14 @@ pub struct ApiToken {
 
 pub async fn upsert_project(conn: &mut SqliteConnection, p: &Project) -> sqlx::Result<()> {
     sqlx::query(
-        "INSERT INTO projects (id, owner_user_id, owner_group_id, parent_id, name, color, position, archived_at, default_place_id, description, status, created_at, updated_at, deleted_at, rev)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        "INSERT INTO projects (id, owner_user_id, owner_group_id, parent_id, name, color, shape, position, archived_at, default_place_id, description, status, created_at, updated_at, deleted_at, rev)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
          ON CONFLICT(id) DO UPDATE SET owner_user_id=excluded.owner_user_id, owner_group_id=excluded.owner_group_id,
-           parent_id=excluded.parent_id, name=excluded.name, color=excluded.color, position=excluded.position, archived_at=excluded.archived_at,
+           parent_id=excluded.parent_id, name=excluded.name, color=excluded.color, shape=excluded.shape, position=excluded.position, archived_at=excluded.archived_at,
            default_place_id=excluded.default_place_id, description=excluded.description, status=excluded.status,
            updated_at=excluded.updated_at, deleted_at=excluded.deleted_at, rev=excluded.rev",
     )
-    .bind(&p.id).bind(&p.owner_user_id).bind(&p.owner_group_id).bind(&p.parent_id).bind(&p.name).bind(&p.color)
+    .bind(&p.id).bind(&p.owner_user_id).bind(&p.owner_group_id).bind(&p.parent_id).bind(&p.name).bind(&p.color).bind(&p.shape)
     .bind(&p.position).bind(&p.archived_at).bind(&p.default_place_id).bind(&p.description).bind(&p.status).bind(&p.created_at).bind(&p.updated_at).bind(&p.deleted_at).bind(p.rev)
     .execute(conn)
     .await

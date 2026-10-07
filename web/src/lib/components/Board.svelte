@@ -1,6 +1,7 @@
 <script lang="ts">
   // Kanban board (SPEC §6.7): the same tasks in columns. Dropping a card in another
   // column changes the field the board is grouped by; within a column it reorders.
+  import ProjectMark from './ProjectMark.svelte'
   import type { Task } from '../api/types/Task'
   import { announce } from '../announce.svelte'
   import { dropList, type DragItem } from '../dnd.svelte'
@@ -83,7 +84,7 @@
   {#each columns as col (col.id)}
     <section class="col" role="listitem" aria-label="{col.title}, {col.tasks.length} tasks">
       <header>
-        {#if col.color !== undefined}<i style:background={col.color ?? 'var(--faint)'}></i>{/if}
+        {#if col.color !== undefined}<ProjectMark project={store.projects.get(col.id)} />{/if}
         <h3>{col.title}</h3>
         <span class="count">{col.tasks.length}</span>
       </header>
@@ -120,11 +121,6 @@
     align-items: center;
     gap: 8px;
     padding: 0 4px 8px;
-  }
-  header i {
-    width: 9px;
-    height: 9px;
-    border-radius: 50%;
   }
   h3 {
     font-size: 13px;

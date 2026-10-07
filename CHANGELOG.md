@@ -2,6 +2,11 @@
 
 ## Unreleased (1.2)
 
+- Every project has a colour and a shape (circle, square, triangle, diamond, hexagon, star),
+  picked automatically so each looks different; subprojects keep their parent's colour with
+  their own shape. Existing projects get theirs on upgrade. Ideas show an empty grey circle
+  (D-74).
+- Ideas can be added inside active projects (D-72).
 - Every project has a description (plain text; web links are clickable) (D-72).
 - Project ideas: a project can be *just an idea for now*. It stays in the Projects list with a grey
   "Idea" tag and can hold a description, tasks and subprojects, but asks for no attention: its

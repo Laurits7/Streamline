@@ -68,6 +68,7 @@ const project = (id: string, extra: Partial<Project> = {}): Project => ({
   parent_id: null,
   name: id,
   color: null,
+  shape: 'circle',
   position: 'V',
   archived_at: null,
   default_place_id: null,
@@ -317,6 +318,21 @@ describe('project ideas (D-72)', () => {
   })
 })
 
+describe('project marks (D-74)', () => {
+  it('gives new projects a colour and shape of their own, and ideas can sit under active projects', async () => {
+    await load({ projects: [project('House', { color: '#dc2626', shape: 'circle' })] })
+    mockApi(() => new Promise(() => {}))
+    const garden = store.createProject('Garden')
+    expect(store.projects.get(garden)).toMatchObject({ color: '#1e66cc', shape: 'square' })
+    expect(calls[0].body).toMatchObject({ color: '#1e66cc', shape: 'square' })
+    const beds = store.createProject('Beds', garden)
+    expect(store.projects.get(beds)).toMatchObject({ color: '#1e66cc', shape: 'circle', status: 'active' })
+    const pond = store.createProject('Pond', garden, true)
+    expect(store.projects.get(pond)).toMatchObject({ shape: 'triangle', status: 'idea' })
+    expect(store.ideaRoot(store.projects.get(pond)!)).toBe(true)
+  })
+})
+
 describe('planning state', () => {
   it('starts a draft, confirms, and keeps a planned day planned when the wizard is reopened', async () => {
     await load()
@@ -398,7 +414,7 @@ describe('calendar events and work (D-68)', () => {
     updated_at: TS, deleted_at: null, rev: 1, ...extra,
   })
   const project: Project = {
-    id: 'P1', owner_user_id: 'U1', owner_group_id: null, parent_id: null, name: 'Team', color: null, position: 'V',
+    id: 'P1', owner_user_id: 'U1', owner_group_id: null, parent_id: null, name: 'Team', color: null, shape: 'circle', position: 'V',
     archived_at: null, default_place_id: null, description: '', status: 'active', created_at: TS, updated_at: TS, deleted_at: null, rev: 1,
   }
 

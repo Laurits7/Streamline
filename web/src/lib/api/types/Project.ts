@@ -4,7 +4,12 @@ export type Project = { id: string, owner_user_id: string | null, owner_group_id
 /**
  * Parent project for nested projects (`null` = top level).
  */
-parent_id: string | null, name: string, color: string | null, position: string, archived_at: string | null, 
+parent_id: string | null, name: string, color: string | null, 
+/**
+ * Shown with the colour to tell projects apart: circle, square, triangle, diamond,
+ * hexagon or star (D-74).
+ */
+shape: string, position: string, archived_at: string | null, 
 /**
  * Place given to new tasks created in this project.
  */

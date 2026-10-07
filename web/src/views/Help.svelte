@@ -251,17 +251,23 @@
       subprojects.
     </p>
     <p>
+      Every project gets its own <strong>colour and shape</strong> (a red circle, a blue square, a green triangle…) so
+      you can spot it in lists; subprojects keep their parent's colour with a shape of their own. Change them in the
+      project's <Icon name="more" size={14} /> menu.
+    </p>
+    <p>
       Every project has a <strong>description</strong> at the top of its page: what it's about, goals, notes and
       links (web addresses become clickable). Use <em>Add a description</em> or <em>Edit description</em>.
     </p>
     <p>
       Not everything is under way yet. Tick <strong>Just an idea for now</strong> when you add a project, or choose
       <em>Move to ideas</em> in its <Icon name="more" size={14} /> menu. An <span class="idea-tag">Idea</span> stays in
-      the Projects list with a grey tag, and you can add a description, tasks and subprojects to it, but nothing in it
+      the Projects list with a grey tag and an empty grey circle, and you can add a description, tasks and subprojects to it, but nothing in it
       asks for attention: its tasks stay out of Today, the planning wizard, All tasks and reminders, can't be planned,
       and are never missed or carried over. Its routines don't run. When you're ready, press
       <strong>Activate</strong> on its page and everything in it works normally. Moving a project to ideas takes its
-      open tasks off your plan from today on.
+      open tasks off your plan from today on. An idea can also sit inside an active project: tick
+      <em>Just an idea for now</em> under “Add a subproject…”.
     </p>
   </section>
 

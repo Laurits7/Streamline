@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ProjectMark from './ProjectMark.svelte'
   import type { DayEntry } from '../api/types/DayEntry'
   import type { Task } from '../api/types/Task'
   import { fmtMinutes, shortDate } from '../dates'
@@ -91,7 +92,7 @@
       {#if statusLabel[task.status]}<span class="tag danger">{statusLabel[task.status]}</span>{/if}
       {#if showProject && project}
         <span class="project" title={[project.id, ...task.also_project_ids].map((p) => store.projectPath(p)).join('\n')}>
-          <i style:background={project.color ?? 'var(--faint)'}></i>{project.name}{task.also_project_ids.length ? ` +${task.also_project_ids.length}` : ''}
+          <ProjectMark {project} size={8} />{project.name}{task.also_project_ids.length ? ` +${task.also_project_ids.length}` : ''}
         </span>
       {/if}
       {#if task.owner_group_id && !task.project_id}
@@ -201,12 +202,6 @@
     display: inline-flex;
     align-items: center;
     gap: 3px;
-  }
-  .project i {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    display: inline-block;
   }
   .groupchip {
     color: var(--accent);

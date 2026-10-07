@@ -585,6 +585,9 @@ ideas: projects that aren't started yet, kept with a description.
       links) above the tasks; an idea's tasks are kept out of Today, Up next, the ready stack,
       the planner, overdue and reminders, and aren't missed or rolled over, until it starts;
       tests; help and CHANGELOG.
+- [x] **7a.6 Project marks** (owner request, D-74): automatic colour + shape per project
+      (domain picker mirrored in the client, migration backfill), empty grey circle for ideas,
+      shape picker in the project menu; ideas can be added inside active projects.
 
 ---
 

@@ -46,6 +46,7 @@ import { isBlocked } from './deps'
 import { keyAt, keyBetween } from './order'
 import { toast } from './toast.svelte'
 import { ulid } from './ulid'
+import { pickSub, pickTop, type Shape } from './marks'
 
 type Kind =
   | 'task'
@@ -795,13 +796,18 @@ class Store {
     const id = ulid()
     const ts = now()
     const parent = parentId ? this.projects.get(parentId) : null
+    // A colour and shape that set it apart (D-74), as the server would pick them.
+    const [color, shape] = parent
+      ? [parent.color, pickSub(parent.shape, this.childProjects(parent.id, true).map((c) => c.shape))]
+      : pickTop(this.childProjects(null, true).map((c) => [c.color, c.shape]))
     const p: Project = {
       id,
       owner_user_id: this.me?.id ?? null,
       owner_group_id: null,
       parent_id: parentId,
       name,
-      color: parent?.color ?? null,
+      color,
+      shape,
       position: keyBetween(this.childProjects(parentId, true).at(-1)?.position, null),
       archived_at: null,
       default_place_id: null,
@@ -818,7 +824,15 @@ class Store {
       async () => [
         [
           'project',
-          await api.post<Project>('/projects', { id, name, parent_id: parentId, color: p.color, position: p.position, status: p.status }),
+          await api.post<Project>('/projects', {
+            id,
+            name,
+            parent_id: parentId,
+            color: p.color,
+            shape: p.shape,
+            position: p.position,
+            status: p.status,
+          }),
         ],
       ],
     )
@@ -830,6 +844,7 @@ class Store {
     patch: {
       name?: string
       color?: string | null
+      shape?: Shape
       position?: string
       archived?: boolean
       parent_id?: string | null

@@ -1,6 +1,8 @@
 <script lang="ts">
   // The planning wizard (SPEC §6.2d): Review → Look ahead → Pick → Arrange → Confirm.
   // Progress is saved as a draft, so it resumes at the same step on any device.
+  import type { Project } from '../lib/api/types/Project'
+  import ProjectMark from '../lib/components/ProjectMark.svelte'
   import { untrack } from 'svelte'
   import { api } from '../lib/api/client'
   import type { DayEntry } from '../lib/api/types/DayEntry'
@@ -136,12 +138,12 @@
   const groups = $derived.by(() => {
     const needle = q.trim().toLowerCase()
     const tasks = store.readyStack(date).filter((t) => !needle || t.title.toLowerCase().includes(needle))
-    const out: { name: string; color: string | null; tasks: Task[] }[] = []
+    const out: { name: string; project: Project | null; tasks: Task[] }[] = []
     const inbox = tasks.filter((t) => !t.project_id)
-    if (inbox.length) out.push({ name: 'Inbox', color: null, tasks: inbox })
+    if (inbox.length) out.push({ name: 'Inbox', project: null, tasks: inbox })
     for (const { project: p } of store.projectTree()) {
       const ts = tasks.filter((t) => t.project_id === p.id)
-      if (ts.length) out.push({ name: store.projectPath(p.id), color: p.color, tasks: ts })
+      if (ts.length) out.push({ name: store.projectPath(p.id), project: p, tasks: ts })
     }
     return out
   })
@@ -289,7 +291,7 @@
       <QuickAdd placeholder="Add a new task for {label}…" onadd={(title) => store.createTask({ title, day: date })} />
       <input class="search" type="text" bind:value={q} placeholder="Search tasks…" aria-label="Search tasks" />
       {#each groups as g (g.name)}
-        <h4><i style:background={g.color ?? 'var(--faint)'}></i>{g.name}</h4>
+        <h4><ProjectMark project={g.project} />{g.name}</h4>
         <div class="card list">
           {#each g.tasks as t (t.id)}
             {@const other = store.entryForTask(t.id)}
@@ -568,11 +570,6 @@
     align-items: center;
     gap: 8px;
     color: var(--muted);
-  }
-  h4 i {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
   }
   .hint {
     font-size: 13px;

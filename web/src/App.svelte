@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ProjectMark from './lib/components/ProjectMark.svelte'
   import { connection } from './lib/connection.svelte'
   import { clearOfflineData } from './lib/pwa'
   import { api, ApiError, onUnauthorized } from './lib/api/client'
@@ -176,7 +177,7 @@
                 class="drop-zone"
                 draggable="false"
                 aria-current={active('project', p.id)}
-                use:droppable={toProject(p.id)}><i style:background={p.color ?? 'var(--faint)'}></i><span class="pname">{p.name}</span>{#if store.ideaRoot(p)}<span class="idea-tag">Idea</span>{/if}{#if p.owner_group_id && !p.parent_id}<span class="sharedicon" title="Shared with {store.groupName(p.owner_group_id)}"><Icon name="users" size={12} /></span>{/if}</a>
+                use:droppable={toProject(p.id)}><ProjectMark project={p} /><span class="pname">{p.name}</span>{#if store.ideaRoot(p)}<span class="idea-tag">Idea</span>{/if}{#if p.owner_group_id && !p.parent_id}<span class="sharedicon" title="Shared with {store.groupName(p.owner_group_id)}"><Icon name="users" size={12} /></span>{/if}</a>
             </div>
           {/each}
         </div>
@@ -440,12 +441,6 @@
   }
   .twisty span.open {
     transform: rotate(90deg);
-  }
-  .projects i {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    flex: none;
   }
   .settings {
     margin-top: 12px;

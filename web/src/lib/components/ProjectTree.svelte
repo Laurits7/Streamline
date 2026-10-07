@@ -1,6 +1,7 @@
 <script lang="ts">
   // Nested project list. Drag a project onto the middle of another to nest it,
   // or between rows to reorder; drop a task on a row to move the task there.
+  import ProjectMark from './ProjectMark.svelte'
   import { announce } from '../announce.svelte'
   import { draggable, droppable, dropList, type DragItem, type DropAt } from '../dnd.svelte'
   import { store } from '../store.svelte'
@@ -62,7 +63,7 @@
         <span class="twisty"></span>
       {/if}
       <a class="link" href="/projects/{p.id}" draggable="false">
-        <i class="dot" style:background={p.color ?? 'var(--faint)'}></i>
+        <ProjectMark project={p} size={11} />
         <span class="name">{p.name}</span>
         {#if store.ideaRoot(p)}<span class="idea-tag">Idea</span>{/if}
         {#if kids}<span class="kids muted">{kids} sub</span>{/if}
@@ -116,12 +117,6 @@
     gap: 10px;
     align-self: stretch;
     min-width: 0;
-  }
-  .dot {
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    flex: none;
   }
   .name {
     flex: 1;

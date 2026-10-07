@@ -6,7 +6,7 @@ use axum::{
 use std::collections::HashMap;
 
 use serde::Deserialize;
-use streamline_domain::{order::key_after, tree};
+use streamline_domain::{marks, order::key_after, tree};
 
 use crate::ownership::Owner;
 use crate::{
@@ -40,6 +40,50 @@ fn check_color(c: &Option<String>) -> ApiResult<()> {
         }
         _ => Ok(()),
     }
+}
+
+fn check_shape(s: &str) -> ApiResult<()> {
+    if marks::is_shape(s) {
+        Ok(())
+    } else {
+        Err(bad(
+            "shape must be circle, square, triangle, diamond, hexagon or star",
+        ))
+    }
+}
+
+/// A colour and shape for a new project that sets apart from the user's others (D-74):
+/// top-level projects get an unused pair, subprojects their parent's colour and a shape
+/// their parent and siblings don't have.
+async fn auto_mark(
+    conn: &mut sqlx::SqliteConnection,
+    user: &AuthUser,
+    parent: Option<&Project>,
+) -> ApiResult<(Option<String>, String)> {
+    if let Some(parent) = parent {
+        let siblings: Vec<String> = sqlx::query_scalar(
+            "SELECT shape FROM projects WHERE parent_id = ? AND deleted_at IS NULL",
+        )
+        .bind(&parent.id)
+        .fetch_all(conn)
+        .await?;
+        let siblings: Vec<&str> = siblings.iter().map(String::as_str).collect();
+        let shape = marks::pick_sub(&parent.shape, &siblings);
+        return Ok((parent.color.clone(), shape.to_string()));
+    }
+    let used: Vec<(Option<String>, String)> = sqlx::query_as(&format!(
+        "SELECT color, shape FROM projects WHERE {} AND parent_id IS NULL AND deleted_at IS NULL",
+        visibility::OWNED_VISIBLE_SQL
+    ))
+    .bind(user.id())
+    .fetch_all(conn)
+    .await?;
+    let used: Vec<(&str, &str)> = used
+        .iter()
+        .filter_map(|(c, s)| Some((c.as_deref()?, s.as_str())))
+        .collect();
+    let (color, shape) = marks::pick_top(&used);
+    Ok((Some(color.to_string()), shape.to_string()))
 }
 
 fn check_description(d: &str) -> ApiResult<String> {
@@ -193,7 +237,9 @@ async fn last_sibling_position(
 pub struct CreateProject {
     id: Option<String>,
     name: String,
+    /// Picked automatically when left out (with the shape), so projects differ (D-74).
     color: Option<String>,
+    shape: Option<String>,
     position: Option<String>,
     parent_id: Option<String>,
     default_place_id: Option<String>,
@@ -217,6 +263,9 @@ pub async fn create(
     if let Some(p) = &c.position {
         check_position(p)?;
     }
+    if let Some(sh) = &c.shape {
+        check_shape(sh)?;
+    }
     let description = check_description(&c.description)?;
     let mut status = c.status.unwrap_or_else(|| "active".into());
     check_status(&status)?;
@@ -232,17 +281,20 @@ pub async fn create(
         }
         return Err(AppError::Conflict("id already in use".into()));
     }
-    let mut color = c.color;
     let mut owner = crate::ownership::chosen(&user, c.owner_group_id.as_deref())?;
+    let mut parent = None;
     if let Some(parent_id) = &c.parent_id {
-        let parent = check_parent(&mut tx, &user, None, parent_id).await?;
-        // Subprojects take their parent's colour unless one is given, and its owner.
-        color = color.or(parent.color.clone());
-        owner = Owner::of_project(&parent);
-        if parent.status == "idea" {
-            status = parent.status.clone();
+        let p = check_parent(&mut tx, &user, None, parent_id).await?;
+        // Subprojects take their parent's owner; one in an idea is an idea too.
+        owner = Owner::of_project(&p);
+        if p.status == "idea" {
+            status = p.status.clone();
         }
+        parent = Some(p);
     }
+    let (auto_color, auto_shape) = auto_mark(&mut tx, &user, parent.as_ref()).await?;
+    let color = c.color.or(auto_color);
+    let shape = c.shape.unwrap_or(auto_shape);
     let position = match c.position {
         Some(p) => p,
         None => last_sibling_position(&mut tx, &owner, &c.parent_id).await?,
@@ -256,6 +308,7 @@ pub async fn create(
         parent_id: c.parent_id,
         name,
         color,
+        shape,
         position,
         archived_at: None,
         default_place_id: c.default_place_id,
@@ -277,6 +330,7 @@ pub struct PatchProject {
     name: Option<String>,
     #[serde(default, deserialize_with = "double_option")]
     color: Option<Option<String>>,
+    shape: Option<String>,
     position: Option<String>,
     /// Archiving (or unarchiving) applies to the whole subtree.
     archived: Option<bool>,
@@ -318,6 +372,10 @@ pub async fn patch(
     if let Some(color) = c.color {
         check_color(&color)?;
         p.color = color;
+    }
+    if let Some(sh) = c.shape {
+        check_shape(&sh)?;
+        p.shape = sh;
     }
     if let Some(parent_id) = c.parent_id
         && parent_id != p.parent_id

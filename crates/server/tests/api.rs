@@ -5171,3 +5171,73 @@ async fn project_ideas_ask_for_no_attention() {
         "no catching up on the days it was an idea"
     );
 }
+
+#[tokio::test]
+async fn projects_get_distinct_marks() {
+    let t = setup().await;
+    let admin = t.admin().await;
+    let create = |body: Value| {
+        let (t, admin) = (&t, &admin);
+        async move {
+            t.req("POST", "/api/v1/projects", Some(admin), Some(body))
+                .await
+                .1
+        }
+    };
+    let house = create(json!({"name": "House"})).await;
+    let garden = create(json!({"name": "Garden"})).await;
+    assert_eq!(
+        (&house["color"], &house["shape"]),
+        (&json!("#dc2626"), &json!("circle"))
+    );
+    assert_eq!(
+        (&garden["color"], &garden["shape"]),
+        (&json!("#1e66cc"), &json!("square"))
+    );
+    // Subprojects keep the parent's colour with a shape of their own.
+    let beds = create(json!({"name": "Beds", "parent_id": garden["id"]})).await;
+    let shed = create(json!({"name": "Shed", "parent_id": garden["id"]})).await;
+    assert_eq!(beds["color"], garden["color"]);
+    assert_eq!(
+        (&beds["shape"], &shed["shape"]),
+        (&json!("circle"), &json!("triangle"))
+    );
+    // Chosen marks are kept; shapes are checked.
+    let mine = create(json!({"name": "Mine", "color": "#16a34a", "shape": "star"})).await;
+    assert_eq!(
+        (&mine["color"], &mine["shape"]),
+        (&json!("#16a34a"), &json!("star"))
+    );
+    let (s, _, _) = t
+        .req(
+            "POST",
+            "/api/v1/projects",
+            Some(&admin),
+            Some(json!({"name": "X", "shape": "blob"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    let (s, v, _) = t
+        .req(
+            "PATCH",
+            &format!("/api/v1/projects/{}", house["id"].as_str().unwrap()),
+            Some(&admin),
+            Some(json!({"shape": "hexagon"})),
+        )
+        .await;
+    assert_eq!((s, &v["shape"]), (StatusCode::OK, &json!("hexagon")));
+    // Another user's projects don't count: they start from the first pair.
+    let anna = t.user(&admin, "anna").await;
+    let (_, a, _) = t
+        .req(
+            "POST",
+            "/api/v1/projects",
+            Some(&anna),
+            Some(json!({"name": "Work"})),
+        )
+        .await;
+    assert_eq!(
+        (&a["color"], &a["shape"]),
+        (&json!("#dc2626"), &json!("circle"))
+    );
+}
