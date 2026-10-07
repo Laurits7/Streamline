@@ -545,6 +545,9 @@
   .list {
     overflow: hidden;
   }
+  .list + :global(.quicklog) {
+    margin-top: 14px;
+  }
   .pull {
     margin-left: auto;
     text-transform: none;

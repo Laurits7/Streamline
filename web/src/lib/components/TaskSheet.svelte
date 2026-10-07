@@ -94,7 +94,7 @@
     {#snippet header()}
       <div class="head">
         <Check done={task.status === 'done'} onclick={() => store.toggleDone(id)} label="Toggle done" />
-        <span class="muted">{task.status === 'open' ? (isWaiting(task) ? 'Waiting for results' : task.started_at ? 'In progress' : 'Open') : task.status === 'done' ? 'Done' : task.status.replace('_', ' ')}</span>
+        <span class="muted">{task.status === 'open' ? (isWaiting(task) ? 'Waiting' : task.started_at ? 'In progress' : 'Open') : task.status === 'done' ? 'Done' : task.status.replace('_', ' ')}</span>
       </div>
     {/snippet}
 

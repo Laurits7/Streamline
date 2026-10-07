@@ -61,7 +61,8 @@
   store.onNotification = (n) => {
     // Focus notifications are already signalled by this device's own timer (FocusTicker).
     if (n.kind === 'focus') return
-    toast(n.title, 'info', { label: 'Plan now', run: () => router.go(n.url) })
+    const planning = n.kind === 'plan_evening' || n.kind === 'plan_morning'
+    toast(n.title, 'info', { label: planning ? 'Plan now' : 'Open', run: () => router.go(n.url) })
   }
 
   $effect(() => {

@@ -95,7 +95,7 @@
 {#if store.healthDays.size}
   <section class="card">
     <h2>Health</h2>
-    <div class="hstrip" class:year={range === 'year'} role="img" aria-label="Health, the last {healthSpan} days">
+    <div class="hstrip" class:year={range === 'year'} style:--cols={range === 'year' ? 52 : healthSpan} role="img" aria-label="Health, the last {healthSpan} days">
       {#each healthDays as d (d)}
         {@const h = healthBy.get(d)}
         <span class="hd {h?.status ?? 'none'}" title="{label(d)}: {h ? healthLabel(h) : 'nothing logged'}"></span>
@@ -171,19 +171,21 @@
   }
   .hstrip {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(14px, 1fr));
+    grid-template-columns: repeat(var(--cols), minmax(0, 1fr));
     gap: 3px;
+    max-width: calc(var(--cols) * 28px);
     margin-bottom: 8px;
   }
+  /* A year: one column per week. */
   .hstrip.year {
-    grid-template-columns: repeat(auto-fill, minmax(8px, 1fr));
+    grid-template-rows: repeat(7, auto);
+    grid-auto-flow: column;
     gap: 2px;
   }
   .hd {
     display: inline-block;
     aspect-ratio: 1;
-    min-width: 8px;
-    border-radius: 3px;
+    border-radius: 2px;
     background: var(--surface-2);
   }
   .legend .hd {
