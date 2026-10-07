@@ -2,6 +2,10 @@
 
 ## Unreleased (1.2)
 
+- Health check-in: once a day, feeling great / OK / not feeling well / sick (what it is) /
+  injured (where), with an optional note. On the Today view, the planner's reflection step
+  and the summary (past days too); sick and injured days are marked on the month calendar,
+  Trends has a health strip. Personal, only a record, included in the export (D-75).
 - Default tasks: ready-made tasks (title, checklist, estimate, project and more), personal or
   shared with a group. "Save as default task" in a task, Settings → Default tasks to manage
   them; every "Add a task…" field suggests them as you type and lists them with a button.

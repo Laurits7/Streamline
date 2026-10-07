@@ -7,6 +7,7 @@ pub mod conflicts;
 pub mod deps;
 pub mod focus;
 pub mod goals;
+pub mod health;
 pub mod marks;
 pub mod occasions;
 pub mod order;

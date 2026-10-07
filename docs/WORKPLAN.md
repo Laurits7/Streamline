@@ -588,9 +588,9 @@ ideas: projects that aren't started yet, kept with a description.
 - [x] **7a.6 Project marks** (owner request, D-74): automatic colour + shape per project
       (domain picker mirrored in the client, migration backfill), empty grey circle for ideas,
       shape picker in the project menu; ideas can be added inside active projects.
-- [ ] **7a.7 Health check-in** (owner request, D-75): `health_days` (user, date, status
+- [x] **7a.7 Health check-in** (owner request, D-75): `health_days` (user, date, status
       `great | ok | unwell | sick | injured`, kind, note; migration; one row per user and day);
-      domain validation of status/kind pairs; sync and export/import; a Health row on the Today
+      domain validation of status/kind pairs; sync and export; a Health row on the Today
       card (one tap for great/OK/unwell, a second step for what sickness or where the injury,
       optional note), also in the planner's reflect step and editable for past days from the
       summary; marker on the month calendar, a health strip in Trends; personal only (never

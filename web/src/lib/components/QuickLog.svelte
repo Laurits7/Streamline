@@ -5,6 +5,7 @@
   import { MOODS, moodEmoji, showWeight, storeWeight } from '../tracking'
   import { toast } from '../toast.svelte'
   import Icon from './Icon.svelte'
+  import HealthPicker from './HealthPicker.svelte'
 
   let { date }: { date: string } = $props()
   const imperial = $derived(store.me?.unit_system === 'imperial')
@@ -46,6 +47,10 @@
     <h2 class="section-title"><Icon name="chart" size={14} /> Track</h2>
     <a href="/summary/{date}" class="link">Summary &amp; journal <Icon name="right" size={14} /></a>
   </header>
+  <div class="metric health-row">
+    <span class="name">Health</span>
+    <HealthPicker {date} compact />
+  </div>
   {#each metrics as m (m.id)}
     {@const v = valueOf(m)}
     <div class="metric">
@@ -106,6 +111,12 @@
     align-items: center;
     gap: 2px;
     font-size: 13px;
+  }
+  .health-row {
+    align-items: flex-start;
+  }
+  .health-row :global(.health) {
+    flex: 1 1 260px;
   }
   .metric {
     display: flex;

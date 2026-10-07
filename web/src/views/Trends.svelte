@@ -6,6 +6,7 @@
   import { addDays, userLocale } from '../lib/dates'
   import { store } from '../lib/store.svelte'
   import { showWeight, trend, type Range } from '../lib/tracking'
+  import { healthLabel, STATUSES } from '../lib/health'
 
   let range = $state<Range>('month')
   const metrics = $derived(store.metricList())
@@ -32,6 +33,13 @@
     }),
   )
   const moodByDay = $derived(mood ? store.metricDaily(mood.id) : new Map<string, number>())
+  // Health check-ins (D-75): one square per day, and how many days of each.
+  const healthSpan = $derived(range === 'week' ? 7 : range === 'month' ? 30 : 364)
+  const healthDays = $derived(Array.from({ length: healthSpan }, (_, i) => addDays(store.today, i - healthSpan + 1)))
+  const healthBy = $derived(new Map([...store.healthDays.values()].map((h) => [h.date, h])))
+  const healthCounts = $derived(
+    STATUSES.map((s) => ({ ...s, n: healthDays.filter((d) => healthBy.get(d)?.status === s.id).length })).filter((s) => s.n),
+  )
   const moodPct = $derived(days.map((d) => (moodByDay.has(d) ? ((moodByDay.get(d)! - 1) / 4) * 100 : null)))
 </script>
 
@@ -81,6 +89,21 @@
     {:else}
       <p class="muted">Log your mood for a few days to see it next to your routines.</p>
     {/if}
+  </section>
+{/if}
+
+{#if store.healthDays.size}
+  <section class="card">
+    <h2>Health</h2>
+    <div class="hstrip" class:year={range === 'year'} role="img" aria-label="Health, the last {healthSpan} days">
+      {#each healthDays as d (d)}
+        {@const h = healthBy.get(d)}
+        <span class="hd {h?.status ?? 'none'}" title="{label(d)}: {h ? healthLabel(h) : 'nothing logged'}"></span>
+      {/each}
+    </div>
+    <p class="legend small">
+      {#each healthCounts as c (c.id)}<span><span class="hd {c.id}"></span> {c.label}: {c.n} {c.n === 1 ? 'day' : 'days'}</span>{:else}Nothing logged in this period.{/each}
+    </p>
   </section>
 {/if}
 </div>
@@ -145,6 +168,46 @@
     gap: 6px;
     flex-wrap: wrap;
     color: var(--muted);
+  }
+  .hstrip {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(14px, 1fr));
+    gap: 3px;
+    margin-bottom: 8px;
+  }
+  .hstrip.year {
+    grid-template-columns: repeat(auto-fill, minmax(8px, 1fr));
+    gap: 2px;
+  }
+  .hd {
+    display: inline-block;
+    aspect-ratio: 1;
+    min-width: 8px;
+    border-radius: 3px;
+    background: var(--surface-2);
+  }
+  .legend .hd {
+    width: 10px;
+    vertical-align: -1px;
+  }
+  .hd.none {
+    background: transparent;
+    box-shadow: inset 0 0 0 1px var(--border);
+  }
+  .hd.great {
+    background: var(--ok);
+  }
+  .hd.ok {
+    background: color-mix(in srgb, var(--ok) 40%, var(--surface-2));
+  }
+  .hd.unwell {
+    background: color-mix(in srgb, var(--warn) 45%, var(--surface-2));
+  }
+  .hd.sick {
+    background: var(--warn);
+  }
+  .hd.injured {
+    background: var(--danger);
   }
   .sw {
     display: inline-block;

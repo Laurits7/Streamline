@@ -36,6 +36,7 @@ import type { Group } from './api/types/Group'
 import type { UserSummary } from './api/types/UserSummary'
 import type { WorkflowTemplate } from './api/types/WorkflowTemplate'
 import type { TaskTemplate } from './api/types/TaskTemplate'
+import type { HealthDay } from './api/types/HealthDay'
 import type { SyncResponse } from './api/types/SyncResponse'
 import type { Task } from './api/types/Task'
 import type { TaskType } from './api/types/TaskType'
@@ -68,6 +69,7 @@ type Kind =
   | 'day_template'
   | 'time_block'
   | 'day_record'
+  | 'health_day'
   | 'metric'
   | 'metric_entry'
   | 'goal'
@@ -89,6 +91,7 @@ type Entity =
   | DayTemplate
   | TimeBlock
   | DayRecord
+  | HealthDay
   | MetricDefinition
   | MetricEntry
   | Goal
@@ -178,6 +181,7 @@ class Store {
   people = new SvelteMap<string, Person>()
   dayTemplates = new SvelteMap<string, DayTemplate>()
   dayRecords = new SvelteMap<string, DayRecord>()
+  healthDays = new SvelteMap<string, HealthDay>()
   metrics = new SvelteMap<string, MetricDefinition>()
   metricEntries = new SvelteMap<string, MetricEntry>()
   goals = new SvelteMap<string, Goal>()
@@ -247,6 +251,7 @@ class Store {
     this.dayTemplates.clear()
     this.timeBlocks.clear()
     this.dayRecords.clear()
+    this.healthDays.clear()
     this.metrics.clear()
     this.metricEntries.clear()
     this.goals.clear()
@@ -322,6 +327,7 @@ class Store {
       this.dayTemplates.clear()
       this.timeBlocks.clear()
       this.dayRecords.clear()
+      this.healthDays.clear()
       this.metrics.clear()
       this.metricEntries.clear()
       this.goals.clear()
@@ -356,6 +362,7 @@ class Store {
     for (const x of r.day_templates) this.applyRemote('day_template', x)
     for (const x of r.time_blocks) this.applyRemote('time_block', x)
     for (const x of r.day_records) this.applyRemote('day_record', x)
+    for (const x of r.health_days) this.applyRemote('health_day', x)
     for (const x of r.metrics) this.applyRemote('metric', x)
     for (const x of r.metric_entries) this.applyRemote('metric_entry', x)
     for (const x of r.goals) this.applyRemote('goal', x)
@@ -408,6 +415,7 @@ class Store {
         c.kind === 'day_template' ||
         c.kind === 'time_block' ||
         c.kind === 'day_record' ||
+        c.kind === 'health_day' ||
         c.kind === 'metric' ||
         c.kind === 'metric_entry' ||
         c.kind === 'goal'
@@ -451,6 +459,7 @@ class Store {
       day_template: this.dayTemplates,
       time_block: this.timeBlocks,
       day_record: this.dayRecords,
+      health_day: this.healthDays,
       metric: this.metrics,
       metric_entry: this.metricEntries,
       goal: this.goals,
@@ -1756,6 +1765,52 @@ class Store {
   }
 
   // ---- tracking ---------------------------------------------------------------
+
+  // ---- health check-in (D-75) ---------------------------------------------------
+
+  healthOn(date: string): HealthDay | undefined {
+    for (const h of this.healthDays.values()) if (h.date === date) return h
+    return undefined
+  }
+
+  /** Set the day's one health answer (replaces what was there). */
+  setHealth(date: string, status: string, kind: string | null = null, note = '') {
+    const cur = this.healthOn(date)
+    const ts = now()
+    const id = cur?.id ?? ulid()
+    const local: HealthDay = {
+      id,
+      user_id: this.me?.id ?? '',
+      date,
+      status,
+      kind,
+      note: note.trim(),
+      created_at: cur?.created_at ?? ts,
+      updated_at: ts,
+      deleted_at: null,
+      rev: cur?.rev ?? 0,
+    }
+    this.optimistic(
+      [['health_day', id]],
+      () => this.healthDays.set(id, local),
+      async () => {
+        const h = await api.put<HealthDay>(`/days/${date}/health`, { status, kind, note })
+        // A first answer saved from another device may have its own id.
+        if (h.id !== id) this.healthDays.delete(id)
+        return [['health_day', h]]
+      },
+    )
+  }
+
+  clearHealth(date: string) {
+    const cur = this.healthOn(date)
+    if (!cur) return
+    this.optimistic(
+      [['health_day', cur.id]],
+      () => this.healthDays.delete(cur.id),
+      () => api.del(`/days/${date}/health`),
+    )
+  }
 
   recordFor(date: string): DayRecord | undefined {
     for (const r of this.dayRecords.values()) if (r.date === date) return r

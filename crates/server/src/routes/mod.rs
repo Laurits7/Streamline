@@ -52,7 +52,7 @@ use crate::AppState;
         calendar::get_account, calendar::put_account, calendar::delete_account, calendar::test, calendar::sync_now, calendar::patch_calendar, calendar::put_event_project,
         occasions::calendar, occasions::search, occasions::load, occasions::create_person, occasions::patch_person, occasions::delete_person, occasions::put_template,
         blocks::create_template, blocks::patch_template, blocks::delete_template, blocks::apply_template, blocks::create_block, blocks::patch_block, blocks::delete_block, blocks::suggest,
-        tracking::put_record, tracking::summary, tracking::glance, tracking::create_metric, tracking::patch_metric, tracking::delete_metric, tracking::create_entry, tracking::patch_entry, tracking::delete_entry, tracking::metric_csv, tracking::import_csv, tracking::export,
+        tracking::put_record, tracking::put_health, tracking::delete_health, tracking::summary, tracking::glance, tracking::create_metric, tracking::patch_metric, tracking::delete_metric, tracking::create_entry, tracking::patch_entry, tracking::delete_entry, tracking::metric_csv, tracking::import_csv, tracking::export,
         goals::create, goals::patch, goals::delete, goals::all_progress, goals::review, goals::reviews,
         push::key, push::subscribe, push::unsubscribe, push::test,
         backups::list, backups::create, backups::download,
@@ -217,6 +217,10 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/days/{date}/record",
             axum::routing::put(tracking::put_record),
+        )
+        .route(
+            "/days/{date}/health",
+            axum::routing::put(tracking::put_health).delete(tracking::delete_health),
         )
         .route("/days/{date}/summary", get(tracking::summary))
         .route("/summaries", get(tracking::glance))

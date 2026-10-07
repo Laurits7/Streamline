@@ -5583,3 +5583,72 @@ async fn default_tasks() {
         .await;
     assert!(list.as_array().unwrap().is_empty());
 }
+
+#[tokio::test]
+async fn health_check_in() {
+    let t = setup().await;
+    let admin = t.admin().await;
+    let other = t.user(&admin, "anna").await;
+    let today = today_of(&t, &admin).await;
+    let path = |d: chrono::NaiveDate| format!("/api/v1/days/{}/health", ymd(d));
+
+    let (s, h, _) = t
+        .req(
+            "PUT",
+            &path(today),
+            Some(&admin),
+            Some(json!({"status": "sick", "kind": "flu", "note": " fever at night "})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{h}");
+    assert_eq!(h["note"], "fever at night");
+    // One answer per day: setting it again changes the same record.
+    let (_, h2, _) = t
+        .req(
+            "PUT",
+            &path(today),
+            Some(&admin),
+            Some(json!({"status": "unwell"})),
+        )
+        .await;
+    assert_eq!(h2["id"], h["id"]);
+    assert!(h2["kind"].is_null());
+    assert_eq!(h2["note"], "");
+    // Past days can be filled in; future days and bad pairs can't.
+    let (s, _, _) = t
+        .req(
+            "PUT",
+            &path(today - chrono::Duration::days(3)),
+            Some(&admin),
+            Some(json!({"status": "injured", "kind": "back"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    for (d, body) in [
+        (
+            today + chrono::Duration::days(1),
+            json!({"status": "great"}),
+        ),
+        (today, json!({"status": "great", "kind": "flu"})),
+        (today, json!({"status": "sick", "kind": "back"})),
+        (today, json!({"status": "tired"})),
+        (today, json!({"status": "ok", "note": "x".repeat(201)})),
+    ] {
+        let (s, _, _) = t.req("PUT", &path(d), Some(&admin), Some(body)).await;
+        assert_eq!(s, StatusCode::BAD_REQUEST);
+    }
+
+    // Personal: synced to its owner only, and in the export.
+    let (_, mine, _) = t.req("GET", "/api/v1/sync", Some(&admin), None).await;
+    assert_eq!(mine["health_days"].as_array().unwrap().len(), 2);
+    let (_, theirs, _) = t.req("GET", "/api/v1/sync", Some(&other), None).await;
+    assert!(theirs["health_days"].as_array().unwrap().is_empty());
+    let (_, export, _) = t.req("GET", "/api/v1/export", Some(&admin), None).await;
+    assert_eq!(export["health"].as_array().unwrap().len(), 2);
+
+    // Cleared.
+    let (s, _, _) = t.req("DELETE", &path(today), Some(&admin), None).await;
+    assert_eq!(s, StatusCode::NO_CONTENT);
+    let (_, mine, _) = t.req("GET", "/api/v1/sync", Some(&admin), None).await;
+    assert_eq!(mine["health_days"].as_array().unwrap().len(), 1);
+}

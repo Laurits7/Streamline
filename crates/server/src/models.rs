@@ -1103,6 +1103,40 @@ pub struct DayRecord {
     pub rev: i64,
 }
 
+/// A day's health check-in (D-75). Personal.
+#[derive(Debug, Clone, Serialize, FromRow, TS, utoipa::ToSchema)]
+#[ts(export)]
+pub struct HealthDay {
+    pub id: String,
+    pub user_id: String,
+    pub date: String,
+    /// `great`, `ok`, `unwell`, `sick` or `injured`.
+    pub status: String,
+    /// What sickness (`cold`, `flu`, `fever`, `stomach`, `headache`, `other`) or where the
+    /// injury is (`back`, `neck`, `hand`, `arm`, `knee`, `foot`, `other`).
+    pub kind: Option<String>,
+    pub note: String,
+    pub created_at: String,
+    pub updated_at: String,
+    pub deleted_at: Option<String>,
+    #[ts(type = "number")]
+    pub rev: i64,
+}
+
+pub async fn upsert_health_day(conn: &mut SqliteConnection, h: &HealthDay) -> sqlx::Result<()> {
+    sqlx::query(
+        "INSERT INTO health_days (id, user_id, date, status, kind, note, created_at, updated_at, deleted_at, rev)
+         VALUES (?,?,?,?,?,?,?,?,?,?)
+         ON CONFLICT(id) DO UPDATE SET status=excluded.status, kind=excluded.kind, note=excluded.note,
+           updated_at=excluded.updated_at, deleted_at=excluded.deleted_at, rev=excluded.rev",
+    )
+    .bind(&h.id).bind(&h.user_id).bind(&h.date).bind(&h.status).bind(&h.kind).bind(&h.note)
+    .bind(&h.created_at).bind(&h.updated_at).bind(&h.deleted_at).bind(h.rev)
+    .execute(conn)
+    .await
+    .map(|_| ())
+}
+
 pub async fn upsert_day_record(conn: &mut SqliteConnection, r: &DayRecord) -> sqlx::Result<()> {
     sqlx::query(
         "INSERT INTO day_records (id, user_id, date, journal, went_well, went_badly, tomorrow, created_at, updated_at, deleted_at, rev)

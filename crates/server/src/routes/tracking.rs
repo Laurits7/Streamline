@@ -16,12 +16,104 @@ use crate::{
     error::{ApiResult, AppError, bad},
     events::Change,
     models::{
-        DayRecord, MetricDefinition, MetricEntry, upsert_day_record, upsert_metric,
-        upsert_metric_entry,
+        DayRecord, HealthDay, MetricDefinition, MetricEntry, upsert_day_record, upsert_health_day,
+        upsert_metric, upsert_metric_entry,
     },
     tracking::{self, DayGlance, DaySummary},
     util::{check_hhmm, double_option, id_or_new, new_id, now, parse_date},
 };
+
+// ----- Health check-in (D-75) -----
+
+#[derive(Deserialize, utoipa::ToSchema)]
+pub struct PutHealth {
+    /// `great`, `ok`, `unwell`, `sick` or `injured`.
+    status: String,
+    /// For sick: `cold`, `flu`, `fever`, `stomach`, `headache`, `other`; for injured:
+    /// `back`, `neck`, `hand`, `arm`, `knee`, `foot`, `other`.
+    kind: Option<String>,
+    #[serde(default)]
+    note: String,
+}
+
+async fn health_row(
+    conn: &mut sqlx::SqliteConnection,
+    user_id: &str,
+    date: &str,
+) -> sqlx::Result<Option<HealthDay>> {
+    sqlx::query_as("SELECT * FROM health_days WHERE user_id = ? AND date = ?")
+        .bind(user_id)
+        .bind(date)
+        .fetch_optional(conn)
+        .await
+}
+
+#[utoipa::path(put, path = "/days/{date}/health", tag = "tracking", summary = "Set the day's health check-in (one per day)", params(("date" = String, Path, description = "YYYY-MM-DD")), request_body = PutHealth, responses((status = 200, body = HealthDay), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
+pub async fn put_health(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(date): Path<String>,
+    Json(c): Json<PutHealth>,
+) -> ApiResult<Json<HealthDay>> {
+    let day = parse_date(&date)?;
+    if day > crate::rollover::today_for(&user.user) {
+        return Err(bad("can't record health for a day that hasn't come yet"));
+    }
+    streamline_domain::health::validate(&c.status, c.kind.as_deref()).map_err(bad)?;
+    let note = c.note.trim().to_string();
+    if note.chars().count() > streamline_domain::health::MAX_NOTE {
+        return Err(bad("note must be at most 200 characters"));
+    }
+    let mut tx = state.db.write.begin().await?;
+    let ts = now();
+    let mut h = match health_row(&mut tx, user.id(), &date).await? {
+        Some(h) => h,
+        None => HealthDay {
+            id: new_id(),
+            user_id: user.id().into(),
+            date,
+            status: String::new(),
+            kind: None,
+            note: String::new(),
+            created_at: ts.clone(),
+            updated_at: ts.clone(),
+            deleted_at: None,
+            rev: 0,
+        },
+    };
+    h.status = c.status;
+    h.kind = c.kind;
+    h.note = note;
+    h.deleted_at = None;
+    h.updated_at = ts;
+    h.rev = next_rev(&mut tx).await?;
+    upsert_health_day(&mut tx, &h).await?;
+    tx.commit().await?;
+    state.bus.publish([Change::health_day(&h)]);
+    Ok(Json(h))
+}
+
+#[utoipa::path(delete, path = "/days/{date}/health", tag = "tracking", summary = "Clear the day's health check-in", params(("date" = String, Path, description = "YYYY-MM-DD")), responses((status = 204, description = "Done"), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
+pub async fn delete_health(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(date): Path<String>,
+) -> ApiResult<StatusCode> {
+    parse_date(&date)?;
+    let mut tx = state.db.write.begin().await?;
+    if let Some(mut h) = health_row(&mut tx, user.id(), &date).await?
+        && h.deleted_at.is_none()
+    {
+        let ts = now();
+        h.deleted_at = Some(ts.clone());
+        h.updated_at = ts;
+        h.rev = next_rev(&mut tx).await?;
+        upsert_health_day(&mut tx, &h).await?;
+        tx.commit().await?;
+        state.bus.publish([Change::health_day(&h)]);
+    }
+    Ok(StatusCode::NO_CONTENT)
+}
 
 // ----- Reflection -----
 
@@ -627,6 +719,7 @@ pub async fn export(State(state): State<AppState>, user: AuthUser) -> ApiResult<
         ("day_records", "day_records", "user_id"),
         ("metrics", "metric_definitions", "owner_user_id"),
         ("metric_entries", "metric_entries", "user_id"),
+        ("health", "health_days", "user_id"),
         ("focus_sessions", "focus_sessions", "user_id"),
         ("routines", "series", "owner_user_id"),
         ("places", "places", "owner_user_id"),

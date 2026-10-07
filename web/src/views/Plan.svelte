@@ -12,6 +12,7 @@
   import DayLog from '../lib/components/DayLog.svelte'
   import QuickAdd from '../lib/components/QuickAdd.svelte'
   import Reflection from '../lib/components/Reflection.svelte'
+  import HealthPicker from '../lib/components/HealthPicker.svelte'
   import TaskRow from '../lib/components/TaskRow.svelte'
   import Timeline from '../lib/components/Timeline.svelte'
   import { addDays, dayLabel, fmtMinutes, longDate, nowHHMM } from '../lib/dates'
@@ -245,6 +246,12 @@
         {/if}
       {/if}
       <h3>Reflect on {reviewLabel}</h3>
+      {#if reviewDate <= store.today}
+        <div class="card reflect health-step">
+          <span class="muted small-label">How were you?</span>
+          <HealthPicker date={reviewDate} compact />
+        </div>
+      {/if}
       <div class="card reflect">
         {#key reviewDate}<Reflection date={reviewDate} compact />{/key}
       </div>
@@ -417,6 +424,16 @@
 </div>
 
 <style>
+  .health-step {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 10px;
+  }
+  .small-label {
+    font-size: 12px;
+    font-weight: 600;
+  }
   .reflect {
     padding: 12px 14px;
   }

@@ -39,11 +39,15 @@ jobs:
       - run: npm run check
       - run: npm test
       - run: npm run build
-      - name: Bundle budget (150 KB gzip)
+      # D-76: the initial route (index.html and what it loads) stays under 150 KB gzip;
+      # everything, lazy views included, under the spec's 300 KB.
+      - name: Bundle budget (initial 150 KB, all 300 KB gzip)
         run: |
+          initial=$(grep -o '/assets/[^"]*' dist/index.html | sed 's|^/|dist/|' | xargs cat dist/index.html | gzip -9 | wc -c)
           total=$(cat dist/index.html dist/assets/*.js dist/assets/*.css | gzip -9 | wc -c)
-          echo "initial payload: $total bytes gzip"
-          test "$total" -lt 153600
+          echo "initial route: $initial bytes gzip; all assets: $total bytes gzip"
+          test "$initial" -lt 153600
+          test "$total" -lt 307200
 
   # Multi-arch image (amd64 + arm64 via QEMU). Pull requests only build it, which
   # verifies the arm64 build; main and version tags also publish it to GHCR.

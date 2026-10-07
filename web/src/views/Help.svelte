@@ -385,6 +385,7 @@
       decides how a day's values combine (latest, average, sum or highest).
     </p>
     <ul>
+      <li><strong>Health</strong>: once a day, tap how you are: feeling great, OK, not feeling well, sick or injured. Sick asks what it is (cold, flu, fever, stomach, headache, other) and injured asks where (back, neck, hand, arm, knee, foot, other); add a note if you like. It's on the Today view's <em>Track</em> card, in the planner's reflection step and on the summary (where you can fill in past days). Sick and injured days are marked on the month calendar, and <a href="/trends">Trends</a> shows a strip of your days. It's only a record: it doesn't change streaks or plans, and nobody else sees it.</li>
       <li><a href="/summary">Summary &amp; journal</a> shows a day at a glance: planned vs. done, what was carried over or missed, routines and streaks, events, focus time and what you tracked. Write your reflection there (or in the planner's first step); it saves as you type. The month calendar lets you browse past days.</li>
       <li><a href="/trends">Trends</a> charts each metric over a week, month or year, and your mood next to how many routines you did.</li>
       <li>Weight is shown in kg or lb (Settings → Tracking → Units). A reminder time per metric nudges you if you haven't logged it by then.</li>

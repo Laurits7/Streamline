@@ -6,6 +6,8 @@
   import type { DaySummary } from '../lib/api/types/DaySummary'
   import Icon from '../lib/components/Icon.svelte'
   import Reflection from '../lib/components/Reflection.svelte'
+  import HealthPicker from '../lib/components/HealthPicker.svelte'
+  import { healthLabel, isAiling } from '../lib/health'
   import { addDays, dayLabel, fmtMinutes, longDate, userLocale } from '../lib/dates'
   import { router } from '../lib/router.svelte'
   import { store } from '../lib/store.svelte'
@@ -62,6 +64,10 @@
     )
   })
 
+  // Sick and injured days are marked on the month calendar (D-75).
+  const ailing = $derived(
+    new Map([...store.healthDays.values()].filter((h) => h.date.startsWith(month) && isAiling(h.status)).map((h) => [h.date, healthLabel(h)])),
+  )
   const imperial = $derived(store.me?.unit_system === 'imperial')
   function metricText(id: string, v: number) {
     const m = store.metrics.get(id)
@@ -107,6 +113,10 @@
         </ul>
         <a class="small" href={date === store.today ? '/' : `/day/${date}`}>Open the day →</a>
       </section>
+    <section class="card">
+      <h2>Health</h2>
+      <HealthPicker {date} />
+    </section>
     <section class="card reflection-card">
       <h2>Reflection</h2>
       {#key date}<Reflection {date} />{/key}
@@ -173,6 +183,7 @@
         <button class="cell" class:sel={d === date} class:future={d > store.today} disabled={d > store.today} onclick={() => go(d)} aria-label={longDate(d)}>
           <span class="num">{Number(d.slice(8))}</span>
           {#if g?.mood}<span class="emo">{moodEmoji(g.mood)}</span>{/if}
+          {#if ailing.has(d)}<span class="ail" title={ailing.get(d)}>{ailing.get(d)?.startsWith('Sick') ? '🤒' : '🩹'}</span>{/if}
           {#if g && g.planned}<span class="bar"><span style:width="{(g.done / g.planned) * 100}%"></span></span>{/if}
           {#if g?.journal}<span class="jd" title="Journal"></span>{/if}
         </button>
@@ -316,6 +327,13 @@
   }
   .emo {
     font-size: 11px;
+    line-height: 1;
+  }
+  .ail {
+    position: absolute;
+    top: 2px;
+    right: 3px;
+    font-size: 9px;
     line-height: 1;
   }
   .bar {
