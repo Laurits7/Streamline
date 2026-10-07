@@ -561,7 +561,8 @@ pub async fn upsert_entry(conn: &mut SqliteConnection, e: &DayEntry) -> sqlx::Re
         "INSERT INTO day_entries (id, user_id, date, task_id, position, start_time, duration_min, created_at, updated_at, deleted_at, rev)
          VALUES (?,?,?,?,?,?,?,?,?,?,?)
          ON CONFLICT(id) DO UPDATE SET date=excluded.date, position=excluded.position, start_time=excluded.start_time,
-           duration_min=excluded.duration_min, updated_at=excluded.updated_at, deleted_at=excluded.deleted_at, rev=excluded.rev",
+           duration_min=excluded.duration_min, updated_at=excluded.updated_at, deleted_at=excluded.deleted_at, rev=excluded.rev
+         WHERE day_entries.user_id = excluded.user_id",
     )
     .bind(&e.id).bind(&e.user_id).bind(&e.date).bind(&e.task_id).bind(&e.position).bind(&e.start_time)
     .bind(e.duration_min).bind(&e.created_at).bind(&e.updated_at).bind(&e.deleted_at).bind(e.rev)
@@ -601,7 +602,8 @@ pub async fn upsert_day_plan(conn: &mut SqliteConnection, p: &DayPlan) -> sqlx::
         "INSERT INTO day_plans (id, user_id, date, status, step, planned_at, created_at, updated_at, deleted_at, rev)
          VALUES (?,?,?,?,?,?,?,?,?,?)
          ON CONFLICT(id) DO UPDATE SET status=excluded.status, step=excluded.step, planned_at=excluded.planned_at,
-           updated_at=excluded.updated_at, deleted_at=excluded.deleted_at, rev=excluded.rev",
+           updated_at=excluded.updated_at, deleted_at=excluded.deleted_at, rev=excluded.rev
+         WHERE day_plans.user_id = excluded.user_id",
     )
     .bind(&p.id).bind(&p.user_id).bind(&p.date).bind(&p.status).bind(p.step).bind(&p.planned_at)
     .bind(&p.created_at).bind(&p.updated_at).bind(&p.deleted_at).bind(p.rev)

@@ -41,6 +41,10 @@ pub struct AccountInput {
 }
 
 /// Clean URL and credentials from the input, falling back to the stored password.
+fn same_origin(a: &str, b: &str) -> bool {
+    matches!((reqwest::Url::parse(a), reqwest::Url::parse(b)), (Ok(a), Ok(b)) if a.origin() == b.origin())
+}
+
 fn credentials(
     state: &AppState,
     c: &AccountInput,
@@ -54,7 +58,10 @@ fn credentials(
     if let Some(p) = c.password.as_deref().filter(|p| !p.is_empty()) {
         password = p.to_string();
     } else if password.is_empty()
-        && let Some(sealed) = stored.and_then(|a| a.secret.as_deref())
+        && let Some(sealed) = stored
+            // The saved password only goes back to the server it was saved for.
+            .filter(|a| same_origin(&a.url, &url))
+            .and_then(|a| a.secret.as_deref())
     {
         password = state
             .secrets

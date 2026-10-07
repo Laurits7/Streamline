@@ -186,6 +186,24 @@ Two options:
 - **Build on the Pi**: works as-is. On a model with 1–2 GB of RAM, uncomment the `args:` in
   `docker-compose.yml` (`LTO: thin`, `CODEGEN_UNITS: "16"`) so compiling fits in memory.
 
+## Security
+
+- **First run:** the first person to open a fresh install creates the admin account. If the server
+  is reachable by others before you've done that, set `INITIAL_ADMIN_USER` and
+  `INITIAL_ADMIN_PASSWORD` instead.
+- Passwords are hashed with Argon2; sign-in attempts are rate-limited; sessions and API tokens
+  can be revoked (changing your password revokes your API tokens). Calendar passwords are stored
+  encrypted (`data/secret.key`).
+- Responses carry a strict Content-Security-Policy and no-framing headers; state-changing requests
+  are checked against the page's origin.
+- Streamline makes outbound requests only to addresses you give it (calendar, ntfy) and to push
+  services. Local network addresses are allowed (for a home calendar server); cloud-metadata and
+  link-local addresses are refused.
+- Journal, tracking, day plans and calendar events are visible only to their owner, even inside a
+  shared group. A shared item can be taken private or deleted by any member of its group.
+- Keep `data/` private: it holds the database, backups and keys. Use HTTPS when it's reachable
+  from outside your home network.
+
 ## Resource use
 
 Measured at the end of Phase 2 (x86-64, `scripts/measure.sh`): Docker image 7.5 MB, about

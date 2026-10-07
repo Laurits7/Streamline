@@ -74,11 +74,7 @@ struct Subscription {
 }
 
 fn client() -> anyhow::Result<reqwest::Client> {
-    crate::caldav::install_crypto();
-    Ok(reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(20))
-        .user_agent(concat!("Streamline/", env!("CARGO_PKG_VERSION")))
-        .build()?)
+    crate::net::client(20, false)
 }
 
 /// Send to every device of the user (and ntfy, if set). Dead subscriptions are removed.
@@ -126,7 +122,9 @@ pub async fn deliver(state: &AppState, user_id: &str, n: &Notification) -> anyho
         .bind(user_id)
         .fetch_one(&state.db.read)
         .await?;
-    if let Some(url) = ntfy.filter(|u| !u.trim().is_empty()) {
+    if let Some(url) = ntfy
+        .filter(|u| reqwest::Url::parse(u.trim()).is_ok_and(|u| crate::net::check_url(&u).is_ok()))
+    {
         let mut req = http
             .post(url.trim())
             .header("Title", &n.title)
@@ -149,6 +147,7 @@ async fn send_one(
     payload: &[u8],
 ) -> anyhow::Result<reqwest::StatusCode> {
     let endpoint = Url::parse(&s.endpoint)?;
+    crate::net::check_url(&endpoint)?;
     let ua_public = p256::PublicKey::from_sec1_bytes(&B64.decode(s.p256dh.trim_end_matches('='))?)?;
     let auth_bytes = B64.decode(s.auth.trim_end_matches('='))?;
     anyhow::ensure!(auth_bytes.len() == 16, "bad auth secret");

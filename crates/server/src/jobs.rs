@@ -10,40 +10,45 @@ pub fn spawn(state: AppState) {
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         loop {
             tick.tick().await;
-            // Occurrences first, so a missed routine day is recorded by the rollover.
-            if let Err(e) = crate::routines::materialize_all(&state).await {
-                tracing::warn!("routines job failed: {e:#}");
-            }
-            if let Err(e) = crate::blocks::materialize_all(&state).await {
-                tracing::warn!("day templates job failed: {e:#}");
-            }
-            if let Err(e) = crate::tracking::remind_all(&state).await {
-                tracing::warn!("metric reminders failed: {e:#}");
-            }
-            if let Err(e) = crate::occasions::materialize_all(&state).await {
-                tracing::warn!("occasions job failed: {e:#}");
-            }
-            {
-                let state = state.clone();
-                tokio::spawn(async move { crate::occasions::ensure_calendar(&state).await });
-            }
-            if let Err(e) = crate::rollover::run_all(&state).await {
-                tracing::warn!("rollover job failed: {e:#}");
-            }
-            if let Err(e) = crate::reminders::run_all(&state).await {
-                tracing::warn!("reminder job failed: {e:#}");
-            }
-            if let Err(e) = crate::deps::release_waiting(&state).await {
-                tracing::warn!("wait-time job failed: {e:#}");
-            }
-            if let Err(e) = crate::routes::focus::advance_all(&state).await {
-                tracing::warn!("focus job failed: {e:#}");
-            }
-            // Drop expired sessions.
-            let _ = sqlx::query("DELETE FROM sessions WHERE expires_at < ?")
-                .bind(crate::util::now())
-                .execute(&state.db.write)
-                .await;
+            crate::util::guarded("background", run_once(state.clone())).await;
         }
     });
+}
+
+/// One round of all jobs.
+async fn run_once(state: AppState) {
+    // Occurrences first, so a missed routine day is recorded by the rollover.
+    if let Err(e) = crate::routines::materialize_all(&state).await {
+        tracing::warn!("routines job failed: {e:#}");
+    }
+    if let Err(e) = crate::blocks::materialize_all(&state).await {
+        tracing::warn!("day templates job failed: {e:#}");
+    }
+    if let Err(e) = crate::tracking::remind_all(&state).await {
+        tracing::warn!("metric reminders failed: {e:#}");
+    }
+    if let Err(e) = crate::occasions::materialize_all(&state).await {
+        tracing::warn!("occasions job failed: {e:#}");
+    }
+    {
+        let state = state.clone();
+        tokio::spawn(async move { crate::occasions::ensure_calendar(&state).await });
+    }
+    if let Err(e) = crate::rollover::run_all(&state).await {
+        tracing::warn!("rollover job failed: {e:#}");
+    }
+    if let Err(e) = crate::reminders::run_all(&state).await {
+        tracing::warn!("reminder job failed: {e:#}");
+    }
+    if let Err(e) = crate::deps::release_waiting(&state).await {
+        tracing::warn!("wait-time job failed: {e:#}");
+    }
+    if let Err(e) = crate::routes::focus::advance_all(&state).await {
+        tracing::warn!("focus job failed: {e:#}");
+    }
+    // Drop expired sessions.
+    let _ = sqlx::query("DELETE FROM sessions WHERE expires_at < ?")
+        .bind(crate::util::now())
+        .execute(&state.db.write)
+        .await;
 }

@@ -242,8 +242,9 @@ pub async fn day_items(
     let mut items = vec![];
     let timed: Vec<(String, String, Option<i32>, Option<i32>)> = sqlx::query_as(
         "SELECT e.id, e.start_time, e.duration_min, t.estimate_min FROM day_entries e JOIN tasks t ON t.id = e.task_id
-         WHERE e.user_id = ? AND e.date = ? AND e.deleted_at IS NULL AND e.start_time IS NOT NULL
-           AND t.deleted_at IS NULL AND t.status = 'open'",
+         WHERE e.user_id = ?1 AND e.date = ?2 AND e.deleted_at IS NULL AND e.start_time IS NOT NULL
+           AND t.deleted_at IS NULL AND t.status = 'open'
+           AND (t.owner_user_id = ?1 OR t.owner_group_id IN (SELECT group_id FROM group_members WHERE user_id = ?1))",
     )
     .bind(&user.id)
     .bind(&date)
@@ -363,8 +364,9 @@ pub async fn unscheduled(
 ) -> sqlx::Result<Vec<Task>> {
     sqlx::query_as(
         "SELECT t.* FROM day_entries e JOIN tasks t ON t.id = e.task_id
-         WHERE e.user_id = ? AND e.date = ? AND e.deleted_at IS NULL AND e.start_time IS NULL
+         WHERE e.user_id = ?1 AND e.date = ?2 AND e.deleted_at IS NULL AND e.start_time IS NULL
            AND t.deleted_at IS NULL AND t.status = 'open'
+           AND (t.owner_user_id = ?1 OR t.owner_group_id IN (SELECT group_id FROM group_members WHERE user_id = ?1))
          ORDER BY e.position",
     )
     .bind(user_id)

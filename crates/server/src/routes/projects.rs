@@ -28,9 +28,16 @@ fn check_name(name: &str) -> ApiResult<String> {
     Ok(n.to_string())
 }
 
+/// `#rrggbb` only: colours end up in CSS, and shared projects' colours reach other users.
 fn check_color(c: &Option<String>) -> ApiResult<()> {
     match c {
-        Some(c) if c.len() > 32 => Err(bad("color too long")),
+        Some(c)
+            if !(c.len() == 7
+                && c.starts_with('#')
+                && c[1..].bytes().all(|b| b.is_ascii_hexdigit())) =>
+        {
+            Err(bad("color must look like #3b82f6"))
+        }
         _ => Ok(()),
     }
 }

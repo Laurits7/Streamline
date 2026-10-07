@@ -8,6 +8,7 @@ use std::{
     time::Duration,
 };
 
+use anyhow::bail;
 use chrono::{NaiveDate, NaiveTime, SecondsFormat, Utc};
 use sqlx::SqliteConnection;
 use streamline_domain::{
@@ -32,6 +33,10 @@ use crate::{
 pub const WINDOW_PAST_DAYS: i64 = 30;
 /// ...to this many days ahead.
 pub const WINDOW_FUTURE_DAYS: i64 = 180;
+/// Limits against a hostile or broken calendar server.
+const MAX_OBJECTS: usize = 5_000;
+const MAX_INSTANCES: usize = 50_000;
+
 /// How often accounts are synced in the background.
 pub const INTERVAL: Duration = Duration::from_secs(15 * 60);
 
@@ -196,6 +201,12 @@ async fn run(
         let mut removed = vec![];
         if fetch {
             let listed = client.list_objects(&cal.href).await?;
+            if listed.len() > MAX_OBJECTS {
+                bail!(
+                    "the calendar “{}” has more than {MAX_OBJECTS} events; hide it in Settings",
+                    cal.name
+                );
+            }
             let cached: HashMap<String, String> = sqlx::query_as::<_, (String, String)>(
                 "SELECT href, etag FROM calendar_objects WHERE calendar_id = ?",
             )
@@ -355,6 +366,13 @@ pub async fn expand_calendar(
             .await?;
     let mut wanted: HashMap<(String, String), CalendarEvent> = HashMap::new();
     for (href, ics) in &objects {
+        if wanted.len() >= MAX_INSTANCES {
+            tracing::info!(
+                "calendar {}: stopped at {MAX_INSTANCES} event instances",
+                cal.id
+            );
+            break;
+        }
         match expand(ics, tz, from, to) {
             Ok(x) => {
                 for w in &x.warnings {
@@ -445,9 +463,13 @@ pub fn spawn(state: AppState) {
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         loop {
             tick.tick().await;
-            if let Err(e) = run_due(&state).await {
-                tracing::warn!("calendar sync job failed: {e:#}");
-            }
+            let s = state.clone();
+            crate::util::guarded("calendar sync", async move {
+                if let Err(e) = run_due(&s).await {
+                    tracing::warn!("calendar sync job failed: {e:#}");
+                }
+            })
+            .await;
         }
     });
 }

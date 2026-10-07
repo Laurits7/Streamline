@@ -65,6 +65,8 @@
   $effect(() => {
     boot()
     return onUnauthorized(() => {
+      // Signed out or expired: this device keeps no copy of the data (shared devices).
+      clearOfflineData()
       if (phase === 'app') {
         store.stop()
         phase = 'login'
@@ -123,7 +125,12 @@
     <button class="btn" onclick={boot}>Retry</button>
   </div>
 {:else if phase === 'login' || phase === 'setup'}
-  <Login setup={phase === 'setup'} onlogin={boot} />
+  <Login
+    setup={phase === 'setup'}
+    onlogin={() => {
+      clearOfflineData()
+      boot()
+    }} />
 {:else if route.name === 'focus'}
   <FocusTicker />
   {#await import('./views/Focus.svelte') then m}<m.default />{/await}

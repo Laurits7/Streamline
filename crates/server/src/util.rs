@@ -74,3 +74,13 @@ where
 {
     Option::<T>::deserialize(d).map(Some)
 }
+
+/// Run one round of a background job in its own task, so a bug that panics is logged
+/// and the job simply runs again next time, instead of the loop (or server) stopping.
+pub async fn guarded<F: std::future::Future<Output = ()> + Send + 'static>(name: &str, job: F) {
+    if let Err(e) = tokio::spawn(job).await
+        && e.is_panic()
+    {
+        tracing::error!("{name} job panicked; it will run again next time");
+    }
+}

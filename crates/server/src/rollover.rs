@@ -128,8 +128,10 @@ pub async fn run_for_user(state: &AppState, user: &User) -> anyhow::Result<()> {
         "SELECT e.id, tt.day_end_behavior FROM day_entries e
          JOIN tasks t ON t.id = e.task_id
          JOIN task_types tt ON tt.id = t.task_type_id
-         WHERE e.user_id = ? AND e.deleted_at IS NULL AND e.date < ?
+         WHERE e.user_id = ?1 AND e.deleted_at IS NULL AND e.date < ?2
            AND t.status = 'open' AND t.deleted_at IS NULL
+           -- only tasks the user can still see (not ones from a group they left)
+           AND (t.owner_user_id = ?1 OR t.owner_group_id IN (SELECT group_id FROM group_members WHERE user_id = ?1))
          ORDER BY e.date, e.position",
     )
     .bind(&user.id)

@@ -4527,3 +4527,240 @@ async fn backups_for_admins() {
         .await;
     assert_eq!(s, StatusCode::NOT_FOUND);
 }
+
+// ----- Security review fixes (D-67) -----
+
+#[tokio::test]
+async fn security_review_regressions() {
+    let t = setup().await;
+    let admin = t.admin().await;
+    let anna = t.user(&admin, "anna").await;
+    let ben = t.user(&admin, "ben").await;
+    let (_, me_ben, _) = t.req("GET", "/api/v1/me", Some(&ben), None).await;
+
+    // Security headers on app and API responses.
+    let req = Request::builder()
+        .uri("/")
+        .header(header::HOST, "localhost:3000")
+        .body(Body::empty())
+        .unwrap();
+    let res = t.app.clone().oneshot(req).await.unwrap();
+    let h = res.headers();
+    assert!(
+        h.get("content-security-policy")
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .contains("script-src 'self'")
+    );
+    assert_eq!(h.get("x-frame-options").unwrap(), "DENY");
+    assert_eq!(h.get("x-content-type-options").unwrap(), "nosniff");
+
+    // A password change revokes API tokens.
+    let (_, tok, _) = t
+        .req(
+            "POST",
+            "/api/v1/tokens",
+            Some(&anna),
+            Some(json!({"name": "script"})),
+        )
+        .await;
+    let token = tok["token"].as_str().unwrap().to_string();
+    assert_eq!(
+        t.req("GET", "/api/v1/me", Some(&token), None).await.0,
+        StatusCode::OK
+    );
+    let (s, _, _) = t
+        .req(
+            "POST",
+            "/api/v1/me/password",
+            Some(&anna),
+            Some(json!({"current_password": "password123", "new_password": "another-pass-1"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::NO_CONTENT);
+    assert_eq!(
+        t.req("GET", "/api/v1/me", Some(&token), None).await.0,
+        StatusCode::UNAUTHORIZED
+    );
+
+    // Outbound addresses: cloud metadata and link-local are refused.
+    let (_, v, _) = t
+        .req(
+            "POST",
+            "/api/v1/calendar/test",
+            Some(&anna),
+            Some(
+                json!({"url": "http://169.254.169.254/latest/", "username": "a", "password": "b"}),
+            ),
+        )
+        .await;
+    assert_eq!(v["ok"], false);
+    let (s, _, _) = t
+        .req("POST", "/api/v1/push/subscriptions", Some(&anna), Some(json!({"endpoint": "https://169.254.169.254/x", "keys": {"p256dh": "a", "auth": "b"}})))
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    let (s, _, _) = t
+        .req(
+            "PATCH",
+            "/api/v1/me",
+            Some(&anna),
+            Some(json!({"ntfy_url": "http://[fe80::1]/topic"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+
+    // Colours are colours (they end up in other members' CSS).
+    let (s, _, _) = t
+        .req(
+            "POST",
+            "/api/v1/projects",
+            Some(&anna),
+            Some(json!({"name": "X", "color": "url(https://evil/x)"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+
+    // A known id can't overwrite another user's day entry.
+    let (_, bt, _) = t
+        .req(
+            "POST",
+            "/api/v1/tasks",
+            Some(&ben),
+            Some(json!({"title": "Ben's"})),
+        )
+        .await;
+    let (_, be, _) = t
+        .req(
+            "POST",
+            "/api/v1/days/2026-10-10/entries",
+            Some(&ben),
+            Some(json!({"task_id": bt["id"], "start_time": "09:00"})),
+        )
+        .await;
+    let (_, at, _) = t
+        .req(
+            "POST",
+            "/api/v1/tasks",
+            Some(&anna),
+            Some(json!({"title": "Anna's"})),
+        )
+        .await;
+    t.req(
+        "POST",
+        "/api/v1/days/2026-10-11/entries",
+        Some(&anna),
+        Some(json!({"id": be["id"], "task_id": at["id"], "start_time": "18:00"})),
+    )
+    .await;
+    let (_, day, _) = t
+        .req("GET", "/api/v1/days/2026-10-10", Some(&ben), None)
+        .await;
+    let e = day["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["id"] == be["id"])
+        .cloned()
+        .expect("Ben's entry is still there");
+    assert_eq!(
+        (e["start_time"].as_str(), e["task_id"].clone()),
+        (Some("09:00"), bt["id"].clone())
+    );
+
+    // A shared goal doesn't reveal a member's private work.
+    let (_, fam, _) = t
+        .req(
+            "POST",
+            "/api/v1/groups",
+            Some(&anna),
+            Some(json!({"name": "Family"})),
+        )
+        .await;
+    t.req(
+        "POST",
+        &format!("/api/v1/groups/{}/members", fam["id"].as_str().unwrap()),
+        Some(&anna),
+        Some(json!({"user_id": me_ben["id"]})),
+    )
+    .await;
+    let (_, private, _) = t
+        .req(
+            "POST",
+            "/api/v1/projects",
+            Some(&anna),
+            Some(json!({"name": "Private"})),
+        )
+        .await;
+    t.req(
+        "POST",
+        "/api/v1/tasks",
+        Some(&anna),
+        Some(json!({"title": "secret", "project_id": private["id"]})),
+    )
+    .await;
+    let (_, g, _) = t
+        .req(
+            "POST",
+            "/api/v1/goals",
+            Some(&anna),
+            Some(json!({"title": "Shared", "project_ids": [private["id"]]})),
+        )
+        .await;
+    t.req(
+        "PATCH",
+        &format!("/api/v1/goals/{}", g["id"].as_str().unwrap()),
+        Some(&anna),
+        Some(json!({"owner_group_id": fam["id"]})),
+    )
+    .await;
+    let of = |v: &Value| {
+        v.as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["goal_id"] == g["id"])
+            .unwrap()["tasks"]
+            .as_i64()
+    };
+    let (_, pa, _) = t
+        .req("GET", "/api/v1/goals/progress", Some(&anna), None)
+        .await;
+    let (_, pb, _) = t
+        .req("GET", "/api/v1/goals/progress", Some(&ben), None)
+        .await;
+    assert_eq!((of(&pa), of(&pb)), (Some(1), Some(0)));
+}
+
+#[tokio::test]
+async fn parallel_login_bursts_are_throttled() {
+    let t = setup().await;
+    let admin = t.admin().await;
+    t.user(&admin, "anna").await;
+    let attempts = (0..15).map(|_| {
+        t.req(
+            "POST",
+            "/api/v1/auth/login",
+            None,
+            Some(json!({"username": "anna", "password": "wrong-password"})),
+        )
+    });
+    let results = futures_util::future::join_all(attempts).await;
+    let limited = results
+        .iter()
+        .filter(|r| r.0 == StatusCode::TOO_MANY_REQUESTS)
+        .count();
+    assert!(
+        limited >= 5,
+        "only {limited} of 15 parallel attempts were throttled"
+    );
+    // The right password is refused too while throttled.
+    let (s, _, _) = t
+        .req(
+            "POST",
+            "/api/v1/auth/login",
+            None,
+            Some(json!({"username": "anna", "password": "password123"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::TOO_MANY_REQUESTS);
+}

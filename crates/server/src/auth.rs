@@ -25,7 +25,11 @@ use crate::{
 
 pub const SESSION_COOKIE: &str = "sl_session";
 pub const TOKEN_PREFIX: &str = "slt_";
+/// Failed sign-ins allowed per username, and per client address, within the window.
 const MAX_FAILURES: u32 = 10;
+const MAX_FAILURES_PER_IP: u32 = 50;
+/// Password hashing takes ~19 MiB and real CPU time: at most this many at once.
+static HASHING: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(4);
 const FAILURE_WINDOW: Duration = Duration::from_secs(15 * 60);
 
 pub fn hash_password(pw: &str) -> anyhow::Result<String> {
@@ -43,12 +47,16 @@ pub fn verify_password(pw: &str, hash: &str) -> bool {
 
 /// Hashing is deliberately slow; keep it off the async worker threads.
 pub async fn hash_password_async(pw: String) -> anyhow::Result<String> {
+    let _permit = HASHING.acquire().await?;
     tokio::task::spawn_blocking(move || hash_password(&pw)).await?
 }
 
 pub async fn verify_password_async(pw: String, hash: Option<String>) -> bool {
     // Verify against a dummy hash for unknown users so timing doesn't reveal usernames.
     static DUMMY: OnceLock<String> = OnceLock::new();
+    let Ok(_permit) = HASHING.acquire().await else {
+        return false;
+    };
     tokio::task::spawn_blocking(move || {
         let hash = hash.unwrap_or_else(|| {
             DUMMY
@@ -229,24 +237,49 @@ pub fn cookie_value<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
 
 // ---- login throttling ---------------------------------------------------------
 
+/// Refuse when a key is over its limit; otherwise count this attempt up front (so a burst
+/// of parallel requests can't all pass before any failure is recorded). A successful
+/// sign-in clears the username's count again.
 pub async fn check_throttle(state: &AppState, keys: &[String]) -> Result<(), AppError> {
     let mut map = state.login_failures.lock().await;
     map.retain(|_, (_, start)| start.elapsed() < FAILURE_WINDOW);
+    let limit = |k: &str| {
+        if k.starts_with("ip:") {
+            MAX_FAILURES_PER_IP
+        } else {
+            MAX_FAILURES
+        }
+    };
     if keys
         .iter()
-        .any(|k| map.get(k).is_some_and(|(n, _)| *n >= MAX_FAILURES))
+        .any(|k| map.get(k).is_some_and(|(n, _)| *n >= limit(k)))
     {
         return Err(AppError::TooManyRequests);
+    }
+    for k in keys {
+        map.entry(k.clone()).or_insert((0, Instant::now())).0 += 1;
     }
     Ok(())
 }
 
-pub async fn record_failure(state: &AppState, keys: &[String]) {
-    let mut map = state.login_failures.lock().await;
-    for k in keys {
-        map.entry(k.clone()).or_insert((0, Instant::now())).0 += 1;
+/// The client's address: the TCP peer, or behind a trusted proxy the address the proxy
+/// appended to `X-Forwarded-For` (the right-most entry, which clients can't forge).
+pub fn client_ip(state: &AppState, headers: &HeaderMap, peer: std::net::IpAddr) -> String {
+    if state.config.trust_proxy
+        && let Some(ip) = headers
+            .get("x-forwarded-for")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.rsplit(',').next())
+            .map(|v| v.trim().to_string())
+            .filter(|v| v.parse::<std::net::IpAddr>().is_ok())
+    {
+        return ip;
     }
+    peer.to_string()
 }
+
+/// Attempts are counted in `check_throttle`; nothing more to do on a failure.
+pub async fn record_failure(_state: &AppState, _keys: &[String]) {}
 
 pub async fn clear_failures(state: &AppState, keys: &[String]) {
     let mut map = state.login_failures.lock().await;
@@ -261,6 +294,8 @@ pub async fn clear_failures(state: &AppState, keys: &[String]) {
 pub struct AuthUser {
     pub user: User,
     pub session_hash: Option<String>,
+    /// Set when authenticated with an API token (its hash).
+    pub token_hash: Option<String>,
     /// Groups the user belongs to (for visibility checks).
     pub groups: Vec<String>,
 }
@@ -311,6 +346,7 @@ impl FromRequestParts<AppState> for AuthUser {
             return Ok(AuthUser {
                 user,
                 session_hash: None,
+                token_hash: Some(hash),
                 groups,
             });
         }
@@ -336,8 +372,49 @@ impl FromRequestParts<AppState> for AuthUser {
         Ok(AuthUser {
             user,
             session_hash: Some(hash),
+            token_hash: None,
             groups,
         })
+    }
+}
+
+impl AuthUser {
+    /// For long-lived connections (the event stream): is the session or token still
+    /// valid, the user still there, and are their groups unchanged?
+    pub async fn still_valid(&self, state: &AppState) -> bool {
+        let credential: Result<Option<i64>, _> = match (&self.session_hash, &self.token_hash) {
+            (Some(h), _) => {
+                sqlx::query_scalar("SELECT 1 FROM sessions WHERE token_hash = ? AND expires_at > ?")
+                    .bind(h)
+                    .bind(now())
+                    .fetch_optional(&state.db.read)
+                    .await
+            }
+            (None, Some(h)) => {
+                sqlx::query_scalar(
+                    "SELECT 1 FROM api_tokens WHERE token_hash = ? AND revoked_at IS NULL",
+                )
+                .bind(h)
+                .fetch_optional(&state.db.read)
+                .await
+            }
+            _ => Ok(None),
+        };
+        if !matches!(credential, Ok(Some(_))) {
+            return false;
+        }
+        match (
+            load_user(state, &self.user.id).await,
+            groups_of(state, &self.user.id).await,
+        ) {
+            (Ok(Some(_)), Ok(mut groups)) => {
+                let mut mine = self.groups.clone();
+                groups.sort();
+                mine.sort();
+                groups == mine
+            }
+            _ => false,
+        }
     }
 }
 

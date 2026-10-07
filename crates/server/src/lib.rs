@@ -13,6 +13,7 @@ pub mod error;
 pub mod events;
 pub mod jobs;
 pub mod models;
+pub mod net;
 pub mod notify;
 pub mod occasions;
 pub mod ownership;

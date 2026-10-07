@@ -119,8 +119,14 @@ pub fn spawn(state: AppState) {
                     })
                     .unwrap_or(true)
             });
-            if due && let Err(e) = run(&state).await {
-                tracing::warn!("backup failed: {e:#}");
+            if due {
+                let s = state.clone();
+                crate::util::guarded("backup", async move {
+                    if let Err(e) = run(&s).await {
+                        tracing::warn!("backup failed: {e:#}");
+                    }
+                })
+                .await;
             }
         }
     });

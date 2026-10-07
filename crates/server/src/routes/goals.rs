@@ -273,9 +273,12 @@ pub struct GoalProgress {
     pub tasks: u32,
 }
 
+/// Progress as `viewer` sees it: linked tasks and projects they can't see don't count
+/// (a shared goal mustn't reveal a member's private work).
 pub async fn progress_of(
     conn: &mut sqlx::SqliteConnection,
     g: &Goal,
+    viewer: &str,
 ) -> sqlx::Result<GoalProgress> {
     let ms = &g.milestones.0;
     let mut counts = Counts {
@@ -290,10 +293,12 @@ pub async fn progress_of(
              UNION SELECT p.id FROM projects p JOIN tree ON p.parent_id = tree.id WHERE p.deleted_at IS NULL)
          SELECT COALESCE(SUM(status = 'done'), 0), COUNT(*) FROM tasks
          WHERE deleted_at IS NULL AND status NOT IN ('skipped', 'wont_do')
-           AND (id IN (SELECT value FROM json_each(?2)) OR project_id IN (SELECT id FROM tree))",
+           AND (id IN (SELECT value FROM json_each(?2)) OR project_id IN (SELECT id FROM tree))
+           AND (owner_user_id = ?3 OR owner_group_id IN (SELECT group_id FROM group_members WHERE user_id = ?3))",
     )
     .bind(serde_json::to_string(&g.project_ids.0).unwrap_or_default())
     .bind(serde_json::to_string(&g.task_ids.0).unwrap_or_default())
+    .bind(viewer)
     .fetch_one(conn)
     .await?;
     counts.tasks_done = done.max(0) as u32;
@@ -324,7 +329,7 @@ pub async fn all_progress(
     .await?;
     let mut out = vec![];
     for g in &goals {
-        out.push(progress_of(&mut conn, g).await?);
+        out.push(progress_of(&mut conn, g, user.id()).await?);
     }
     Ok(Json(out))
 }
@@ -369,7 +374,7 @@ pub async fn review(
             return Err(bad("note too long"));
         }
         let g = load(&mut tx, &user, &n.goal_id).await?;
-        let p = progress_of(&mut tx, &g).await?;
+        let p = progress_of(&mut tx, &g, user.id()).await?;
         sqlx::query("INSERT INTO goal_reviews (id, goal_id, user_id, date, progress, note, created_at) VALUES (?,?,?,?,?,?,?)")
             .bind(new_id())
             .bind(&g.id)

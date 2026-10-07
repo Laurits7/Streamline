@@ -201,19 +201,24 @@ fn parse_duration(v: &str) -> Option<Duration> {
             'W' | 'D' | 'H' | 'M' | 'S' => {
                 let n: i64 = num.parse().ok()?;
                 num.clear();
-                total += n * match c {
+                let unit = match c {
                     'W' => 7 * 86_400,
                     'D' => 86_400,
                     'H' => 3_600,
                     'M' => 60,
                     _ => 1,
                 };
+                total = total.checked_add(n.checked_mul(unit)?)?;
             }
             _ => return None,
         }
     }
-    Some(Duration::seconds(if neg { -total } else { total }))
+    // Untrusted input: anything beyond the longest sensible event is rejected.
+    (total <= MAX_LENGTH.num_seconds()).then(|| Duration::seconds(if neg { -total } else { total }))
 }
+
+/// No event lasts longer than this (guards date arithmetic against hostile input).
+const MAX_LENGTH: Duration = Duration::days(3660);
 
 fn read_event(ev: &IcalEvent, user_tz: Tz, warnings: &mut Vec<String>) -> Option<Event> {
     let mut out = Event {
@@ -282,7 +287,7 @@ fn length(ev: &Event) -> Duration {
         (None, None) if ev.start.date_only => Duration::days(1),
         (None, None) => Duration::zero(),
     }
-    .max(Duration::zero())
+    .clamp(Duration::zero(), MAX_LENGTH)
 }
 
 /// The occurrence key of a start (see [`Instance::key`]).
@@ -780,6 +785,70 @@ mod tests {
         ];
         let t = |h, m| NaiveTime::from_hms_opt(h, m, 0).unwrap();
         assert_eq!(busy_on(d, Tallinn, &spans), [(t(9, 30), 30), (t(0, 0), 60)]);
+    }
+
+    #[test]
+    fn hostile_lengths_never_panic() {
+        // Found in the security review: these used to overflow chrono and abort the server.
+        for d in [
+            "DURATION:P100000000D",
+            "DURATION:PT9999999999999999S",
+            "DURATION:P99999999999999999999W",
+            "DTEND:99991231T000000Z",
+        ] {
+            let ics = wrap(&format!(
+                "BEGIN:VEVENT\nUID:a\nDTSTART:20261007T100000Z\n{d}\nRRULE:FREQ=DAILY;COUNT=3\nSUMMARY:x\nEND:VEVENT\n"
+            ));
+            assert!(
+                expand(
+                    &ics,
+                    Tallinn,
+                    utc("2026-10-01T00:00:00Z"),
+                    utc("2026-11-01T00:00:00Z")
+                )
+                .is_ok(),
+                "{d}"
+            );
+        }
+        let far = wrap(
+            "BEGIN:VEVENT\nUID:a\nDTSTART:99991231T235959Z\nDURATION:P3000D\nRRULE:FREQ=YEARLY\nSUMMARY:x\nEND:VEVENT\n",
+        );
+        assert!(
+            expand(
+                &far,
+                Tallinn,
+                utc("2026-10-01T00:00:00Z"),
+                utc("2026-11-01T00:00:00Z")
+            )
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn malformed_input_never_panics() {
+        let range = (utc("2026-10-01T00:00:00Z"), utc("2026-11-01T00:00:00Z"));
+        for name in [
+            "weekly_exceptions.ics",
+            "allday_dst.ics",
+            "floating.ics",
+            "new_york.ics",
+            "cancelled.ics",
+        ] {
+            let src = fixture(name);
+            let cuts = src.char_indices().map(|(i, _)| i).step_by(3);
+            let variants = cuts.map(|i| src[..i].to_string()).chain([
+                src.replace('2', "9"),
+                src.replace('0', "9"),
+                src.replace("COUNT=", "COUNT=99999999999"),
+                src.replace("FREQ=WEEKLY", "FREQ=SECONDLY"),
+                src.replace("T0", "T99"),
+                src.replace(':', ";;"),
+            ]);
+            for v in variants {
+                let r = std::panic::catch_unwind(|| expand(&v, Tallinn, range.0, range.1));
+                assert!(r.is_ok(), "{name} panicked on:\n{v}");
+            }
+        }
     }
 
     #[test]

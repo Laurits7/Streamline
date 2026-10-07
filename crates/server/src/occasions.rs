@@ -321,11 +321,7 @@ pub async fn load_namedays(
 
 /// Download and load the official list.
 pub async fn fetch_official(state: &AppState, url: &str) -> anyhow::Result<usize> {
-    crate::caldav::install_crypto();
-    let res = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(30))
-        .user_agent(concat!("Streamline/", env!("CARGO_PKG_VERSION")))
-        .build()?
+    let res = crate::net::client(30, true)?
         .get(url)
         .send()
         .await
@@ -333,7 +329,7 @@ pub async fn fetch_official(state: &AppState, url: &str) -> anyhow::Result<usize
     if !res.status().is_success() {
         bail!("the nameday list answered {}", res.status());
     }
-    let html = res.text().await?;
+    let html = crate::net::text_limited(res, 8 * 1024 * 1024).await?;
     let list = parse_stat_ee(&html)
         .map_err(anyhow::Error::msg)
         .context("can't read the nameday list")?;

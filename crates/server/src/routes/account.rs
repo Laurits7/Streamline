@@ -52,6 +52,9 @@ pub async fn setup(
     Json(c): Json<Credentials>,
 ) -> ApiResult<Response> {
     auth::check_origin(&state, &headers)?;
+    // One setup at a time, so two simultaneous first visits can't both become admin.
+    static SETUP: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    let _one = SETUP.lock().await;
     if auth::user_count(&state).await? > 0 {
         return Err(AppError::Forbidden("setup already completed".into()));
     }
@@ -84,7 +87,10 @@ pub async fn login(
 ) -> ApiResult<Response> {
     auth::check_origin(&state, &headers)?;
     let username = c.username.trim().to_lowercase();
-    let keys = vec![format!("u:{username}"), format!("ip:{}", addr.ip())];
+    let keys = vec![
+        format!("u:{username}"),
+        format!("ip:{}", auth::client_ip(&state, &headers, addr.ip())),
+    ];
     auth::check_throttle(&state, &keys).await?;
     let user: Option<User> =
         sqlx::query_as("SELECT * FROM users WHERE username = ? AND deleted_at IS NULL")
@@ -96,7 +102,9 @@ pub async fn login(
             .await;
     match user {
         Some(user) if ok => {
-            auth::clear_failures(&state, &keys).await;
+            // Only the username's count: signing in to your own account mustn't reset the
+            // address's count (that would allow guessing other accounts).
+            auth::clear_failures(&state, &keys[..1]).await;
             login_response(&state, &headers, &user).await
         }
         _ => {
@@ -174,9 +182,9 @@ pub async fn patch_me(
     }
     if let Some(v) = p.ntfy_url {
         let v = v.trim().to_string();
-        if !v.is_empty() && !(v.starts_with("https://") || v.starts_with("http://"))
-            || v.len() > 500
-        {
+        let bad_url = !v.is_empty()
+            && reqwest::Url::parse(&v).map_or(true, |u| crate::net::check_url(&u).is_err());
+        if bad_url || v.len() > 500 {
             return Err(bad(
                 "the ntfy address must be a URL like https://ntfy.sh/your-topic",
             ));
@@ -402,6 +410,12 @@ pub async fn change_password(
         .bind(user.id())
         .execute(&mut *tx)
         .await?;
+    // A new password ends every other way in: other sessions and all API tokens.
+    sqlx::query("UPDATE api_tokens SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL")
+        .bind(now())
+        .bind(user.id())
+        .execute(&mut *tx)
+        .await?;
     sqlx::query("DELETE FROM sessions WHERE user_id = ? AND token_hash <> ?")
         .bind(user.id())
         .bind(user.session_hash.as_deref().unwrap_or(""))
@@ -553,6 +567,9 @@ pub async fn patch_user(
         .await?
         .ok_or(AppError::NotFound)?;
     if let Some(d) = p.display_name {
+        if d.trim().is_empty() || d.chars().count() > 100 {
+            return Err(bad("display name must be 1-100 characters"));
+        }
         u.display_name = d.trim().to_string();
     }
     if let Some(a) = p.is_admin {
@@ -574,6 +591,13 @@ pub async fn patch_user(
             .bind(&u.id)
             .execute(&mut *tx)
             .await?;
+        sqlx::query(
+            "UPDATE api_tokens SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL",
+        )
+        .bind(now())
+        .bind(&u.id)
+        .execute(&mut *tx)
+        .await?;
     }
     let rev = crate::db::next_rev(&mut tx).await?;
     sqlx::query(

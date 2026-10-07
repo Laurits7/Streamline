@@ -2,8 +2,6 @@
 //! discovery, listing calendars, listing object etags and fetching objects. Read-only for
 //! now; `CalendarProvider` reserves the write calls for later write-back (SPEC §6.5).
 
-use std::time::Duration;
-
 use anyhow::{Context, anyhow, bail};
 use quick_xml::{escape::resolve_predefined_entity, events::Event, reader::Reader};
 use reqwest::{Method, StatusCode, Url};
@@ -107,11 +105,8 @@ impl CalDav {
         if !base.path().ends_with('/') {
             base.set_path(&format!("{}/", base.path()));
         }
-        let http = reqwest::Client::builder()
-            .timeout(Duration::from_secs(30))
-            .connect_timeout(Duration::from_secs(10))
-            .user_agent(concat!("Streamline/", env!("CARGO_PKG_VERSION")))
-            .build()?;
+        crate::net::check_url(&base)?;
+        let http = crate::net::client(30, true)?;
         Ok(Self {
             http,
             base,
@@ -120,10 +115,19 @@ impl CalDav {
         })
     }
 
+    /// A server-given href, which must stay on the configured server.
     fn resolve(&self, href: &str) -> anyhow::Result<Url> {
-        self.base
+        let u = self
+            .base
             .join(href)
-            .with_context(|| format!("bad href {href:?}"))
+            .with_context(|| format!("bad href {href:?}"))?;
+        if u.origin() != self.base.origin() {
+            bail!(
+                "the calendar server pointed to another server ({})",
+                u.host_str().unwrap_or("")
+            );
+        }
+        Ok(u)
     }
 
     async fn dav(
@@ -156,7 +160,7 @@ impl CalDav {
                 url.path()
             ),
         }
-        let text = res.text().await?;
+        let text = crate::net::text_limited(res, MAX_RESPONSE).await?;
         parse_xml(&text).context("the calendar server sent XML we can't read")
     }
 
@@ -189,6 +193,17 @@ impl CalDav {
 
 const CAL_PROPS: &str = "<d:resourcetype/><d:displayname/><i:calendar-color/><cs:getctag/><d:sync-token/><c:supported-calendar-component-set/>";
 
+/// Largest DAV response read (a calendar's multiget batch of 50 events is far below).
+const MAX_RESPONSE: usize = 32 * 1024 * 1024;
+const MAX_DEPTH: usize = 64;
+
+/// `#rrggbb` (Apple's `#rrggbbaa` loses the alpha); anything else is ignored.
+fn valid_color(c: &str) -> Option<String> {
+    let hex = c.strip_prefix('#')?;
+    let ok = (hex.len() == 6 || hex.len() == 8) && hex.bytes().all(|b| b.is_ascii_hexdigit());
+    ok.then(|| format!("#{}", &hex[..6]))
+}
+
 fn calendar_of(r: &DavResponse, base: &Url) -> Option<RemoteCalendar> {
     let rt = r.prop("resourcetype")?;
     rt.find("calendar")?;
@@ -199,7 +214,11 @@ fn calendar_of(r: &DavResponse, base: &Url) -> Option<RemoteCalendar> {
             return None;
         }
     }
-    let href = base.join(&r.href).ok()?.to_string();
+    let joined = base.join(&r.href).ok()?;
+    if joined.origin() != base.origin() {
+        return None;
+    }
+    let href = joined.to_string();
     let text = |n: &str| {
         r.prop(n)
             .map(|p| p.text.trim().to_string())
@@ -213,13 +232,7 @@ fn calendar_of(r: &DavResponse, base: &Url) -> Option<RemoteCalendar> {
             .to_string()
     });
     // Apple colours can be #RRGGBBAA; keep #RRGGBB.
-    let color = text("calendar-color").map(|c| {
-        if c.len() == 9 && c.starts_with('#') {
-            c[..7].to_string()
-        } else {
-            c
-        }
-    });
+    let color = text("calendar-color").and_then(|c| valid_color(&c));
     Some(RemoteCalendar {
         href,
         name,
@@ -268,7 +281,11 @@ impl CalendarProvider for CalDav {
             .filter(|r| !r.href.ends_with('/'))
             .filter_map(|r| {
                 let etag = r.prop("getetag")?.text.trim().to_string();
-                Some((url.join(&r.href).ok()?.to_string(), etag))
+                let u = url
+                    .join(&r.href)
+                    .ok()
+                    .filter(|u| u.origin() == url.origin())?;
+                Some((u.to_string(), etag))
             })
             .collect())
     }
@@ -293,8 +310,15 @@ impl CalendarProvider for CalDav {
                 let (Some(etag), Some(data)) = (r.prop("getetag"), r.prop("calendar-data")) else {
                     continue;
                 };
+                let Some(href) = url
+                    .join(&r.href)
+                    .ok()
+                    .filter(|u| u.origin() == url.origin())
+                else {
+                    continue;
+                };
                 out.push(RemoteObject {
-                    href: url.join(&r.href)?.to_string(),
+                    href: href.to_string(),
                     etag: etag.text.trim().to_string(),
                     ics: data.text.clone(),
                 });
@@ -375,7 +399,13 @@ pub fn parse_xml(text: &str) -> anyhow::Result<Node> {
     };
     loop {
         match reader.read_event()? {
-            Event::Start(e) => stack.push(open(&e)),
+            Event::Start(e) => {
+                // Deep nesting would make the (recursive) tree walk overflow the stack.
+                if stack.len() > MAX_DEPTH {
+                    bail!("XML nested too deeply");
+                }
+                stack.push(open(&e))
+            }
             Event::Empty(e) => {
                 let n = open(&e);
                 stack.last_mut().unwrap().children.push(n);
@@ -481,6 +511,34 @@ mod tests {
                 .unwrap()
                 .text,
             "SUMMARY:Tom & Jerry\n"
+        );
+    }
+
+    #[test]
+    fn hostile_server_values() {
+        // Found in the security review: a 9-byte colour with a multi-byte character used to
+        // panic on a byte slice.
+        assert_eq!(valid_color("#12345é1"), None);
+        assert_eq!(valid_color("#3b82f6ff"), Some("#3b82f6".into()));
+        assert_eq!(valid_color("url(https://evil/x)"), None);
+        let deep = format!(
+            "<multistatus xmlns=\"DAV:\">{}{}</multistatus>",
+            "<a>".repeat(100_000),
+            "</a>".repeat(100_000)
+        );
+        assert!(parse_xml(&deep).is_err());
+        // Hrefs pointing at another server are ignored.
+        let base = Url::parse("http://radicale:5232/anna/").unwrap();
+        let other = HOME.replace(
+            "<href>/anna/home/</href>",
+            "<href>http://169.254.169.254/latest/</href>",
+        );
+        assert!(
+            responses(&parse_xml(&other).unwrap())
+                .iter()
+                .filter_map(|r| calendar_of(r, &base))
+                .next()
+                .is_none()
         );
     }
 

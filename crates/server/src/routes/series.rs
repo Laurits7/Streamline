@@ -368,6 +368,17 @@ pub async fn patch(
         next.notes = v;
     }
     if let Some(v) = c.project_id {
+        // A routine belongs to its project's owner; moving it to a project that's shared
+        // differently would hand its occurrences to someone else (security review).
+        if let Some(p) = &v
+            && v != next.project_id
+            && let Some(o) = crate::ownership::project_owner(&mut tx, p).await?
+            && (o.user != next.owner_user_id || o.group != next.owner_group_id)
+        {
+            return Err(bad(
+                "that project is shared differently from this routine; create the routine there instead",
+            ));
+        }
         next.project_id = v;
     }
     if let Some(v) = c.task_type_id {

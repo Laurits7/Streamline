@@ -360,21 +360,60 @@ pub async fn events(
         .map(|g| crate::visibility::group_key(g))
         .collect();
     keys.insert(user.user.id.clone());
-    let stream = BroadcastStream::new(state.bus.subscribe()).filter_map(move |msg| {
-        let out = match msg {
-            Ok(c) if c.audience.iter().any(|a| keys.contains(a)) => Some(
-                Event::default()
-                    .event("change")
-                    .id(c.rev.to_string())
-                    .data(serde_json::to_string(&*c).unwrap_or_default()),
-            ),
-            Ok(_) => None,
-            Err(BroadcastStreamRecvError::Lagged(_)) => {
-                Some(Event::default().event("resync").data("1"))
-            }
-        };
-        std::future::ready(out.map(Ok))
-    });
+    // The stream ends (and the client reconnects with fresh access) when the user's group
+    // membership changes, or when a periodic check finds the session or token gone.
+    let me = user.user.id.clone();
+    enum Msg {
+        Change(Result<std::sync::Arc<crate::events::Change>, BroadcastStreamRecvError>),
+        Check(bool),
+    }
+    let changes = BroadcastStream::new(state.bus.subscribe()).map(Msg::Change);
+    let checks = {
+        let (state, user) = (state.clone(), std::sync::Arc::new(user));
+        let mut tick = tokio::time::interval(Duration::from_secs(60));
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        tokio_stream::wrappers::IntervalStream::new(tick)
+            .skip(1)
+            .then(move |_| {
+                let (state, user) = (state.clone(), user.clone());
+                async move { Msg::Check(user.still_valid(&state).await) }
+            })
+    };
+    // The membership event itself still goes out (the client reloads everything on it);
+    // the stream ends right after.
+    let ending = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let stream = futures_util::stream::select(changes, checks)
+        .take_while(move |m| {
+            use std::sync::atomic::Ordering::SeqCst;
+            let go = !ending.load(SeqCst)
+                && match m {
+                    Msg::Check(ok) => *ok,
+                    Msg::Change(Ok(c)) => {
+                        if c.kind == "membership" && c.audience.contains(&me) {
+                            ending.store(true, SeqCst);
+                        }
+                        true
+                    }
+                    Msg::Change(Err(_)) => true,
+                };
+            std::future::ready(go)
+        })
+        .filter_map(move |m| {
+            let out = match m {
+                Msg::Check(_) => None,
+                Msg::Change(Ok(c)) if c.audience.iter().any(|a| keys.contains(a)) => Some(
+                    Event::default()
+                        .event("change")
+                        .id(c.rev.to_string())
+                        .data(serde_json::to_string(&*c).unwrap_or_default()),
+                ),
+                Msg::Change(Ok(_)) => None,
+                Msg::Change(Err(BroadcastStreamRecvError::Lagged(_))) => {
+                    Some(Event::default().event("resync").data("1"))
+                }
+            };
+            std::future::ready(out.map(Ok))
+        });
     let hello = futures_util::stream::once(std::future::ready(Ok(Event::default()
         .event("hello")
         .data("1"))));

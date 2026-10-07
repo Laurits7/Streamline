@@ -58,7 +58,22 @@ pub async fn start(
             .map(|v| (Some(v.name.as_str()), v.skip.clone()))
             .collect()
     };
-    let project_id = opts.project_id.clone().or(tpl.project_id.clone());
+    let mut project_id = opts.project_id.clone().or(tpl.project_id.clone());
+    // The template's project was checked when it was saved; the starter may have lost
+    // access since (left the group). Then the run goes to their inbox instead.
+    if let Some(p) = &project_id {
+        let visible: bool = sqlx::query_scalar(&format!(
+            "SELECT EXISTS(SELECT 1 FROM projects WHERE id = ?2 AND deleted_at IS NULL AND {})",
+            crate::visibility::OWNED_VISIBLE_SQL
+        ))
+        .bind(owner_user_id)
+        .bind(p)
+        .fetch_one(&mut *conn)
+        .await?;
+        if !visible {
+            project_id = None;
+        }
+    }
     // Steps belong to whoever owns their project (a group's laundry is the group's).
     let owner = match &project_id {
         Some(p) => crate::ownership::project_owner(conn, p).await?,

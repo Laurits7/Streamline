@@ -17,11 +17,14 @@ mod tasks;
 mod tracking;
 pub mod workflows;
 
+use axum::http::{HeaderValue, header};
 use axum::{
     Router,
     routing::{get, patch, post},
 };
-use tower_http::{compression::CompressionLayer, trace::TraceLayer};
+use tower_http::{
+    compression::CompressionLayer, set_header::SetResponseHeaderLayer, trace::TraceLayer,
+};
 
 use crate::AppState;
 
@@ -102,16 +105,27 @@ async fn openapi_json() -> axum::Json<utoipa::openapi::OpenApi> {
     axum::Json(<ApiDoc as utoipa::OpenApi>::openapi())
 }
 
-/// A small page rendering the OpenAPI document (the viewer script loads from a CDN).
-async fn api_docs() -> axum::response::Html<&'static str> {
-    axum::response::Html(
-        r#"<!doctype html><html><head><meta charset="utf-8"><title>Streamline API</title>
+/// A small page rendering the OpenAPI document. The viewer comes from a CDN, pinned to
+/// one version with an integrity hash; the page gets its own, looser CSP.
+async fn api_docs() -> impl axum::response::IntoResponse {
+    (
+        [(
+            axum::http::header::CONTENT_SECURITY_POLICY,
+            "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https:; font-src 'self' https: data:; img-src 'self' data: https:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'",
+        )],
+        axum::response::Html(
+            r#"<!doctype html><html><head><meta charset="utf-8"><title>Streamline API</title>
 <meta name="viewport" content="width=device-width, initial-scale=1"></head><body>
 <script id="api-reference" data-url="/api/v1/openapi.json"></script>
-<script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference"></script>
+<script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference@1.73.0/dist/browser/standalone.js" integrity="sha384-OKyMdsDX84ypSZEhVun8YElXk5c2GQaH3EXPOc6ItmVcLDUAvKHYwvDLvAgsqVtB" crossorigin="anonymous"></script>
 </body></html>"#,
+        ),
     )
 }
+
+/// Defence in depth for the app (security review, D-67): only our own scripts run (no
+/// inline scripts), no framing by other sites, no MIME sniffing, no referrer leaks.
+const CSP: &str = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; manifest-src 'self'; worker-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'";
 
 pub fn router(state: AppState) -> Router {
     let api = Router::new()
@@ -199,7 +213,11 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/metrics/{id}/entries", post(tracking::create_entry))
         .route("/metrics/{id}/csv", get(tracking::metric_csv))
-        .route("/metrics/{id}/import", post(tracking::import_csv))
+        // CSV imports may be larger than the default 2 MB body limit.
+        .route(
+            "/metrics/{id}/import",
+            post(tracking::import_csv).layer(axum::extract::DefaultBodyLimit::max(6 * 1024 * 1024)),
+        )
         .route(
             "/metric-entries/{id}",
             patch(tracking::patch_entry).delete(tracking::delete_entry),
@@ -250,6 +268,24 @@ pub fn router(state: AppState) -> Router {
         .route("/api/docs", get(api_docs))
         .route("/healthz", get(|| async { "ok" }))
         .fallback(crate::static_files::serve)
+        .layer(SetResponseHeaderLayer::if_not_present(
+            header::CONTENT_SECURITY_POLICY,
+            HeaderValue::from_static(CSP),
+        ))
+        .layer(SetResponseHeaderLayer::overriding(
+            header::X_CONTENT_TYPE_OPTIONS,
+            HeaderValue::from_static("nosniff"),
+        ))
+        .layer(SetResponseHeaderLayer::overriding(
+            header::X_FRAME_OPTIONS,
+            HeaderValue::from_static("DENY"),
+        ))
+        .layer(SetResponseHeaderLayer::overriding(
+            header::REFERRER_POLICY,
+            HeaderValue::from_static("same-origin"),
+        ))
+        // A bug that panics fails one request (500) instead of the whole server.
+        .layer(tower_http::catch_panic::CatchPanicLayer::new())
         .layer(CompressionLayer::new())
         .layer(TraceLayer::new_for_http())
         .with_state(state)

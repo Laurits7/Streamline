@@ -49,7 +49,10 @@ pub async fn subscribe(
     Json(c): Json<Subscribe>,
 ) -> ApiResult<StatusCode> {
     let url = reqwest::Url::parse(&c.endpoint).map_err(|_| bad("bad endpoint"))?;
-    let local = url.scheme() == "http" && url.host_str() == Some("127.0.0.1"); // tests
+    // Push services are HTTPS; plain http to 127.0.0.1 only in debug builds (tests).
+    let local =
+        cfg!(debug_assertions) && url.scheme() == "http" && url.host_str() == Some("127.0.0.1");
+    crate::net::check_url(&url).map_err(|e| bad(e.to_string()))?;
     if (url.scheme() != "https" && !local)
         || c.endpoint.len() > 1000
         || c.keys.p256dh.len() > 200
