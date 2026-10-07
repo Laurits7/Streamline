@@ -549,10 +549,10 @@ Legend: **Deliverables** = what exists afterwards · **Tests** = what must be co
 
 ---
 
-### Phase 7a: Waiting for results (v1.1, D-70)
+### Phase 7a: Waiting for results (v1.2, D-70)
 
 Work that's been handed off and only needs a check later (a model training, a slow build,
-an e-mail waiting for a reply). Small; do it before Phase 8.
+an e-mail waiting for a reply). Developed on the `v1.2-waiting` branch.
 
 - [ ] **7a.1 Server**: `tasks.waiting_since`, `check_back_at`, `waiting_note` (migration);
       `POST /tasks/{id}/wait` and clearing it; waiting tasks carry on at day end whatever their
