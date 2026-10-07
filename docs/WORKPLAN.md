@@ -549,11 +549,12 @@ Legend: **Deliverables** = what exists afterwards · **Tests** = what must be co
 
 ---
 
-### Phase 7a: Waiting for results and default tasks (v1.2, D-70, D-71)
+### Phase 7a: Waiting, default tasks and project ideas (v1.2, D-70, D-71, D-72)
 
 Developed on the `v1.2` branch. Waiting: work that's been handed off and only needs a check
 later (a model training, a slow build, an e-mail waiting for a reply). Default tasks: ready-made
-tasks with a checklist ("Do laundry": sort, wash, hang, fold) created in two taps.
+tasks with a checklist ("Do laundry": sort, wash, hang, fold) created in two taps. Project
+ideas: projects that aren't started yet, kept with a description.
 
 - [ ] **7a.1 Server**: `tasks.waiting_since`, `check_back_at`, `waiting_note` (migration);
       `POST /tasks/{id}/wait` and clearing it; waiting tasks carry on at day end whatever their
@@ -576,6 +577,14 @@ tasks with a checklist ("Do laundry": sort, wash, hang, fold) created in two tap
       in Settings; quick-add suggests matching ones as you type ("laun…" → Do laundry) and has
       a button listing them; creating copies the fields with the checklist unticked; export
       and import with the other data; tests; help and CHANGELOG.
+- [ ] **7a.5 Project ideas and descriptions**: `projects.description` (all projects) and
+      `projects.status` (`active` | `idea`, migration; archiving stays `archived_at`); create a
+      project as an idea, "Start project" turns it active, "Back to ideas" the other way; ideas
+      greyed out under Projects (after the active ones, a lightbulb icon), subprojects follow
+      their idea parent; the project page shows the description (editable, plain text with
+      links) above the tasks; an idea's tasks are kept out of Today, Up next, the ready stack,
+      the planner, overdue and reminders, and aren't missed or rolled over, until it starts;
+      tests; help and CHANGELOG.
 
 ---
 
