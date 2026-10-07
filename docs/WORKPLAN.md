@@ -549,6 +549,25 @@ Legend: **Deliverables** = what exists afterwards · **Tests** = what must be co
 
 ---
 
+### Phase 7a: Waiting for results (v1.1, D-70)
+
+Work that's been handed off and only needs a check later (a model training, a slow build,
+an e-mail waiting for a reply). Small; do it before Phase 8.
+
+- [ ] **7a.1 Server**: `tasks.waiting_since`, `check_back_at`, `waiting_note` (migration);
+      `POST /tasks/{id}/wait` and clearing it; waiting tasks carry on at day end whatever their
+      type; at `check_back_at` a reminder through the usual channels (in-app, push, ntfy) and
+      the task stops waiting; overlaps and the planner ignore waiting tasks; tests (rollover,
+      reminder once, completing or editing clears waiting).
+- [ ] **7a.2 UI**: "Waiting" column on the status board (between In progress and Done);
+      "Wait for results…" in the task sheet and when ending a focus session, with quick
+      choices (in 30 min, 1 h, 2 h, 4 h, tomorrow morning, a time, no time); waiting tasks
+      leave Up next and the ready stack and show a "check back 15:30" chip; a check-back
+      marker on the timeline; a Waiting section in Today; due check-backs at the top of Up
+      next; help and CHANGELOG.
+
+---
+
 ### Phase 8: Sync between Streamline servers (v1.1, D-69)
 
 Shared projects across instances: each collaborator keeps their own server. Home-server model:
