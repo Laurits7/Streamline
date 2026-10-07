@@ -41,7 +41,7 @@ pub async fn load_visible(
     Ok(t)
 }
 
-fn check_title(t: &str) -> ApiResult<String> {
+pub fn check_title(t: &str) -> ApiResult<String> {
     let t = t.trim();
     if t.is_empty() || t.chars().count() > 500 {
         return Err(bad("title must be 1-500 characters"));
@@ -49,7 +49,7 @@ fn check_title(t: &str) -> ApiResult<String> {
     Ok(t.to_string())
 }
 
-fn check_notes(n: &str) -> ApiResult<()> {
+pub fn check_notes(n: &str) -> ApiResult<()> {
     if n.len() > 100_000 {
         Err(bad("notes too long"))
     } else {
@@ -93,7 +93,7 @@ async fn check_event(
     Ok(())
 }
 
-async fn check_task_type(
+pub async fn check_task_type(
     conn: &mut sqlx::SqliteConnection,
     user: &AuthUser,
     id: &str,
@@ -108,7 +108,7 @@ async fn check_task_type(
     ok.map(|_| ()).ok_or_else(|| bad("unknown task type"))
 }
 
-fn check_attrs(
+pub fn check_attrs(
     estimate: Option<i32>,
     difficulty: Option<i32>,
     importance: Option<i32>,

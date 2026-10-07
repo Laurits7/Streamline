@@ -571,7 +571,7 @@ ideas: projects that aren't started yet, kept with a description.
       and on routines (each occurrence gets a fresh copy); edit, tick and reorder in the task
       sheet and the focus view; "2/4" on task rows, the timeline and board cards; ticking the
       last item offers to complete the task; carried-over tasks keep their ticks; tests.
-- [ ] **7a.4 Default tasks** (task templates): `task_templates` (personal or group-owned, like
+- [x] **7a.4 Default tasks** (task templates): `task_templates` (personal or group-owned, like
       workflow templates): name, title, notes, checklist, estimate, difficulty, importance,
       urgency, task type, project, place. "Save as default task" in the task sheet; manage them
       in Settings; quick-add suggests matching ones as you type ("laun…" → Do laundry) and has

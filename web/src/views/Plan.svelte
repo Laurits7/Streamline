@@ -288,7 +288,7 @@
         </div>
       {/if}
       <h3>Ready to pick</h3>
-      <QuickAdd placeholder="Add a new task for {label}…" onadd={(title) => store.createTask({ title, day: date })} />
+      <QuickAdd placeholder="Add a new task for {label}…" onadd={(title) => store.createTask({ title, day: date })} ondefault={(id) => store.createFromDefault(id, { day: date })} />
       <input class="search" type="text" bind:value={q} placeholder="Search tasks…" aria-label="Search tasks" />
       {#each groups as g (g.name)}
         <h4><ProjectMark project={g.project} />{g.name}</h4>

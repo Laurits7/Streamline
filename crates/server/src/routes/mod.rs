@@ -13,7 +13,8 @@ pub mod projects;
 mod push;
 mod series;
 mod sync;
-mod tasks;
+pub mod tasks;
+mod templates;
 mod tracking;
 pub mod workflows;
 
@@ -58,6 +59,7 @@ use crate::AppState;
         sync::sync, sync::events, sync::today, sync::task_types,
         projects::list, projects::create, projects::patch, projects::delete,
         tasks::list, tasks::create, tasks::get_one, tasks::patch, tasks::delete,
+        templates::list, templates::create, templates::patch, templates::delete,
         days::get_day, log::get_log, days::add_entry, days::put_plan, days::delete_plan, days::patch_entry, days::delete_entry,
     ),
     tags(
@@ -157,6 +159,14 @@ pub fn router(state: AppState) -> Router {
             axum::routing::delete(groups::remove_member),
         )
         .route("/users/directory", get(groups::directory))
+        .route(
+            "/task-templates",
+            get(templates::list).post(templates::create),
+        )
+        .route(
+            "/task-templates/{id}",
+            patch(templates::patch).delete(templates::delete),
+        )
         .route("/workflows", get(workflows::list).post(workflows::create))
         .route(
             "/workflows/{id}",

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import DefaultTasks from '../lib/components/DefaultTasks.svelte'
   import { api, ApiError } from '../lib/api/client'
   import type { ApiToken } from '../lib/api/types/ApiToken'
   import type { Backup } from '../lib/api/types/Backup'
@@ -487,6 +488,16 @@
     </div>
   {/each}
   <button class="btn" onclick={newTemplate}><Icon name="plus" size={16} /> New template</button>
+</section>
+
+<section class="card" id="default-tasks">
+  <h2>Default tasks</h2>
+  <p class="help muted">
+    Ready-made tasks you add often, with their steps: <em>Do laundry</em> → sort, wash, hang, fold. Start typing in any
+    “Add a task…” field to pick one, or tap the list button there. Make one from any task with <em>Save as default
+    task</em>, or here. Changing a default task doesn't change tasks already made from it.
+  </p>
+  <DefaultTasks />
 </section>
 
 <section class="card">

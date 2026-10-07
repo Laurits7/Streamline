@@ -20,11 +20,16 @@ import type { Place } from "./Place";
 import type { Project } from "./Project";
 import type { Series } from "./Series";
 import type { Task } from "./Task";
+import type { TaskTemplate } from "./TaskTemplate";
 import type { TaskType } from "./TaskType";
 import type { TimeBlock } from "./TimeBlock";
 import type { WorkflowTemplate } from "./WorkflowTemplate";
 
 export type SyncResponse = { rev: number, full: boolean, me: Me, today: string, task_types: Array<TaskType>, projects: Array<Project>, tasks: Array<Task>, day_entries: Array<DayEntry>, day_plans: Array<DayPlan>, focus_timer: FocusTimer, focus_sessions: Array<FocusSession>, series: Array<Series>, places: Array<Place>, workflows: Array<WorkflowTemplate>, 
+/**
+ * Default tasks, yours and your groups' (D-71).
+ */
+task_templates: Array<TaskTemplate>, 
 /**
  * Your connected calendar account, if any (always current).
  */

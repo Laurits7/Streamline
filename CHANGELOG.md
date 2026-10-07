@@ -2,6 +2,10 @@
 
 ## Unreleased (1.2)
 
+- Default tasks: ready-made tasks (title, checklist, estimate, project and more), personal or
+  shared with a group. "Save as default task" in a task, Settings → Default tasks to manage
+  them; every "Add a task…" field suggests them as you type and lists them with a button.
+  Included in the data export (D-71).
 - Checklists: a task can hold its steps (Do laundry: sort, wash, hang, fold), ticked in the
   task sheet or the focus view, with progress (2/4) on rows, board cards and the timeline.
   Ticking the last step offers to complete the task. Routines can carry a checklist; each

@@ -1,7 +1,20 @@
 <script lang="ts">
+  import { store } from '../store.svelte'
   import Icon from './Icon.svelte'
-  let { placeholder, onadd }: { placeholder: string; onadd: (title: string) => void } = $props()
+  let {
+    placeholder,
+    onadd,
+    ondefault,
+  }: {
+    placeholder: string
+    onadd: (title: string) => void
+    /** Offer default tasks (D-71): matching ones while typing, and a list button. */
+    ondefault?: (templateId: string) => void
+  } = $props()
   let value = $state('')
+  let listOpen = $state(false)
+  const matches = $derived(ondefault ? store.matchDefaults(value) : [])
+  const all = $derived(ondefault ? store.defaultTasks() : [])
 
   function submit(e: Event) {
     e.preventDefault()
@@ -10,17 +23,57 @@
     onadd(t)
     value = ''
   }
+  function pick(id: string) {
+    ondefault?.(id)
+    value = ''
+    listOpen = false
+  }
+  const steps = (n: number) => (n ? ` · ${n} step${n === 1 ? '' : 's'}` : '')
 </script>
 
-<form class="quick" onsubmit={submit}>
-  <Icon name="plus" />
-  <input type="text" bind:value {placeholder} aria-label={placeholder} enterkeyhint="done" />
-  {#if value.trim()}
-    <button class="btn primary small" type="submit">Add</button>
+<div class="wrap">
+  <form class="quick" onsubmit={submit}>
+    <Icon name="plus" />
+    <input
+      type="text"
+      bind:value
+      {placeholder}
+      aria-label={placeholder}
+      enterkeyhint="done"
+      onkeydown={(e) => {
+        if (e.key === 'Escape') listOpen = false
+      }} />
+    {#if value.trim()}
+      <button class="btn primary small" type="submit">Add</button>
+    {:else if all.length}
+      <button
+        class="icon-btn"
+        type="button"
+        aria-expanded={listOpen}
+        aria-label="Add a default task"
+        title="Default tasks"
+        onclick={() => (listOpen = !listOpen)}><Icon name="checklist" size={18} /></button>
+    {/if}
+  </form>
+  {#if (value.trim() && matches.length) || (listOpen && !value.trim())}
+    <ul class="suggest card" aria-label="Default tasks">
+      {#each value.trim() ? matches : all as t (t.id)}
+        <li>
+          <button type="button" onclick={() => pick(t.id)}>
+            <Icon name="checklist" size={14} />
+            <span class="t">{t.title}</span>
+            <span class="muted">{steps(t.checklist.length)}</span>
+          </button>
+        </li>
+      {/each}
+    </ul>
   {/if}
-</form>
+</div>
 
 <style>
+  .wrap {
+    position: relative;
+  }
   .quick {
     display: flex;
     align-items: center;
@@ -42,5 +95,38 @@
     padding: 10px 0 !important;
     color: var(--text);
     box-shadow: none !important;
+  }
+  .suggest {
+    list-style: none;
+    margin: 4px 0 0;
+    padding: 4px;
+    position: absolute;
+    left: 0;
+    right: 0;
+    z-index: 20;
+    box-shadow: var(--shadow);
+    max-height: 280px;
+    overflow-y: auto;
+  }
+  .suggest button {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border-radius: var(--radius-sm);
+    text-align: left;
+    color: var(--accent);
+  }
+  .suggest button:hover,
+  .suggest button:focus-visible {
+    background: var(--accent-soft);
+  }
+  .t {
+    color: var(--text);
+    font-weight: 550;
+  }
+  .muted {
+    font-size: 12px;
   }
 </style>

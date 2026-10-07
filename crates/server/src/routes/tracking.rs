@@ -631,6 +631,7 @@ pub async fn export(State(state): State<AppState>, user: AuthUser) -> ApiResult<
         ("routines", "series", "owner_user_id"),
         ("places", "places", "owner_user_id"),
         ("workflows", "workflow_templates", "owner_user_id"),
+        ("default_tasks", "task_templates", "owner_user_id"),
         ("people", "people", "owner_user_id"),
         ("day_templates", "day_templates", "owner_user_id"),
         ("time_blocks", "time_blocks", "user_id"),

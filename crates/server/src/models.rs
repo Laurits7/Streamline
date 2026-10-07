@@ -400,6 +400,56 @@ pub struct WorkflowTemplate {
     pub rev: i64,
 }
 
+/// A default task (D-71): a ready-made task, e.g. "Do laundry" with its checklist.
+#[derive(Debug, Clone, Serialize, FromRow, TS, utoipa::ToSchema)]
+#[ts(export)]
+pub struct TaskTemplate {
+    pub id: String,
+    pub owner_user_id: Option<String>,
+    pub owner_group_id: Option<String>,
+    pub title: String,
+    pub notes: String,
+    /// Copied unticked into each new task.
+    #[ts(as = "Vec<ChecklistItem>")]
+    #[schema(value_type = Vec<ChecklistItem>)]
+    pub checklist: sqlx::types::Json<Vec<ChecklistItem>>,
+    pub estimate_min: Option<i32>,
+    pub difficulty: Option<i32>,
+    pub importance: Option<i32>,
+    pub urgency: Option<i32>,
+    /// `null` = the default type.
+    pub task_type_id: Option<String>,
+    pub project_id: Option<String>,
+    pub place_id: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+    pub deleted_at: Option<String>,
+    #[ts(type = "number")]
+    pub rev: i64,
+}
+
+pub async fn upsert_task_template(
+    conn: &mut SqliteConnection,
+    t: &TaskTemplate,
+) -> sqlx::Result<()> {
+    sqlx::query(
+        "INSERT INTO task_templates (id, owner_user_id, owner_group_id, title, notes, checklist, estimate_min, difficulty,
+           importance, urgency, task_type_id, project_id, place_id, created_at, updated_at, deleted_at, rev)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+         ON CONFLICT(id) DO UPDATE SET owner_user_id=excluded.owner_user_id, owner_group_id=excluded.owner_group_id,
+           title=excluded.title, notes=excluded.notes, checklist=excluded.checklist, estimate_min=excluded.estimate_min,
+           difficulty=excluded.difficulty, importance=excluded.importance, urgency=excluded.urgency,
+           task_type_id=excluded.task_type_id, project_id=excluded.project_id, place_id=excluded.place_id,
+           updated_at=excluded.updated_at, deleted_at=excluded.deleted_at, rev=excluded.rev",
+    )
+    .bind(&t.id).bind(&t.owner_user_id).bind(&t.owner_group_id).bind(&t.title).bind(&t.notes).bind(&t.checklist)
+    .bind(t.estimate_min).bind(t.difficulty).bind(t.importance).bind(t.urgency).bind(&t.task_type_id)
+    .bind(&t.project_id).bind(&t.place_id).bind(&t.created_at).bind(&t.updated_at).bind(&t.deleted_at).bind(t.rev)
+    .execute(conn)
+    .await
+    .map(|_| ())
+}
+
 pub async fn upsert_workflow(
     conn: &mut SqliteConnection,
     w: &WorkflowTemplate,

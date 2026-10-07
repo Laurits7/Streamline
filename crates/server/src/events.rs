@@ -11,7 +11,7 @@ use crate::{
     models::{
         Calendar, CalendarAccountView, CalendarEvent, DayEntry, DayPlan, DayTemplate, EventProject,
         FocusSession, FocusTimer, Group, OccasionTemplate, Person, Place, Project, Series, Task,
-        TimeBlock, WorkflowTemplate,
+        TaskTemplate, TimeBlock, WorkflowTemplate,
     },
     visibility,
 };
@@ -84,6 +84,14 @@ impl Change {
             kind: "workflow",
             data: serde_json::to_value(w).unwrap(),
             audience: visibility::audience(w.owner_user_id.as_deref(), w.owner_group_id.as_deref()),
+        }
+    }
+    pub fn task_template(t: &TaskTemplate) -> Self {
+        Self {
+            rev: t.rev,
+            kind: "task_template",
+            data: serde_json::to_value(t).unwrap(),
+            audience: visibility::audience(t.owner_user_id.as_deref(), t.owner_group_id.as_deref()),
         }
     }
     pub fn place(p: &Place) -> Self {

@@ -211,6 +211,7 @@
       <li><strong>Difficulty</strong> (easy, medium, hard), <strong>importance</strong> and <strong>urgency</strong>. Important and urgent tasks get a label in lists. Later these will drive the planner and the priority matrix.</li>
       <li><strong>Checklist</strong>: the steps inside a task (Do laundry: sort, wash, hang, fold). Tick them as you go; lists, the timeline and the board show how far along it is (2/4). Ticking the last step offers to complete the task. A task carried to the next day keeps its ticks. Routines can have a checklist too: each occurrence starts unticked.</li>
       <li><strong>Notes</strong>: details and links.</li>
+      <li><strong>Save as default task</strong> (at the bottom): keep a ready-made copy (title, checklist, estimate and the rest) of a task you add often. Then start typing in any “Add a task…” field (<em>laun…</em>) and pick <em>Do laundry</em>, or tap the list button at the end of the field. Its checklist starts unticked. Manage them in <a href="/settings#default-tasks">Settings → Default tasks</a>, where you can also share them with a group.</li>
       <li><strong>Won't do</strong> closes a task without completing it. <strong>Delete</strong> removes it.</li>
     </ul>
     <p>Completing a task shows an <em>Undo</em> button for a few seconds.</p>

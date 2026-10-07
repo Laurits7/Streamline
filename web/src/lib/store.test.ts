@@ -125,7 +125,7 @@ function mockApi(handler: Handler) {
 function syncResponse(data: Partial<SyncResponse> = {}): SyncResponse {
   return { rev: 10, full: true, me: ME, today: '2026-10-06', task_types: [], projects: [], tasks: [], day_entries: [], day_plans: [],
     focus_timer: { task_id: null, phase: 'idle', running_since_ms: null, elapsed_ms: 0, length_min: 0, cycle_done: 0, rev: 0 },
-    focus_sessions: [], series: [], places: [], workflows: [], groups: [], calendar_account: null, calendars: [], events: [], event_projects: [], people: [], occasion_templates: [], day_templates: [], time_blocks: [], day_records: [], metrics: [], metric_entries: [], goals: [], server_now: Date.now(), ...data }
+    focus_sessions: [], series: [], places: [], workflows: [], task_templates: [], groups: [], calendar_account: null, calendars: [], events: [], event_projects: [], people: [], occasion_templates: [], day_templates: [], time_blocks: [], day_records: [], metrics: [], metric_entries: [], goals: [], server_now: Date.now(), ...data }
 }
 
 /** Load the store with a full sync of the given data. */
@@ -482,5 +482,26 @@ describe('checklists and waiting (D-70, D-71)', () => {
     expect(store.tasks.get('A')!.started_at).not.toBeNull()
     await tick()
     expect(calls[0].body).toEqual({ waiting: true, check_back_at: null, waiting_note: 'reply' })
+  })
+})
+
+describe('default tasks (D-71)', () => {
+  const tpl = (id: string, title: string, extra = {}) => ({
+    id, owner_user_id: 'U1', owner_group_id: null, title, notes: '', checklist: [{ id: 'x', text: 'Sort', done: false }],
+    estimate_min: 20, difficulty: null, importance: null, urgency: null, task_type_id: null, project_id: null, place_id: null,
+    created_at: TS, updated_at: TS, deleted_at: null, rev: 1, ...extra,
+  })
+
+  it('suggests matches and creates tasks with a fresh checklist', async () => {
+    await load({ projects: [project('P1')], task_templates: [tpl('D1', 'Do laundry'), tpl('D2', 'Water plants'), tpl('D3', 'Laundry towels')] })
+    expect(store.matchDefaults('laun').map((t) => t.id)).toEqual(['D3', 'D1'])
+    expect(store.matchDefaults('l')).toEqual([])
+    mockApi((_m, _p, body) => task((body as { id: string }).id, body as Partial<Task>))
+    const id = store.createFromDefault('D1', { day: '2026-10-06', project_id: 'P1' })!
+    const t = store.tasks.get(id)!
+    expect(t).toMatchObject({ title: 'Do laundry', estimate_min: 20, project_id: 'P1' })
+    expect(t.checklist).toHaveLength(1)
+    expect(t.checklist[0].id).not.toBe('x')
+    expect(store.entryForTask(id)?.date).toBe('2026-10-06')
   })
 })

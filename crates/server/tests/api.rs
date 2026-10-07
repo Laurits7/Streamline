@@ -5471,3 +5471,115 @@ async fn checklists_on_tasks_and_routines() {
         json!([item("s", "Sort", true), item("h", "Hang", false)])
     );
 }
+
+#[tokio::test]
+async fn default_tasks() {
+    let t = setup().await;
+    let admin = t.admin().await;
+    let anna = t.user(&admin, "anna").await;
+    let ben = t.user(&admin, "ben").await;
+    let id_of = |v: &Value| v["id"].as_str().unwrap().to_string();
+
+    // A personal default task: the checklist is stored unticked.
+    let (s, tpl, _) = t
+        .req(
+            "POST",
+            "/api/v1/task-templates",
+            Some(&anna),
+            Some(json!({"title": " Do laundry ", "estimate_min": 20, "checklist": [{"id": "s", "text": "Sort", "done": true}, {"id": "w", "text": "Wash", "done": false}]})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{tpl}");
+    assert_eq!(tpl["title"], "Do laundry");
+    assert_eq!(tpl["checklist"][0]["done"], false);
+    let tid = id_of(&tpl);
+    let (s, _, _) = t
+        .req(
+            "POST",
+            "/api/v1/task-templates",
+            Some(&anna),
+            Some(json!({"title": "x", "difficulty": 9})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    let (s, _, _) = t
+        .req(
+            "POST",
+            "/api/v1/task-templates",
+            Some(&anna),
+            Some(json!({"title": "x", "task_type_id": "nope"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+
+    // Synced to its owner only.
+    let (_, sync_a, _) = t.req("GET", "/api/v1/sync", Some(&anna), None).await;
+    assert_eq!(sync_a["task_templates"].as_array().unwrap().len(), 1);
+    let (_, sync_b, _) = t.req("GET", "/api/v1/sync", Some(&ben), None).await;
+    assert!(sync_b["task_templates"].as_array().unwrap().is_empty());
+    let (s, _, _) = t
+        .req(
+            "PATCH",
+            &format!("/api/v1/task-templates/{tid}"),
+            Some(&ben),
+            Some(json!({"title": "Mine"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+
+    // Shared with a group: members see and edit it.
+    let (_, fam, _) = t
+        .req(
+            "POST",
+            "/api/v1/groups",
+            Some(&anna),
+            Some(json!({"name": "Family"})),
+        )
+        .await;
+    let gid = id_of(&fam);
+    let (_, me_ben, _) = t.req("GET", "/api/v1/me", Some(&ben), None).await;
+    t.req(
+        "POST",
+        &format!("/api/v1/groups/{gid}/members"),
+        Some(&anna),
+        Some(json!({"user_id": id_of(&me_ben)})),
+    )
+    .await;
+    let (s, v, _) = t
+        .req(
+            "PATCH",
+            &format!("/api/v1/task-templates/{tid}"),
+            Some(&anna),
+            Some(json!({"owner_group_id": gid})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    let (s, v, _) = t
+        .req("PATCH", &format!("/api/v1/task-templates/{tid}"), Some(&ben), Some(json!({"estimate_min": null, "checklist": [{"id": "w", "text": "Wash", "done": true}]})))
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert!(v["estimate_min"].is_null());
+    assert_eq!(
+        v["checklist"],
+        json!([{"id": "w", "text": "Wash", "done": false}])
+    );
+    let (_, list, _) = t
+        .req("GET", "/api/v1/task-templates", Some(&ben), None)
+        .await;
+    assert_eq!(list.as_array().unwrap().len(), 1);
+
+    // Deleted: gone from the list and the feed.
+    let (s, _, _) = t
+        .req(
+            "DELETE",
+            &format!("/api/v1/task-templates/{tid}"),
+            Some(&ben),
+            None,
+        )
+        .await;
+    assert_eq!(s, StatusCode::NO_CONTENT);
+    let (_, list, _) = t
+        .req("GET", "/api/v1/task-templates", Some(&anna), None)
+        .await;
+    assert!(list.as_array().unwrap().is_empty());
+}

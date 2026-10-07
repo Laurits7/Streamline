@@ -23,7 +23,7 @@ use crate::{
     models::{
         Calendar, CalendarAccountView, CalendarEvent, DayEntry, DayPlan, DayTemplate, EventProject,
         FocusSession, FocusTimer, Group, Me, OccasionTemplate, Person, Place, Project, Series,
-        Task, TaskType, TimeBlock, WorkflowTemplate,
+        Task, TaskTemplate, TaskType, TimeBlock, WorkflowTemplate,
     },
     rollover,
 };
@@ -55,6 +55,8 @@ pub struct SyncResponse {
     pub series: Vec<Series>,
     pub places: Vec<Place>,
     pub workflows: Vec<WorkflowTemplate>,
+    /// Default tasks, yours and your groups' (D-71).
+    pub task_templates: Vec<TaskTemplate>,
     /// Your connected calendar account, if any (always current).
     pub calendar_account: Option<CalendarAccountView>,
     pub calendars: Vec<Calendar>,
@@ -165,6 +167,13 @@ pub async fn sync(
         crate::routes::groups::visible_groups(&mut *state.db.read.acquire().await?, &user).await?;
     let workflows = sqlx::query_as(
         "SELECT * FROM workflow_templates WHERE owner_user_id = ?1 AND (?2 = 0 AND deleted_at IS NULL OR ?2 > 0 AND rev > ?2)",
+    )
+    .bind(user.id())
+    .bind(since)
+    .fetch_all(db)
+    .await?;
+    let task_templates = sqlx::query_as(
+        "SELECT * FROM task_templates WHERE (owner_user_id = ?1 OR owner_group_id IN (SELECT group_id FROM group_members WHERE user_id = ?1)) AND (?2 = 0 AND deleted_at IS NULL OR ?2 > 0 AND rev > ?2) ORDER BY title",
     )
     .bind(user.id())
     .bind(since)
@@ -310,6 +319,7 @@ pub async fn sync(
         series,
         places,
         workflows,
+        task_templates,
         calendar_account,
         calendars,
         events,

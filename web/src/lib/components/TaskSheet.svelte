@@ -6,6 +6,7 @@
   import Icon from './Icon.svelte'
   import Sheet from './Sheet.svelte'
   import { router } from '../router.svelte'
+  import { toast } from '../toast.svelte'
   import { describeSeries } from '../rrule'
   import { createsCycle } from '../deps'
   import { localTime } from '../calendar'
@@ -74,6 +75,11 @@
   let customDate = $state('')
   function planOn(date: string) {
     if (date) store.plan(id, date)
+  }
+  async function saveDefault() {
+    saveNotes()
+    const t = await store.saveAsDefault(id)
+    if (t) toast(`Saved “${t.title}” as a default task. Pick it when adding a task.`, 'info')
   }
   function remove() {
     if (task && confirm(`Delete “${task.title}”?`)) {
@@ -417,6 +423,9 @@
       {:else if task.status !== 'done'}
         <button class="btn" onclick={() => store.updateTask(id, { status: 'open' })}>Reopen</button>
       {/if}
+      <button class="btn" onclick={saveDefault} title="Make a ready-made task from this one, to add again in two taps">
+        <Icon name="checklist" size={16} /> Save as default task
+      </button>
       <button class="btn danger" onclick={remove}><Icon name="trash" size={16} /> Delete</button>
     </footer>
   </Sheet>

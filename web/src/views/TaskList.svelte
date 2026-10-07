@@ -256,7 +256,8 @@
 
   <TaskViews scope={projectId ? { kind: 'project', id: projectId } : { kind: 'inbox' }}>
     {#snippet list()}
-    <QuickAdd placeholder={project ? `Add to ${project.name}…` : 'Add to inbox…'} onadd={(title) => store.createTask({ title, project_id: projectId })} />
+    <QuickAdd placeholder={project ? `Add to ${project.name}…` : 'Add to inbox…'} onadd={(title) => store.createTask({ title, project_id: projectId })}
+      ondefault={(id) => store.createFromDefault(id, { project_id: projectId })} />
 
     <div
       class="card list"

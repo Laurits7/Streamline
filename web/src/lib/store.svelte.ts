@@ -35,6 +35,7 @@ import type { Series } from './api/types/Series'
 import type { Group } from './api/types/Group'
 import type { UserSummary } from './api/types/UserSummary'
 import type { WorkflowTemplate } from './api/types/WorkflowTemplate'
+import type { TaskTemplate } from './api/types/TaskTemplate'
 import type { SyncResponse } from './api/types/SyncResponse'
 import type { Task } from './api/types/Task'
 import type { TaskType } from './api/types/TaskType'
@@ -58,6 +59,7 @@ type Kind =
   | 'series'
   | 'place'
   | 'workflow'
+  | 'task_template'
   | 'group'
   | 'calendar'
   | 'event'
@@ -78,6 +80,7 @@ type Entity =
   | Series
   | Place
   | WorkflowTemplate
+  | TaskTemplate
   | Group
   | Calendar
   | CalendarEvent
@@ -165,6 +168,7 @@ class Store {
   series = new SvelteMap<string, Series>()
   places = new SvelteMap<string, Place>()
   workflows = new SvelteMap<string, WorkflowTemplate>()
+  taskTemplates = new SvelteMap<string, TaskTemplate>()
   groups = new SvelteMap<string, Group>()
   calendars = new SvelteMap<string, Calendar>()
   events = new SvelteMap<string, CalendarEvent>()
@@ -233,6 +237,7 @@ class Store {
     this.series.clear()
     this.places.clear()
     this.workflows.clear()
+    this.taskTemplates.clear()
     this.groups.clear()
     this.calendars.clear()
     this.events.clear()
@@ -310,6 +315,7 @@ class Store {
       this.series.clear()
       this.places.clear()
       this.workflows.clear()
+      this.taskTemplates.clear()
       this.calendars.clear()
       this.events.clear()
       this.people.clear()
@@ -342,6 +348,7 @@ class Store {
     for (const x of r.series) this.applyRemote('series', x)
     for (const x of r.places) this.applyRemote('place', x)
     for (const x of r.workflows) this.applyRemote('workflow', x)
+    for (const x of r.task_templates) this.applyRemote('task_template', x)
     for (const x of r.calendars) this.applyRemote('calendar', x)
     for (const x of r.events) this.applyRemote('event', x)
     for (const x of r.event_projects) this.applyRemote('event_project', x)
@@ -393,6 +400,7 @@ class Store {
         c.kind === 'series' ||
         c.kind === 'place' ||
         c.kind === 'workflow' ||
+        c.kind === 'task_template' ||
         c.kind === 'calendar' ||
         c.kind === 'event' ||
         c.kind === 'event_project' ||
@@ -434,6 +442,7 @@ class Store {
       series: this.series,
       place: this.places,
       workflow: this.workflows,
+      task_template: this.taskTemplates,
       group: this.groups,
       calendar: this.calendars,
       event: this.events,
@@ -1319,6 +1328,84 @@ class Store {
   /** Share a top-level project and everything in it (`null` = just me). The server updates the rest. */
   shareProject(id: string, groupId: string | null) {
     this.updateProject(id, { owner_group_id: groupId })
+  }
+
+  // ---- default tasks (D-71) -----------------------------------------------------
+
+  defaultTasks(): TaskTemplate[] {
+    return [...this.taskTemplates.values()].sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }))
+  }
+
+  /** Default tasks whose title starts with (or has a word starting with) what's typed. */
+  matchDefaults(q: string, limit = 5): TaskTemplate[] {
+    const s = q.trim().toLowerCase()
+    if (s.length < 2) return []
+    const starts = (t: TaskTemplate) => t.title.toLowerCase().startsWith(s)
+    return this.defaultTasks()
+      .filter((t) => starts(t) || t.title.toLowerCase().split(/\s+/).some((w) => w.startsWith(s)))
+      .sort((a, b) => Number(starts(b)) - Number(starts(a)))
+      .slice(0, limit)
+  }
+
+  async saveDefaultTask(id: string | null, body: Partial<Omit<TaskTemplate, 'id' | 'rev'>>): Promise<TaskTemplate | null> {
+    try {
+      const t = id
+        ? await api.patch<TaskTemplate>(`/task-templates/${id}`, body)
+        : await api.post<TaskTemplate>('/task-templates', { id: ulid(), ...body })
+      this.applyRemote('task_template', t)
+      return t
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : 'Could not save the default task', 'error')
+      return null
+    }
+  }
+
+  deleteDefaultTask(id: string) {
+    if (!this.taskTemplates.has(id)) return
+    this.optimistic(
+      [['task_template', id]],
+      () => this.taskTemplates.delete(id),
+      () => api.del(`/task-templates/${id}`),
+    )
+  }
+
+  /** Save a task's details as a default task (its checklist unticked). */
+  saveAsDefault(taskId: string) {
+    const t = this.tasks.get(taskId)
+    if (!t) return Promise.resolve(null)
+    return this.saveDefaultTask(null, {
+      title: t.title,
+      notes: t.notes,
+      checklist: t.checklist.map((i) => ({ ...i, done: false })),
+      estimate_min: t.estimate_min,
+      difficulty: t.difficulty,
+      importance: t.importance,
+      urgency: t.urgency,
+      task_type_id: t.task_type_id === 'tt_carry_on' ? null : t.task_type_id,
+      project_id: t.project_id,
+      place_id: t.place_id,
+    })
+  }
+
+  /** A new task from a default task; where it's added decides the project if the default has none. */
+  createFromDefault(templateId: string, ctx: { day?: string; project_id?: string | null } = {}): string | null {
+    const tpl = this.taskTemplates.get(templateId)
+    if (!tpl) return null
+    const projectId = tpl.project_id && this.projects.has(tpl.project_id) ? tpl.project_id : (ctx.project_id ?? null)
+    const idea = !!projectId && this.projects.get(projectId)?.status === 'idea'
+    return this.createTask({
+      title: tpl.title,
+      notes: tpl.notes,
+      checklist: tpl.checklist.map((i) => ({ ...i, id: ulid(), done: false })),
+      estimate_min: tpl.estimate_min,
+      difficulty: tpl.difficulty,
+      importance: tpl.importance,
+      urgency: tpl.urgency,
+      ...(tpl.task_type_id && this.taskTypes.has(tpl.task_type_id) ? { task_type_id: tpl.task_type_id } : {}),
+      ...(tpl.place_id && this.places.has(tpl.place_id) ? { place_id: tpl.place_id } : {}),
+      project_id: projectId,
+      ...(ctx.day && !idea ? { day: ctx.day } : {}),
+    })
   }
 
   // ---- workflows -------------------------------------------------------------
