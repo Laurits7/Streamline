@@ -549,10 +549,11 @@ Legend: **Deliverables** = what exists afterwards · **Tests** = what must be co
 
 ---
 
-### Phase 7a: Waiting for results (v1.2, D-70)
+### Phase 7a: Waiting for results and default tasks (v1.2, D-70, D-71)
 
-Work that's been handed off and only needs a check later (a model training, a slow build,
-an e-mail waiting for a reply). Developed on the `v1.2-waiting` branch.
+Developed on the `v1.2` branch. Waiting: work that's been handed off and only needs a check
+later (a model training, a slow build, an e-mail waiting for a reply). Default tasks: ready-made
+tasks with a checklist ("Do laundry": sort, wash, hang, fold) created in two taps.
 
 - [ ] **7a.1 Server**: `tasks.waiting_since`, `check_back_at`, `waiting_note` (migration);
       `POST /tasks/{id}/wait` and clearing it; waiting tasks carry on at day end whatever their
@@ -565,6 +566,16 @@ an e-mail waiting for a reply). Developed on the `v1.2-waiting` branch.
       leave Up next and the ready stack and show a "check back 15:30" chip; a check-back
       marker on the timeline; a Waiting section in Today; due check-backs at the top of Up
       next; help and CHANGELOG.
+- [ ] **7a.3 Checklists**: `tasks.checklist` (JSON items `{id, text, done}`, ≤ 50, migration)
+      and on routines (each occurrence gets a fresh copy); edit, tick and reorder in the task
+      sheet and the focus view; "2/4" on task rows, the timeline and board cards; ticking the
+      last item offers to complete the task; carried-over tasks keep their ticks; tests.
+- [ ] **7a.4 Default tasks** (task templates): `task_templates` (personal or group-owned, like
+      workflow templates): name, title, notes, checklist, estimate, difficulty, importance,
+      urgency, task type, project, place. "Save as default task" in the task sheet; manage them
+      in Settings; quick-add suggests matching ones as you type ("laun…" → Do laundry) and has
+      a button listing them; creating copies the fields with the checklist unticked; export
+      and import with the other data; tests; help and CHANGELOG.
 
 ---
 
