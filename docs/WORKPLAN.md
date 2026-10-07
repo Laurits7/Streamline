@@ -549,7 +549,7 @@ Legend: **Deliverables** = what exists afterwards · **Tests** = what must be co
 
 ---
 
-### Phase 7a: Waiting, default tasks and project ideas (v1.2, D-70, D-71, D-72)
+### Phase 7a: Waiting, default tasks, project ideas and health check-in (v1.2, D-70, D-71, D-72, D-75)
 
 Developed on the `v1.2` branch. Waiting: work that's been handed off and only needs a check
 later (a model training, a slow build, an e-mail waiting for a reply). Default tasks: ready-made
@@ -588,6 +588,13 @@ ideas: projects that aren't started yet, kept with a description.
 - [x] **7a.6 Project marks** (owner request, D-74): automatic colour + shape per project
       (domain picker mirrored in the client, migration backfill), empty grey circle for ideas,
       shape picker in the project menu; ideas can be added inside active projects.
+- [ ] **7a.7 Health check-in** (owner request, D-75): `health_days` (user, date, status
+      `great | ok | unwell | sick | injured`, kind, note; migration; one row per user and day);
+      domain validation of status/kind pairs; sync and export/import; a Health row on the Today
+      card (one tap for great/OK/unwell, a second step for what sickness or where the injury,
+      optional note), also in the planner's reflect step and editable for past days from the
+      summary; marker on the month calendar, a health strip in Trends; personal only (never
+      shown to group members); no effect on streaks or planning; tests; help and CHANGELOG.
 
 ---
 
