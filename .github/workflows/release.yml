@@ -1,0 +1,58 @@
+name: Release
+
+# Creates the GitHub release for a version tag once CI has published its image, with
+# release notes from CHANGELOG.md and a docker-compose.yml pinned to that version.
+# Run it by hand with a tag to (re)build the release of an existing tag.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Version tag, e.g. v1.0.0
+        required: true
+
+jobs:
+  release:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       startsWith(github.event.workflow_run.head_branch, 'v'))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ inputs.tag || github.event.workflow_run.head_branch }}
+    steps:
+      # The default branch, so the template and changelog are the current ones.
+      - uses: actions/checkout@v4
+      - name: Check the tag exists
+        run: git ls-remote --exit-code --tags origin "refs/tags/$TAG"
+      - name: Compose file and release notes
+        run: |
+          version="${TAG#v}"
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          mkdir -p out
+          sed -e "s|__IMAGE__|ghcr.io/$owner/streamline|" -e "s|__VERSION__|$version|g" \
+            -e "s|__REPO__|$GITHUB_REPOSITORY|" docker/docker-compose.release.yml > out/docker-compose.yml
+          {
+            echo "Image: \`ghcr.io/$owner/streamline:$version\` (amd64, arm64)."
+            echo
+            echo "Quick start: download \`docker-compose.yml\` below into an empty directory and run \`docker compose up -d\`."
+            echo
+            awk -v v="$version" '
+              /^## / { if (p) exit; p = ($2 == v) ; next }
+              p' CHANGELOG.md
+          } > out/notes.md
+          cat out/docker-compose.yml out/notes.md
+      - name: Create or update the release
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --notes-file out/notes.md
+            gh release upload "$TAG" out/docker-compose.yml --clobber
+          else
+            gh release create "$TAG" out/docker-compose.yml --verify-tag --title "Streamline ${TAG#v}" --notes-file out/notes.md
+          fi

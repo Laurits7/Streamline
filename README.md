@@ -70,6 +70,15 @@ What works today:
 
 ## Quick start (Docker)
 
+Each [release](https://github.com/Laurits7/Streamline/releases) has a `docker-compose.yml` that
+uses the prebuilt image of that version (amd64 and arm64). Put it in an empty directory and run:
+
+```sh
+docker compose up -d
+```
+
+Or build from source:
+
 ```sh
 git clone <this repo> streamline && cd streamline
 docker compose up -d --build
