@@ -156,6 +156,9 @@
 
     <section>
       <h3><Icon name="sun" size={14} /> Day plan</h3>
+      {#if store.inIdea(task)}
+        <p class="muted">{store.projects.get(task.project_id!)?.name} is still an idea. Activate the project to plan this task.</p>
+      {:else}
       {#if entry}
         <p class="planned">
           Planned for <strong>{shortDate(entry.date, store.today)}</strong>
@@ -192,6 +195,7 @@
         </label>
         {#if entry}<button class="chip" onclick={() => store.unplan(entry.id)}>Not planned</button>{/if}
       </div>
+      {/if}
     </section>
 
     <section>

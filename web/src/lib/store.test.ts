@@ -71,6 +71,8 @@ const project = (id: string, extra: Partial<Project> = {}): Project => ({
   position: 'V',
   archived_at: null,
   default_place_id: null,
+  description: '',
+  status: 'active',
   created_at: TS,
   updated_at: TS,
   deleted_at: null,
@@ -282,6 +284,39 @@ describe('project tree', () => {
   })
 })
 
+describe('project ideas (D-72)', () => {
+  it('keeps ideas out of the day, follows the subtree, and unplans when a project becomes one', async () => {
+    await load({
+      projects: [project('Greenhouse', { status: 'idea' }), project('Garden'), project('Beds', { parent_id: 'Garden' })],
+      tasks: [
+        task('Compare kits', { project_id: 'Greenhouse', due_date: '2026-10-01' }),
+        task('Dig', { project_id: 'Beds' }),
+        task('Weed', { project_id: 'Garden' }),
+      ],
+      day_entries: [entry('E1', 'Dig', '2026-10-06'), entry('E0', 'Weed', '2026-10-05')],
+    })
+    // Weed (planned on an earlier day) can be pulled in; the idea's task can't.
+    expect(store.readyStack('2026-10-06').map((t) => t.id)).toEqual(['Weed'])
+    expect(store.inIdea(store.tasks.get('Compare kits')!)).toBe(true)
+    expect(store.ideaRoot(store.projects.get('Greenhouse')!)).toBe(true)
+
+    mockApi(() => new Promise(() => {}))
+    const sub = store.createProject('Kits', 'Greenhouse')
+    expect(store.projects.get(sub)?.status).toBe('idea')
+    expect(store.ideaRoot(store.projects.get(sub)!)).toBe(false)
+    expect(calls[0]).toMatchObject({ method: 'POST', path: '/projects', body: { status: 'idea' } })
+
+    store.updateProject('Garden', { status: 'idea', description: 'Next spring' })
+    expect(store.projects.get('Beds')?.status).toBe('idea')
+    expect(store.projects.get('Garden')?.description).toBe('Next spring')
+    expect(store.entries.has('E1')).toBe(false)
+    expect(store.entries.has('E0')).toBe(true)
+
+    store.updateProject('Greenhouse', { status: 'active' })
+    expect(store.readyStack('2026-10-06').map((t) => t.id)).toEqual(['Compare kits'])
+  })
+})
+
 describe('planning state', () => {
   it('starts a draft, confirms, and keeps a planned day planned when the wizard is reopened', async () => {
     await load()
@@ -364,7 +399,7 @@ describe('calendar events and work (D-68)', () => {
   })
   const project: Project = {
     id: 'P1', owner_user_id: 'U1', owner_group_id: null, parent_id: null, name: 'Team', color: null, position: 'V',
-    archived_at: null, default_place_id: null, created_at: TS, updated_at: TS, deleted_at: null, rev: 1,
+    archived_at: null, default_place_id: null, description: '', status: 'active', created_at: TS, updated_at: TS, deleted_at: null, rev: 1,
   }
 
   it('assigns every instance to a project, lists upcoming ones, and attaches todos', async () => {

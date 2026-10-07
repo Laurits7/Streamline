@@ -58,6 +58,11 @@ pub async fn materialize_series(
     let (Some(sched), Some(dtstart)) = (schedule(s), date(&s.dtstart)) else {
         return Ok(vec![]);
     };
+    // Routines in an idea project wait until it's activated; the days in between are
+    // skipped, not caught up on (D-72).
+    if crate::routes::projects::is_idea(conn, s.project_id.as_deref()).await? {
+        return Ok(vec![]);
+    }
     let until = s.until.as_deref().and_then(date);
     // A routine that replaced an earlier version mid-window only adds what's still
     // missing in that first window (slots already done under the old version count).

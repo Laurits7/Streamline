@@ -38,13 +38,14 @@ pub async fn run_for_user(state: &AppState, user: &User) -> anyhow::Result<()> {
     // Routine occurrences of an "expires" type whose day passed undone: missed, whether
     // or not they were planned (planned ones are also caught by the entry loop below).
     // An occurrence moved to another day counts by its new (due) day.
-    let expired: Vec<Task> = sqlx::query_as(
+    let expired: Vec<Task> = sqlx::query_as(&format!(
         "SELECT t.* FROM tasks t JOIN task_types tt ON tt.id = t.task_type_id
          WHERE (t.owner_user_id = ?1 OR t.owner_group_id IN (SELECT group_id FROM group_members WHERE user_id = ?1))
            AND t.deleted_at IS NULL AND t.status = 'open'
            AND (t.series_id IS NOT NULL OR t.ext_source = 'occasion') AND tt.day_end_behavior = 'expire' AND t.blocked = 0
-           AND COALESCE(t.due_date, t.occurrence_date) < ?2",
-    )
+           AND COALESCE(t.due_date, t.occurrence_date) < ?2 AND {not_idea}",
+        not_idea = crate::routes::projects::NOT_IN_IDEA_SQL
+    ))
     .bind(&user.id)
     .bind(&today_s)
     .fetch_all(&mut *tx)
@@ -67,14 +68,15 @@ pub async fn run_for_user(state: &AppState, user: &User) -> anyhow::Result<()> {
 
     // "N times per week/month" tasks whose window ended: missed, or rolled into the
     // current window when the task type says so.
-    let ended: Vec<(String, String, Option<String>)> = sqlx::query_as(
+    let ended: Vec<(String, String, Option<String>)> = sqlx::query_as(&format!(
         "SELECT t.id, tt.window_overflow, s.window FROM tasks t
          JOIN task_types tt ON tt.id = t.task_type_id
          LEFT JOIN series s ON s.id = t.series_id
          WHERE (t.owner_user_id = ?1 OR t.owner_group_id IN (SELECT group_id FROM group_members WHERE user_id = ?1))
            AND t.deleted_at IS NULL AND t.status = 'open'
-           AND t.window_end IS NOT NULL AND t.window_end < ?2 AND t.blocked = 0",
-    )
+           AND t.window_end IS NOT NULL AND t.window_end < ?2 AND t.blocked = 0 AND {not_idea}",
+        not_idea = crate::routes::projects::NOT_IN_IDEA_SQL
+    ))
     .bind(&user.id)
     .bind(&today_s)
     .fetch_all(&mut *tx)
@@ -124,7 +126,7 @@ pub async fn run_for_user(state: &AppState, user: &User) -> anyhow::Result<()> {
         changes.push(Change::task(&t));
     }
 
-    let rows: Vec<(String, String)> = sqlx::query_as(
+    let rows: Vec<(String, String)> = sqlx::query_as(&format!(
         "SELECT e.id, tt.day_end_behavior FROM day_entries e
          JOIN tasks t ON t.id = e.task_id
          JOIN task_types tt ON tt.id = t.task_type_id
@@ -132,8 +134,11 @@ pub async fn run_for_user(state: &AppState, user: &User) -> anyhow::Result<()> {
            AND t.status = 'open' AND t.deleted_at IS NULL
            -- only tasks the user can still see (not ones from a group they left)
            AND (t.owner_user_id = ?1 OR t.owner_group_id IN (SELECT group_id FROM group_members WHERE user_id = ?1))
+           -- ideas' tasks are left alone (D-72)
+           AND {not_idea}
          ORDER BY e.date, e.position",
-    )
+        not_idea = crate::routes::projects::NOT_IN_IDEA_SQL
+    ))
     .bind(&user.id)
     .bind(&today_s)
     .fetch_all(&mut *tx)

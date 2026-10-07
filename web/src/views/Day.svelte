@@ -41,12 +41,24 @@
   // "N times a week/month" routines whose window includes this day (doable any day of it).
   const windowed = $derived(
     [...store.tasks.values()]
-      .filter((t) => t.status === 'open' && t.window_end && t.occurrence_date! <= date && date <= t.window_end && !plannedIds.has(t.id))
+      .filter(
+        (t) =>
+          t.status === 'open' && t.window_end && t.occurrence_date! <= date && date <= t.window_end && !plannedIds.has(t.id) && !store.inIdea(t),
+      )
       .sort((a, b) => a.title.localeCompare(b.title) || (a.occurrence_key ?? '').localeCompare(b.occurrence_key ?? '')),
   )
   const due = $derived(
     [...store.tasks.values()]
-      .filter((t) => t.status === 'open' && !t.window_end && t.due_date && t.due_date <= date && !plannedIds.has(t.id) && !store.isUpcoming(t, date))
+      .filter(
+        (t) =>
+          t.status === 'open' &&
+          !t.window_end &&
+          t.due_date &&
+          t.due_date <= date &&
+          !plannedIds.has(t.id) &&
+          !store.isUpcoming(t, date) &&
+          !store.inIdea(t),
+      )
       .sort((a, b) => (a.due_date! < b.due_date! ? -1 : 1)),
   )
 

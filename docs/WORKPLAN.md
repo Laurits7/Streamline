@@ -577,10 +577,10 @@ ideas: projects that aren't started yet, kept with a description.
       in Settings; quick-add suggests matching ones as you type ("laun…" → Do laundry) and has
       a button listing them; creating copies the fields with the checklist unticked; export
       and import with the other data; tests; help and CHANGELOG.
-- [ ] **7a.5 Project ideas and descriptions**: `projects.description` (all projects) and
+- [x] **7a.5 Project ideas and descriptions**: `projects.description` (all projects) and
       `projects.status` (`active` | `idea`, migration; archiving stays `archived_at`); create a
-      project as an idea, "Start project" turns it active, "Back to ideas" the other way; ideas
-      greyed out under Projects (after the active ones, a lightbulb icon), subprojects follow
+      project as an idea, "Activate" turns it active, "Move to ideas" the other way; ideas
+      stay under Projects with a grey "Idea" tag (owner choice), subprojects follow
       their idea parent; the project page shows the description (editable, plain text with
       links) above the tasks; an idea's tasks are kept out of Today, Up next, the ready stack,
       the planner, overdue and reminders, and aren't missed or rolled over, until it starts;

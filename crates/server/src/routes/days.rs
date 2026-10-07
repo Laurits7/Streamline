@@ -361,6 +361,9 @@ pub async fn add_entry(
             "this task is waiting for a prerequisite and can't be planned yet",
         ));
     }
+    if crate::routes::projects::is_idea(&mut tx, task.project_id.as_deref()).await? {
+        return Err(crate::error::bad(crate::routes::tasks::IDEA_UNPLANNABLE));
+    }
     let position = match c.position {
         Some(p) => p,
         None => {

@@ -563,6 +563,16 @@ class Store {
     return !!t.occurrence_date && t.occurrence_date > day
   }
 
+  /** An idea whose parent isn't one: where the "Idea" tag is shown (its subprojects follow it). */
+  ideaRoot(p: Project): boolean {
+    return p.status === 'idea' && !(p.parent_id && this.projects.get(p.parent_id)?.status === 'idea')
+  }
+
+  /** The task's project is an idea, so it asks for no attention (D-72). */
+  inIdea(t: Task): boolean {
+    return !!t.project_id && this.projects.get(t.project_id)?.status === 'idea'
+  }
+
   /** Ready to work on: no open prerequisite, and any wait time after them is over. */
   isReady(t: Task): boolean {
     return !t.blocked && (!t.ready_at || t.ready_at <= new Date().toISOString())
@@ -623,7 +633,12 @@ class Store {
     return [...this.tasks.values()]
       .filter(
         (t) =>
-          t.status === 'open' && !plannedHere.has(t.id) && !this.isUpcoming(t, date) && this.atCurrentPlace(t) && !t.blocked,
+          t.status === 'open' &&
+          !plannedHere.has(t.id) &&
+          !this.isUpcoming(t, date) &&
+          this.atCurrentPlace(t) &&
+          !t.blocked &&
+          !this.inIdea(t),
       )
       .sort(byPosition)
   }
@@ -775,7 +790,8 @@ class Store {
 
   // ---- projects -------------------------------------------------------------
 
-  createProject(name: string, parentId: string | null = null): string {
+  /** A new project; `idea` makes it one that isn't started yet (D-72). Subprojects of an idea are ideas. */
+  createProject(name: string, parentId: string | null = null, idea = false): string {
     const id = ulid()
     const ts = now()
     const parent = parentId ? this.projects.get(parentId) : null
@@ -789,6 +805,8 @@ class Store {
       position: keyBetween(this.childProjects(parentId, true).at(-1)?.position, null),
       archived_at: null,
       default_place_id: null,
+      description: '',
+      status: idea || parent?.status === 'idea' ? 'idea' : 'active',
       created_at: ts,
       updated_at: ts,
       deleted_at: null,
@@ -798,7 +816,10 @@ class Store {
       [['project', id]],
       () => this.projects.set(id, p),
       async () => [
-        ['project', await api.post<Project>('/projects', { id, name, parent_id: parentId, color: p.color, position: p.position })],
+        [
+          'project',
+          await api.post<Project>('/projects', { id, name, parent_id: parentId, color: p.color, position: p.position, status: p.status }),
+        ],
       ],
     )
     return id
@@ -814,23 +835,37 @@ class Store {
       parent_id?: string | null
       default_place_id?: string | null
       owner_group_id?: string | null
+      description?: string
+      status?: 'active' | 'idea'
     },
   ) {
     const cur = this.projects.get(id)
     if (!cur) return
-    const { archived, ...rest } = patch
+    const { archived, status, ...rest } = patch
     const ts = now()
-    // Archiving applies to the whole subtree (the server does the same).
+    // Archiving and the idea status apply to the whole subtree (the server does the same).
     if ('owner_group_id' in patch) (rest as Record<string, unknown>).owner_user_id = patch.owner_group_id ? null : (this.me?.id ?? null)
-    const touched = archived === undefined ? [id] : this.subtree(id)
+    const touched = archived === undefined && status === undefined ? [id] : this.subtree(id)
     const updated = touched.map((pid) => {
       const p = pid === id ? { ...cur, ...rest } : { ...this.projects.get(pid)! }
       if (archived !== undefined) p.archived_at = archived ? (p.archived_at ?? ts) : null
+      if (status !== undefined) p.status = status
       return { ...p, updated_at: ts }
     })
+    // Becoming an idea takes its open tasks off the plan from today on.
+    const unplanned =
+      status === 'idea' && cur.status !== 'idea'
+        ? [...this.entries.values()].filter((e) => {
+            const t = this.tasks.get(e.task_id)
+            return e.date >= this.today && t?.status === 'open' && !!t.project_id && touched.includes(t.project_id)
+          })
+        : []
     this.optimistic(
-      touched.map((pid) => ['project', pid] as [Kind, string]),
-      () => updated.forEach((p) => this.projects.set(p.id, p)),
+      [...touched.map((pid) => ['project', pid] as [Kind, string]), ...unplanned.map((e) => ['day_entry', e.id] as [Kind, string])],
+      () => {
+        updated.forEach((p) => this.projects.set(p.id, p))
+        unplanned.forEach((e) => this.entries.delete(e.id))
+      },
       async () => [['project', await api.patch<Project>(`/projects/${id}`, patch)]],
     )
   }

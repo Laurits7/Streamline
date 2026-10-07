@@ -64,6 +64,7 @@
       <a class="link" href="/projects/{p.id}" draggable="false">
         <i class="dot" style:background={p.color ?? 'var(--faint)'}></i>
         <span class="name">{p.name}</span>
+        {#if store.ideaRoot(p)}<span class="idea-tag">Idea</span>{/if}
         {#if kids}<span class="kids muted">{kids} sub</span>{/if}
         <span class="count">{store.openCountDeep(p.id)}</span>
       </a>

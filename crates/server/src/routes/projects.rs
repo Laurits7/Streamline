@@ -42,6 +42,68 @@ fn check_color(c: &Option<String>) -> ApiResult<()> {
     }
 }
 
+fn check_description(d: &str) -> ApiResult<String> {
+    if d.chars().count() > 10_000 {
+        return Err(bad("description must be at most 10,000 characters"));
+    }
+    Ok(d.trim_end().to_string())
+}
+
+fn check_status(s: &str) -> ApiResult<()> {
+    match s {
+        "active" | "idea" => Ok(()),
+        _ => Err(bad("status must be active or idea")),
+    }
+}
+
+/// For SQL over `tasks t`: the task isn't in an idea project. Ideas' tasks ask for no
+/// attention: no reminders, never missed, can't be planned (D-72).
+pub const NOT_IN_IDEA_SQL: &str =
+    "(t.project_id IS NULL OR t.project_id NOT IN (SELECT id FROM projects WHERE status = 'idea'))";
+
+pub async fn is_idea(
+    conn: &mut sqlx::SqliteConnection,
+    project_id: Option<&str>,
+) -> sqlx::Result<bool> {
+    let Some(id) = project_id else {
+        return Ok(false);
+    };
+    let status: Option<String> = sqlx::query_scalar("SELECT status FROM projects WHERE id = ?")
+        .bind(id)
+        .fetch_optional(conn)
+        .await?;
+    Ok(status.as_deref() == Some("idea"))
+}
+
+/// Take open tasks off the plan from `from` (a date) on, when they move into an idea.
+/// Earlier days keep their entries as history.
+pub async fn unplan(
+    conn: &mut sqlx::SqliteConnection,
+    task_ids: &[String],
+    from: &str,
+    rev: i64,
+    ts: &str,
+    changes: &mut Vec<Change>,
+) -> sqlx::Result<()> {
+    let entries: Vec<DayEntry> = sqlx::query_as(
+        "SELECT e.* FROM day_entries e JOIN tasks t ON t.id = e.task_id
+         WHERE e.task_id IN (SELECT value FROM json_each(?1)) AND e.date >= ?2
+           AND e.deleted_at IS NULL AND t.status = 'open'",
+    )
+    .bind(serde_json::to_string(task_ids).unwrap_or_default())
+    .bind(from)
+    .fetch_all(&mut *conn)
+    .await?;
+    for mut e in entries {
+        e.deleted_at = Some(ts.to_string());
+        e.updated_at = ts.to_string();
+        e.rev = rev;
+        upsert_entry(&mut *conn, &e).await?;
+        changes.push(Change::entry(&e));
+    }
+    Ok(())
+}
+
 pub async fn load_visible(
     conn: &mut sqlx::SqliteConnection,
     user: &AuthUser,
@@ -137,6 +199,10 @@ pub struct CreateProject {
     default_place_id: Option<String>,
     /// Share a top-level project with a group (subprojects follow their parent).
     owner_group_id: Option<String>,
+    #[serde(default)]
+    description: String,
+    /// `active` (default) or `idea`. Subprojects of an idea are ideas too.
+    status: Option<String>,
 }
 
 #[utoipa::path(post, path = "/projects", tag = "projects", summary = "Create a project (optionally inside another)", request_body = CreateProject, responses((status = 200, body = Project), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
@@ -151,6 +217,9 @@ pub async fn create(
     if let Some(p) = &c.position {
         check_position(p)?;
     }
+    let description = check_description(&c.description)?;
+    let mut status = c.status.unwrap_or_else(|| "active".into());
+    check_status(&status)?;
     let mut tx = state.db.write.begin().await?;
     // Idempotent retry: creating the same id again returns the existing project.
     if let Some(existing) = sqlx::query_as::<_, Project>("SELECT * FROM projects WHERE id = ?")
@@ -170,6 +239,9 @@ pub async fn create(
         // Subprojects take their parent's colour unless one is given, and its owner.
         color = color.or(parent.color.clone());
         owner = Owner::of_project(&parent);
+        if parent.status == "idea" {
+            status = parent.status.clone();
+        }
     }
     let position = match c.position {
         Some(p) => p,
@@ -187,6 +259,8 @@ pub async fn create(
         position,
         archived_at: None,
         default_place_id: c.default_place_id,
+        description,
+        status,
         created_at: ts.clone(),
         updated_at: ts,
         deleted_at: None,
@@ -215,9 +289,13 @@ pub struct PatchProject {
     /// Share a top-level project (and everything in it) with a group; `null` = just you.
     #[serde(default, deserialize_with = "double_option")]
     owner_group_id: Option<Option<String>>,
+    description: Option<String>,
+    /// `active` or `idea`, for the whole subtree. Becoming an idea takes its open tasks
+    /// off the plan from today on (D-72).
+    status: Option<String>,
 }
 
-#[utoipa::path(patch, path = "/projects/{id}", tag = "projects", summary = "Rename, recolour, reorder, archive or move a project", params(("id" = String, Path, description = "ULID")), request_body = PatchProject, responses((status = 200, body = Project), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
+#[utoipa::path(patch, path = "/projects/{id}", tag = "projects", summary = "Rename, describe, recolour, reorder, archive, move or activate a project", params(("id" = String, Path, description = "ULID")), request_body = PatchProject, responses((status = 200, body = Project), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
 pub async fn patch(
     State(state): State<AppState>,
     user: AuthUser,
@@ -229,6 +307,14 @@ pub async fn patch(
     if let Some(n) = c.name {
         p.name = check_name(&n)?;
     }
+    if let Some(d) = c.description {
+        p.description = check_description(&d)?;
+    }
+    if let Some(st) = &c.status {
+        check_status(st)?;
+    }
+    // Moving into an idea makes the moved subtree an idea too.
+    let mut status = c.status;
     if let Some(color) = c.color {
         check_color(&color)?;
         p.color = color;
@@ -237,7 +323,10 @@ pub async fn patch(
         && parent_id != p.parent_id
     {
         if let Some(pid) = &parent_id {
-            check_parent(&mut tx, &user, Some(&id), pid).await?;
+            let parent = check_parent(&mut tx, &user, Some(&id), pid).await?;
+            if parent.status == "idea" {
+                status = Some(parent.status);
+            }
         }
         p.parent_id = parent_id;
         if c.position.is_none() {
@@ -296,6 +385,49 @@ pub async fn patch(
                 changes.push(Change::project(&sub));
             }
         }
+    }
+    if let Some(st) = status
+        && st != p.status
+    {
+        let subtree = tree::subtree(&id, &parent_map(&mut tx, &user).await?);
+        for sub_id in subtree.iter().skip(1) {
+            let mut sub = load_visible(&mut tx, &user, sub_id).await?;
+            if sub.status != st {
+                sub.status = st.clone();
+                sub.updated_at = ts.clone();
+                sub.rev = rev;
+                upsert_project(&mut tx, &sub).await?;
+                changes.push(Change::project(&sub));
+            }
+        }
+        if st == "idea" {
+            let tasks: Vec<String> = sqlx::query_scalar(
+                "SELECT id FROM tasks WHERE project_id IN (SELECT value FROM json_each(?1))
+                   AND status = 'open' AND deleted_at IS NULL",
+            )
+            .bind(serde_json::to_string(&subtree).unwrap_or_default())
+            .fetch_all(&mut *tx)
+            .await?;
+            let today = crate::rollover::today_for(&user.user)
+                .format("%Y-%m-%d")
+                .to_string();
+            unplan(&mut tx, &tasks, &today, rev, &ts, &mut changes).await?;
+        } else {
+            // Activated: routines resume from today (the idea's days aren't caught up on).
+            let yesterday = (crate::rollover::today_for(&user.user) - chrono::Duration::days(1))
+                .format("%Y-%m-%d")
+                .to_string();
+            sqlx::query(
+                "UPDATE series SET materialized_through = ?1
+                 WHERE project_id IN (SELECT value FROM json_each(?2)) AND deleted_at IS NULL
+                   AND (materialized_through IS NULL OR materialized_through > ?1)",
+            )
+            .bind(&yesterday)
+            .bind(serde_json::to_string(&subtree).unwrap_or_default())
+            .execute(&mut *tx)
+            .await?;
+        }
+        p.status = st;
     }
     p.updated_at = ts;
     p.rev = rev;

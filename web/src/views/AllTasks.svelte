@@ -11,10 +11,13 @@
   let q = $state('')
   const match = (title: string) => !q.trim() || title.toLowerCase().includes(q.trim().toLowerCase())
   const here = (t: { place_id: string | null }) => store.atCurrentPlace(t as Parameters<typeof store.atCurrentPlace>[0])
-  const hidden = $derived([...store.tasks.values()].filter((t) => t.status === 'open' && !store.isUpcoming(t) && !here(t)).length)
+  const hidden = $derived(
+    [...store.tasks.values()].filter((t) => t.status === 'open' && !store.isUpcoming(t) && !here(t) && !store.inIdea(t)).length,
+  )
   const sections = $derived([
     { id: null as string | null, name: 'Inbox', color: null as string | null, tasks: store.tasksIn(null).filter((t) => match(t.title) && here(t)) },
-    ...store.projectTree().map(({ project: p }) => ({
+    // Ideas ask for no attention, so their tasks stay on their own pages (D-72).
+    ...store.projectTree().filter(({ project: p }) => p.status !== 'idea').map(({ project: p }) => ({
       id: p.id as string | null,
       name: store.projectPath(p.id),
       color: p.color,

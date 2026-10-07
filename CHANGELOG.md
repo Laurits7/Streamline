@@ -2,6 +2,11 @@
 
 ## Unreleased (1.2)
 
+- Every project has a description (plain text; web links are clickable) (D-72).
+- Project ideas: a project can be *just an idea for now*. It stays in the Projects list with a grey
+  "Idea" tag and can hold a description, tasks and subprojects, but asks for no attention: its
+  tasks stay out of Today, planning, All tasks and reminders, and are never missed or carried
+  over; its routines don't run. **Activate** starts it (D-72).
 - New logo: a stone in a stream, with the water parting around it. Used for the browser tab,
   the installed app, notifications, the sidebar and sign-in; the accent colour is now the
   logo's blue (D-73).

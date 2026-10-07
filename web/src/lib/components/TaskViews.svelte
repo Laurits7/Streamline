@@ -25,6 +25,8 @@
         (scope.kind === 'inbox'
           ? t.project_id === null
           : (t.project_id !== null && ids!.has(t.project_id)) || t.also_project_ids.some((p) => ids!.has(p)))
+      // Ideas' tasks show on their own project page only (D-72).
+      if (scope.kind === 'all' && store.inIdea(t)) return false
       return inScope && !store.isUpcoming(t) && store.atCurrentPlace(t) && (t.status === 'open' || (t.status === 'done' && (t.completed_at ?? '') >= since))
     })
   })

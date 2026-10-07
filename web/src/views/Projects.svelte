@@ -14,6 +14,7 @@
   )
   const inboxCount = $derived([...store.tasks.values()].filter((t) => t.status === 'open' && !t.project_id).length)
   let showArchived = $state(false)
+  let asIdea = $state(false)
 
   const inboxTarget = {
     accepts: (it: DragItem) => it.kind === 'task',
@@ -26,7 +27,11 @@
   <p class="muted">Drag a project onto another to make it a subproject.</p>
 </header>
 
-<QuickAdd placeholder="New project…" onadd={(name) => store.createProject(name)} />
+<QuickAdd placeholder={asIdea ? 'New idea…' : 'New project…'} onadd={(name) => store.createProject(name, null, asIdea)} />
+<label class="as-idea">
+  <input type="checkbox" bind:checked={asIdea} />
+  Just an idea for now <span class="muted">(its tasks stay out of your day until you activate it)</span>
+</label>
 
 <div class="card list">
   <a class="item" href="/tasks">
@@ -75,6 +80,17 @@
 {/if}
 
 <style>
+  .as-idea {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 6px;
+    font-size: 14px;
+    margin: 10px 4px 16px;
+  }
+  .as-idea .muted {
+    font-size: 13px;
+  }
   .head {
     margin-bottom: 16px;
   }

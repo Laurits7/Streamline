@@ -8,4 +8,12 @@ parent_id: string | null, name: string, color: string | null, position: string, 
 /**
  * Place given to new tasks created in this project.
  */
-default_place_id: string | null, created_at: string, updated_at: string, deleted_at: string | null, rev: number, };
+default_place_id: string | null, 
+/**
+ * What the project is about (plain text).
+ */
+description: string, 
+/**
+ * `active`, or `idea`: not started yet, so its tasks ask for no attention (D-72).
+ */
+status: string, created_at: string, updated_at: string, deleted_at: string | null, rev: number, };

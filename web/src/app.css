@@ -295,3 +295,18 @@ body.dragging-active .drop-zone {
     animation: none !important;
   }
 }
+
+/* A project that isn't started yet (D-72). */
+.idea-tag {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  padding: 3px 6px;
+  border-radius: 999px;
+  color: var(--muted);
+  background: var(--surface-3);
+}

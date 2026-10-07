@@ -4931,3 +4931,243 @@ async fn calendar_events_link_to_tasks_and_projects() {
     let (_, full, _) = t.req("GET", "/api/v1/sync", Some(&anna), None).await;
     assert_eq!(full["event_projects"], json!([]));
 }
+
+#[tokio::test]
+async fn project_ideas_ask_for_no_attention() {
+    let t = setup().await;
+    let admin = t.admin().await;
+    let today = today_of(&t, &admin).await;
+    let post = |path: &'static str, body: Value| {
+        let (t, admin) = (&t, &admin);
+        async move { t.req("POST", path, Some(admin), Some(body)).await }
+    };
+
+    // An idea with a description; its subprojects are ideas too.
+    let (s, idea, _) = post(
+        "/api/v1/projects",
+        json!({"name": "Greenhouse", "status": "idea", "description": "Small one by the shed.\nhttps://example.org/kits"}),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK, "{idea}");
+    assert_eq!(idea["status"], "idea");
+    assert_eq!(
+        idea["description"],
+        "Small one by the shed.\nhttps://example.org/kits"
+    );
+    let idea_id = idea["id"].as_str().unwrap().to_string();
+    let (_, sub, _) = post(
+        "/api/v1/projects",
+        json!({"name": "Kits", "parent_id": idea_id}),
+    )
+    .await;
+    assert_eq!(sub["status"], "idea");
+    let (s, _, _) = post(
+        "/api/v1/projects",
+        json!({"name": "X", "status": "someday"}),
+    )
+    .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+
+    // Its tasks can be written down but not planned.
+    let (_, kit, _) = post(
+        "/api/v1/tasks",
+        json!({"title": "Compare kits", "project_id": sub["id"]}),
+    )
+    .await;
+    let (s, _, _) = post(
+        "/api/v1/tasks",
+        json!({"title": "Measure", "project_id": idea_id, "day": ymd(today)}),
+    )
+    .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    let (s, v, _) = t
+        .req(
+            "POST",
+            &format!("/api/v1/days/{}/entries", ymd(today)),
+            Some(&admin),
+            Some(json!({"task_id": kit["id"]})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    assert!(v["detail"].as_str().unwrap().contains("activate"), "{v}");
+
+    // A routine in an idea makes no occurrences.
+    let (s, routine, _) = post(
+        "/api/v1/series",
+        json!({"title": "Water seedlings", "mode": "repeat", "rrule": "FREQ=DAILY", "project_id": idea_id}),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK, "{routine}");
+    let routine_id = routine["id"].as_str().unwrap().to_string();
+    assert!(occurrences(&t, &admin, &routine_id).await.is_empty());
+
+    // An active project turned back into an idea: its plan from today on is cleared,
+    // earlier days are left alone and never roll over or miss.
+    let (_, garden, _) = post("/api/v1/projects", json!({"name": "Garden"})).await;
+    let garden_id = garden["id"].as_str().unwrap().to_string();
+    let (_, garden_sub, _) = post(
+        "/api/v1/projects",
+        json!({"name": "Beds", "parent_id": garden_id}),
+    )
+    .await;
+    let (_, today_task, _) = post(
+        "/api/v1/tasks",
+        json!({"title": "Dig", "project_id": garden_sub["id"], "day": ymd(today)}),
+    )
+    .await;
+    let (_, old_task, _) = post(
+        "/api/v1/tasks",
+        json!({"title": "Sow", "project_id": garden_id, "day": ymd(today), "task_type_id": "tt_expires"}),
+    )
+    .await;
+    sqlx::query("UPDATE day_entries SET date = date(?, '-2 day') WHERE task_id = ?")
+        .bind(ymd(today))
+        .bind(old_task["id"].as_str().unwrap())
+        .execute(&t.state.db.write)
+        .await
+        .unwrap();
+    let (s, v, _) = t
+        .req(
+            "PATCH",
+            &format!("/api/v1/projects/{garden_id}"),
+            Some(&admin),
+            Some(json!({"status": "idea", "description": "Next spring"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    let (_, full, _) = t.req("GET", "/api/v1/sync", Some(&admin), None).await;
+    let project = |id: &str| {
+        full["projects"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["id"] == id)
+            .unwrap()
+            .clone()
+    };
+    assert_eq!(
+        project(garden_sub["id"].as_str().unwrap())["status"],
+        "idea"
+    );
+    assert_eq!(project(&garden_id)["description"], "Next spring");
+    let (_, day, _) = t
+        .req(
+            "GET",
+            &format!("/api/v1/days/{}", ymd(today)),
+            Some(&admin),
+            None,
+        )
+        .await;
+    assert!(
+        day["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|e| e["task_id"] != today_task["id"]),
+        "today's plan no longer has the idea's task"
+    );
+    sqlx::query("UPDATE users SET last_rollover_date = NULL")
+        .execute(&t.state.db.write)
+        .await
+        .unwrap();
+    let (_, day, _) = t
+        .req(
+            "GET",
+            &format!("/api/v1/days/{}", ymd(today)),
+            Some(&admin),
+            None,
+        )
+        .await;
+    assert!(
+        day["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|e| e["task_id"] != old_task["id"]),
+        "not carried"
+    );
+    let (_, v, _) = t
+        .req(
+            "GET",
+            &format!("/api/v1/tasks/{}", old_task["id"].as_str().unwrap()),
+            Some(&admin),
+            None,
+        )
+        .await;
+    assert_eq!(v["status"], "open", "not missed");
+
+    // Moving a planned task into an idea takes it off today's plan too.
+    let (_, inbox, _) = post(
+        "/api/v1/tasks",
+        json!({"title": "Buy seeds", "day": ymd(today)}),
+    )
+    .await;
+    t.req(
+        "PATCH",
+        &format!("/api/v1/tasks/{}", inbox["id"].as_str().unwrap()),
+        Some(&admin),
+        Some(json!({"project_id": idea_id})),
+    )
+    .await;
+    let (_, day, _) = t
+        .req(
+            "GET",
+            &format!("/api/v1/days/{}", ymd(today)),
+            Some(&admin),
+            None,
+        )
+        .await;
+    assert!(
+        day["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|e| e["task_id"] != inbox["id"])
+    );
+
+    // Activating the idea: subprojects follow, tasks can be planned, the routine starts today
+    // (it began three days ago, while the project was an idea).
+    sqlx::query("UPDATE series SET dtstart = date(?, '-3 day') WHERE id = ?")
+        .bind(ymd(today))
+        .bind(&routine_id)
+        .execute(&t.state.db.write)
+        .await
+        .unwrap();
+    t.req("GET", "/api/v1/sync", Some(&admin), None).await;
+    assert!(occurrences(&t, &admin, &routine_id).await.is_empty());
+    let (s, v, _) = t
+        .req(
+            "PATCH",
+            &format!("/api/v1/projects/{idea_id}"),
+            Some(&admin),
+            Some(json!({"status": "active"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    let (_, full, _) = t.req("GET", "/api/v1/sync", Some(&admin), None).await;
+    let sub_now = full["projects"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["id"] == sub["id"])
+        .unwrap()
+        .clone();
+    assert_eq!(sub_now["status"], "active");
+    let (s, _, _) = t
+        .req(
+            "POST",
+            &format!("/api/v1/days/{}/entries", ymd(today)),
+            Some(&admin),
+            Some(json!({"task_id": kit["id"]})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    let occ = occurrences(&t, &admin, &routine_id).await;
+    assert_eq!(
+        occ.iter()
+            .map(|o| o["occurrence_date"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        [ymd(today), ymd(today + chrono::Duration::days(1))],
+        "no catching up on the days it was an idea"
+    );
+}

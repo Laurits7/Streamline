@@ -11,6 +11,8 @@
   import { ui } from '../lib/ui.svelte'
   import { localTime } from '../lib/calendar'
   import { shortDate } from '../lib/dates'
+  import { linkify } from '../lib/text'
+  import { toast } from '../lib/toast.svelte'
 
   let { projectId = null }: { projectId?: string | null } = $props()
 
@@ -26,6 +28,33 @@
   )
   let showDone = $state(false)
   let menu = $state(false)
+  let editingAbout = $state(false)
+  let aboutDraft = $state('')
+
+  function editAbout() {
+    aboutDraft = project?.description ?? ''
+    editingAbout = true
+  }
+  function saveAbout(e: Event) {
+    e.preventDefault()
+    if (projectId) store.updateProject(projectId, { description: aboutDraft.trimEnd() })
+    editingAbout = false
+  }
+  /** Ideas ask for no attention until activated (D-72); a project can go back to being one. */
+  function setIdea(idea: boolean) {
+    if (!projectId) return
+    const ids = new Set(store.subtree(projectId))
+    const planned = idea
+      ? [...store.entries.values()].filter((e) => {
+          const t = store.tasks.get(e.task_id)
+          return e.date >= store.today && t?.status === 'open' && !!t.project_id && ids.has(t.project_id)
+        }).length
+      : 0
+    store.updateProject(projectId, { status: idea ? 'idea' : 'active' })
+    menu = false
+    if (idea && planned) toast(`Moved to ideas. ${planned} planned task${planned === 1 ? ' was' : 's were'} taken off your plan.`)
+    else if (!idea) toast(`${project?.name} is active. Its tasks can be planned now.`)
+  }
 
   function rename() {
     const name = prompt('Project name', project?.name)?.trim()
@@ -72,7 +101,7 @@
         </nav>
       {/if}
       <h1>
-        {#if project}<i class="dot" style:background={project.color ?? 'var(--faint)'}></i>{project.name}{:else}Inbox{/if}
+        {#if project}<i class="dot" style:background={project.color ?? 'var(--faint)'}></i>{project.name}{#if project.status === 'idea'}<span class="idea-tag big">Idea</span>{/if}{:else}Inbox{/if}
         {#if project?.owner_group_id}<span class="shared" title="Shared with {store.groupName(project.owner_group_id)}"><Icon name="users" size={16} /> {store.groupName(project.owner_group_id)}</span>{/if}
       </h1>
       <p class="muted">
@@ -138,6 +167,9 @@
                 </select>
               </label>
             {/if}
+            <button role="menuitem" onclick={() => setIdea(project.status !== 'idea')}>
+              <Icon name="bulb" size={16} /> {project.status === 'idea' ? 'Activate' : 'Move to ideas'}
+            </button>
             <button role="menuitem" onclick={archive}><Icon name="archive" size={16} /> {project.archived_at ? 'Unarchive' : 'Archive'}</button>
             <button role="menuitem" class="danger" onclick={remove}><Icon name="trash" size={16} /> Delete</button>
           </div>
@@ -145,6 +177,44 @@
       </div>
     {/if}
   </header>
+
+  {#if project}
+    {#if project.status === 'idea'}
+      <div class="idea-note">
+        <Icon name="bulb" size={18} />
+        <p>
+          {store.ideaRoot(project) ? 'This is an idea' : `Part of an idea`}: write things down, but its tasks stay out of your day, plans
+          and reminders until you activate it.
+        </p>
+        <button class="btn primary small" onclick={() => setIdea(false)}>Activate</button>
+      </div>
+    {/if}
+    <section class="about" aria-label="Description">
+      {#if editingAbout}
+        <form onsubmit={saveAbout}>
+          <!-- svelte-ignore a11y_autofocus -->
+          <textarea
+            bind:value={aboutDraft}
+            rows="5"
+            maxlength="10000"
+            autofocus
+            aria-label="Project description"
+            placeholder="What is this project about? Goals, notes, links…"></textarea>
+          <div class="about-actions">
+            <button class="btn primary small" type="submit">Save</button>
+            <button class="btn small" type="button" onclick={() => (editingAbout = false)}>Cancel</button>
+          </div>
+        </form>
+      {:else if project.description}
+        <p class="desc">
+          {#each linkify(project.description) as part, i (i)}{#if part.url}<a href={part.url} target="_blank" rel="noopener noreferrer">{part.text}</a>{:else}{part.text}{/if}{/each}
+        </p>
+        <button class="about-edit" onclick={editAbout}><Icon name="edit" size={13} /> Edit description</button>
+      {:else}
+        <button class="about-edit" onclick={editAbout}><Icon name="plus" size={14} /> Add a description</button>
+      {/if}
+    </section>
+  {/if}
 
   {#if upcoming.length}
     <section class="events" aria-label="Upcoming events">
@@ -412,5 +482,71 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .idea-tag.big {
+    font-size: 12px;
+    padding: 4px 8px;
+    margin-left: 10px;
+    vertical-align: middle;
+  }
+  .idea-note {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 14px;
+    margin-bottom: 14px;
+    border: 1px dashed var(--border);
+    border-radius: var(--radius);
+    background: var(--surface-2);
+    color: var(--muted);
+  }
+  .idea-note p {
+    flex: 1;
+    margin: 0;
+    font-size: 14px;
+  }
+  .about {
+    margin-bottom: 18px;
+  }
+  .desc {
+    margin: 0 0 4px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    max-width: 70ch;
+    line-height: 1.55;
+  }
+  .desc a {
+    color: var(--accent);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .about textarea {
+    width: 100%;
+    resize: vertical;
+  }
+  .about-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+  }
+  .about-edit {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: none;
+    border: 0;
+    padding: 4px 0;
+    font: inherit;
+    font-size: 13px;
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .about-edit:hover {
+    color: var(--accent);
+  }
+  @media (max-width: 520px) {
+    .idea-note {
+      flex-wrap: wrap;
+    }
   }
 </style>

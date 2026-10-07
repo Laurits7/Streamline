@@ -9,7 +9,7 @@ pub mod groups;
 mod log;
 mod occasions;
 pub mod places;
-mod projects;
+pub mod projects;
 mod push;
 mod series;
 mod sync;

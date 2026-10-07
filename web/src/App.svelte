@@ -176,7 +176,7 @@
                 class="drop-zone"
                 draggable="false"
                 aria-current={active('project', p.id)}
-                use:droppable={toProject(p.id)}><i style:background={p.color ?? 'var(--faint)'}></i>{p.name}{#if p.owner_group_id && !p.parent_id}<span class="sharedicon" title="Shared with {store.groupName(p.owner_group_id)}"><Icon name="users" size={12} /></span>{/if}</a>
+                use:droppable={toProject(p.id)}><i style:background={p.color ?? 'var(--faint)'}></i><span class="pname">{p.name}</span>{#if store.ideaRoot(p)}<span class="idea-tag">Idea</span>{/if}{#if p.owner_group_id && !p.parent_id}<span class="sharedicon" title="Shared with {store.groupName(p.owner_group_id)}"><Icon name="users" size={12} /></span>{/if}</a>
             </div>
           {/each}
         </div>
@@ -410,6 +410,12 @@
     min-width: 0;
     font-size: 14px;
     padding: 6px 8px;
+  }
+  .pname {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .sharedicon {
     margin-left: auto;

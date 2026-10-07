@@ -120,7 +120,7 @@
       {#if task.notes.trim()}<span title="Has notes">¶</span>{/if}
     </span>
   </button>
-  {#if planButton && task.status === 'open' && !task.blocked}
+  {#if planButton && task.status === 'open' && !task.blocked && !store.inIdea(task)}
     <button
       data-nodrag
       class="icon-btn plan"

@@ -68,6 +68,10 @@ async fn check_project(
     Ok(())
 }
 
+/// Refusal for planning a task whose project is still an idea (D-72).
+pub const IDEA_UNPLANNABLE: &str =
+    "this task's project is still an idea; activate the project to plan its tasks";
+
 /// A linked event must be one of the user's own (events are personal).
 async fn check_event(
     conn: &mut sqlx::SqliteConnection,
@@ -293,6 +297,10 @@ pub async fn create(
         deleted_at: None,
         rev,
     };
+    if c.day.is_some() && crate::routes::projects::is_idea(&mut tx, t.project_id.as_deref()).await?
+    {
+        return Err(bad(IDEA_UNPLANNABLE));
+    }
     upsert_task(&mut tx, &t).await?;
     let mut changes = vec![Change::task(&t)];
     if let Some(day) = c.day {
@@ -441,6 +449,7 @@ pub async fn patch(
     }
     let old_audience =
         visibility::audience(t.owner_user_id.as_deref(), t.owner_group_id.as_deref());
+    let old_project = t.project_id.clone();
     if let Some(v) = c.project_id {
         check_project(&mut tx, &user, &v).await?;
         t.project_id = v;
@@ -561,6 +570,23 @@ pub async fn patch(
     if t.status != old_status {
         // Finishing (or reopening) a prerequisite unblocks (or re-blocks) what waits for it.
         crate::deps::refresh_dependents(&mut tx, &t.id, &mut changes).await?;
+    }
+    // Moved into an idea: off the plan from today on (D-72).
+    if t.project_id != old_project
+        && crate::routes::projects::is_idea(&mut tx, t.project_id.as_deref()).await?
+    {
+        let today = crate::rollover::today_for(&user.user)
+            .format("%Y-%m-%d")
+            .to_string();
+        crate::routes::projects::unplan(
+            &mut tx,
+            &[t.id.clone()],
+            &today,
+            t.rev,
+            &t.updated_at,
+            &mut changes,
+        )
+        .await?;
     }
     tx.commit().await?;
     state.bus.publish(changes);

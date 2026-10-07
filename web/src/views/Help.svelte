@@ -250,6 +250,19 @@
       on the Projects page include subprojects. Archiving or deleting a project also archives or deletes its
       subprojects.
     </p>
+    <p>
+      Every project has a <strong>description</strong> at the top of its page: what it's about, goals, notes and
+      links (web addresses become clickable). Use <em>Add a description</em> or <em>Edit description</em>.
+    </p>
+    <p>
+      Not everything is under way yet. Tick <strong>Just an idea for now</strong> when you add a project, or choose
+      <em>Move to ideas</em> in its <Icon name="more" size={14} /> menu. An <span class="idea-tag">Idea</span> stays in
+      the Projects list with a grey tag, and you can add a description, tasks and subprojects to it, but nothing in it
+      asks for attention: its tasks stay out of Today, the planning wizard, All tasks and reminders, can't be planned,
+      and are never missed or carried over. Its routines don't run. When you're ready, press
+      <strong>Activate</strong> on its page and everything in it works normally. Moving a project to ideas takes its
+      open tasks off your plan from today on.
+    </p>
   </section>
 
   <section id="devices">
