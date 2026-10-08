@@ -3,9 +3,11 @@
 A self-hosted todo list and day planner for a household. One small container, one data
 folder, and it works from any phone, tablet or computer on your network.
 
-> **Version 1.0.** Everything in [`docs/SPEC.md`](docs/SPEC.md) up to the v1.0 phase is built: day
+> **Version 1.2.** Everything in [`docs/SPEC.md`](docs/SPEC.md) up to the v1.0 phase is built: day
 > planning, routines, multi-step chores, household groups, your calendar, namedays and birthdays,
 > time blocks, journal and tracking, goals, an installable app with notifications, and backups.
+> 1.2 adds waiting for results, checklists and default tasks, project ideas, project marks, a
+> daily health check-in and a guided tour.
 > What changed per phase is in [`CHANGELOG.md`](CHANGELOG.md); decisions are in
 > [`docs/DECISIONS.md`](docs/DECISIONS.md), and later plans in [`docs/WORKPLAN.md`](docs/WORKPLAN.md).
 
@@ -60,6 +62,16 @@ What works today:
 - **Pull tasks into a day** from the ready stack, give them a time and duration, or move them to
   another day.
 - **Task details**: notes, due date, estimate, difficulty, importance and urgency, and task type.
+- **Checklists and default tasks**: a task or routine can hold its steps (sort, wash, hang,
+  fold) with progress shown everywhere; save a task as a *default task* and quick-add suggests
+  it as you type, checklist included.
+- **Waiting for results**: park a task whose work is handed off (a training run, a reply) with a
+  check-back time; it asks for nothing meanwhile, then reminds you and returns to Up next.
+- **Project ideas and marks**: keep not-yet-started projects as quiet *ideas* with a
+  description; every project gets its own colour and shape.
+- **Health check-in**: once a day, great / OK / unwell / sick (what) / injured (where), shown on
+  the calendar and in trends.
+- **Guided tour** on first sign-in (replay it from Help or Settings).
 - **End-of-day behaviour by task type**: *Carry on* tasks roll over to the next day (with a
   "carried N days" badge), *Expires* tasks are marked missed. The day ends at a time you choose
   (default 04:00).
@@ -183,7 +195,7 @@ git pull && docker compose up -d --build
 ```
 
 With the prebuilt image: `docker compose pull && docker compose up -d`. Pin a version with
-`image: ghcr.io/laurits7/streamline:1.0.0` instead of `latest` if you prefer to update on your own
+`image: ghcr.io/laurits7/streamline:1.2.0` instead of `latest` if you prefer to update on your own
 schedule. Database migrations run automatically on startup; going back to an older version after a
 migration means restoring the backup.
 

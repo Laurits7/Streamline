@@ -1,6 +1,9 @@
 # Changelog
 
-## Unreleased (1.2)
+## 1.2.0 (2026-10-08)
+
+Upgrading: back up first (Settings → Backups, or copy `data/`). This version migrates the
+database; 1.0.0 can't open it afterwards, so going back means restoring the backup.
 
 - Guided tour: on first sign-in a short walk through the app (adding tasks, the timeline, the
   plan, planning the day, tracking, the inbox, projects, routines, the agenda, reflection and
