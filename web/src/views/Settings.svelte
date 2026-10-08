@@ -12,6 +12,7 @@
   import { disablePush, enablePush, pushBlocker, pushEnabled } from '../lib/pwa'
   import { store } from '../lib/store.svelte'
   import { toast } from '../lib/toast.svelte'
+  import { ui } from '../lib/ui.svelte'
 
   let { onlogout }: { onlogout: () => void } = $props()
 
@@ -293,6 +294,7 @@
 
 <div class="settings-grid">
 <a class="card help-link" href="/help"><Icon name="help" /> <span>Help: what you can do and how</span><Icon name="right" size={16} /></a>
+<button class="card help-link" onclick={() => (ui.tour = 0)}><Icon name="target" /> <span>Take the tour: a quick walk through the app</span><Icon name="right" size={16} /></button>
 
 <section class="card">
   <h2>Profile</h2>
@@ -788,6 +790,12 @@
   }
   .help-link span {
     flex: 1;
+  }
+  button.help-link {
+    width: 100%;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
   }
   section {
     padding: 18px;

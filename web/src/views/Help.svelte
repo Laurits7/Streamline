@@ -2,6 +2,7 @@
   // In-app guide to everything the app can do. Keep it in step with the features
   // (and with README.md when it describes the same thing).
   import Icon from '../lib/components/Icon.svelte'
+  import { ui } from '../lib/ui.svelte'
 
   const sections = [
     ['start', 'Getting started'],
@@ -32,6 +33,7 @@
 <article>
   <h1>Help</h1>
   <p class="lead muted">How Streamline works and what you can do with it.</p>
+  <button class="btn primary tour-btn" onclick={() => (ui.tour = 0)}><Icon name="target" size={16} /> Take the tour</button>
 
   <nav class="toc card" aria-label="Contents">
     {#each sections as [id, title] (id)}
@@ -46,6 +48,7 @@
       <li>Create a few <a href="/projects">projects</a> (e.g. “House”, “Work”, “Garden”) and drag inbox tasks onto them.</li>
       <li>Each day, open <a href="/">Today</a>, pull in what you want to do, put fixed things on the timeline, and tick tasks off.</li>
     </ol>
+    <p>New here? <strong>Take the tour</strong> (the button above, or in Settings) for a two-minute walk through where everything is. It's offered once when you first sign in.</p>
     <p>Tasks live in projects. Planning a day doesn't move them: the day plan is a separate layer on top, so your projects stay tidy.</p>
   </section>
 
@@ -457,6 +460,9 @@
   }
   .lead {
     margin: 4px 0 16px;
+  }
+  .tour-btn {
+    margin-bottom: 14px;
   }
   .toc {
     display: flex;

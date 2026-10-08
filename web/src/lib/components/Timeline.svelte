@@ -180,7 +180,7 @@
   }
 </script>
 
-<div class="timeline card">
+<div class="timeline card" data-tour="timeline">
   <div class="scroller" bind:this={scroller} data-autoscroll>
     <div
       class="grid"

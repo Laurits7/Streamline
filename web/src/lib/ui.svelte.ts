@@ -11,6 +11,8 @@ export const ui = $state({
   startWorkflow: null as string | null,
   /** Calendar event (instance id) shown in the event sheet. */
   event: null as string | null,
+  /** Step of the guided tour being shown, or null. */
+  tour: null as number | null,
 })
 
 // Collapsed projects in project trees (remembered in this browser only).

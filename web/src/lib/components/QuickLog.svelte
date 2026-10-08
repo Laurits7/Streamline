@@ -42,7 +42,7 @@
   }
 </script>
 
-<section class="card quicklog" aria-label="Track">
+<section class="card quicklog" aria-label="Track" data-tour="track">
   <header>
     <h2 class="section-title"><Icon name="chart" size={14} /> Track</h2>
     <a href="/summary/{date}" class="link">Summary &amp; journal <Icon name="right" size={14} /></a>

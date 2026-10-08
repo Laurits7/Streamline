@@ -15,6 +15,7 @@
   import WorkflowSheet from './lib/components/WorkflowSheet.svelte'
   import StartWorkflowSheet from './lib/components/StartWorkflowSheet.svelte'
   import PlaceTracker from './lib/components/PlaceTracker.svelte'
+  import { TOUR_PREF } from './lib/tour'
   import { droppable, type DragItem } from './lib/dnd.svelte'
   import { match, router } from './lib/router.svelte'
   import { store } from './lib/store.svelte'
@@ -30,6 +31,8 @@
     try {
       await store.start()
       phase = 'app'
+      // First sign-in: offer the guided tour (once; it can be replayed from Help).
+      if (!store.pref(TOUR_PREF, null) && !location.pathname.startsWith('/focus')) ui.tour = 0
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) {
         try {
@@ -54,6 +57,7 @@
     clearOfflineData()
     ui.editing = null
     ui.pullFor = null
+    ui.tour = null
     phase = 'login'
   }
 
@@ -245,6 +249,7 @@
   {#if ui.startWorkflow}{#key ui.startWorkflow}<StartWorkflowSheet id={ui.startWorkflow} />{/key}{/if}
 {/if}
 
+{#if phase === 'app' && ui.tour !== null}{#await import('./lib/components/Tour.svelte') then m}<m.default />{/await}{/if}
 <Toasts />
 <div class="sr-only" aria-live="polite">{live.message}</div>
 

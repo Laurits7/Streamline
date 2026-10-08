@@ -31,7 +31,7 @@
   const steps = (n: number) => (n ? ` · ${n} step${n === 1 ? '' : 's'}` : '')
 </script>
 
-<div class="wrap">
+<div class="wrap" data-tour="quickadd">
   <form class="quick" onsubmit={submit}>
     <Icon name="plus" />
     <input

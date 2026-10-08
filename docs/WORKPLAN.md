@@ -549,7 +549,7 @@ Legend: **Deliverables** = what exists afterwards · **Tests** = what must be co
 
 ---
 
-### Phase 7a: Waiting, default tasks, project ideas and health check-in (v1.2, D-70, D-71, D-72, D-75)
+### Phase 7a: Waiting, default tasks, project ideas, health check-in and tour (v1.2, D-70, D-71, D-72, D-75, D-77)
 
 Developed on the `v1.2` branch. Waiting: work that's been handed off and only needs a check
 later (a model training, a slow build, an e-mail waiting for a reply). Default tasks: ready-made
@@ -595,6 +595,9 @@ ideas: projects that aren't started yet, kept with a description.
       optional note), also in the planner's reflect step and editable for past days from the
       summary; marker on the month calendar, a health strip in Trends; personal only (never
       shown to group members); no effect on streaks or planning; tests; help and CHANGELOG.
+- [x] **7a.8 Guided tour** (owner request, D-77): offered once on first sign-in (user pref),
+      replayable from Help and Settings; each step opens its page and highlights what it
+      describes, on desktop and phone; tests for the steps and card placement; help and CHANGELOG.
 
 ---
 

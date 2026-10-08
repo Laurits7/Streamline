@@ -2,6 +2,9 @@
 
 ## Unreleased (1.2)
 
+- Guided tour: on first sign-in a short walk through the app (adding tasks, the timeline, the
+  plan, planning the day, tracking, the inbox, projects, routines, the agenda, reflection and
+  settings), highlighting each in place. Offered once; replay it from Help or Settings (D-77).
 - Health check-in: once a day, feeling great / OK / not feeling well / sick (what it is) /
   injured (where), with an optional note. On the Today view, the planner's reflection step
   and the summary (past days too); sick and injured days are marked on the month calendar,

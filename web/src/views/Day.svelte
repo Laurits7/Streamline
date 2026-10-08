@@ -218,9 +218,9 @@
             </span>
           {/if}
           {#if planned}
-            <a class="plan-chip done" href="/plan/{date}" title="Planned — open the planner to adjust"><Icon name="check" size={12} /> Planned</a>
+            <a class="plan-chip done" data-tour="plan-day" href="/plan/{date}" title="Planned — open the planner to adjust"><Icon name="check" size={12} /> Planned</a>
           {:else if date >= store.today}
-            <a class="plan-chip" href="/plan/{date}">Plan this day</a>
+            <a class="plan-chip" data-tour="plan-day" href="/plan/{date}">Plan this day</a>
           {/if}
         </p>
       </div>
@@ -288,6 +288,7 @@
     </h2>
     <div
       class="card list"
+      data-tour="plan"
       use:dropList={{
         accepts: (it) => it.kind === 'task',
         drop: dropOnPlan,
