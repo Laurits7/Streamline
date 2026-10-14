@@ -689,7 +689,7 @@ Developed on the `v1.4` branch, with Phase 7's picked integrations and Phase 8. 
 productivity features first (small, used daily), then 7.3, 7.7, 7.6, 7.1–7.2, then Phase 8,
 then the gate.
 
-- [ ] **10.1 README badges**: CI, latest release, licence, image, and what the CI enforces
+- [x] **10.1 README badges**: CI, latest release, licence, image, and what the CI enforces
       (rustfmt, clippy with warnings as errors, tests, bundle budget).
 - [ ] **10.2 Command palette and keyboard shortcuts**: Ctrl+K (⌘K) searches tasks (titles,
       notes, checklist steps), projects, routines, journal and pages, and runs actions on the

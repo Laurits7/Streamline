@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased (1.4.0)
+
+- README badges: build status, latest release, licence, image, and what CI enforces.
+
 ## 1.3.0 (2026-10-14)
 
 - Checklists complete their task: ticking the last step completes it (with Undo), and

@@ -1,13 +1,26 @@
 # Streamline
 
+[![CI](https://github.com/Laurits7/Streamline/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Laurits7/Streamline/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/Laurits7/Streamline)](https://github.com/Laurits7/Streamline/releases/latest)
+[![License: GPL-3.0-or-later](https://img.shields.io/github/license/Laurits7/Streamline)](LICENSE)
+[![Image](https://img.shields.io/badge/image-ghcr.io%2Flaurits7%2Fstreamline-2496ED?logo=docker&logoColor=white)](https://github.com/Laurits7/Streamline/pkgs/container/streamline)
+[![Desktop app](https://img.shields.io/badge/desktop-Linux%20%28.deb%2C%20tarball%29-FCC624?logo=linux&logoColor=black)](#desktop-app-linux)
+
+[![rustfmt](https://img.shields.io/badge/rustfmt-checked-success?logo=rust)](.github/workflows/ci.yml)
+[![clippy](https://img.shields.io/badge/clippy-no%20warnings-success?logo=rust)](.github/workflows/ci.yml)
+[![TypeScript](https://img.shields.io/badge/TypeScript-strict-success?logo=typescript&logoColor=white)](web/tsconfig.app.json)
+[![Bundle](https://img.shields.io/badge/initial%20load-%3C150%20KB%20gzip-success)](.github/workflows/ci.yml)
+
 A self-hosted todo list and day planner for a household. One small container, one data
 folder, and it works from any phone, tablet or computer on your network.
 
-> **Version 1.2.** Everything in [`docs/SPEC.md`](docs/SPEC.md) up to the v1.0 phase is built: day
+> **Version 1.3.** Everything in [`docs/SPEC.md`](docs/SPEC.md) up to the v1.0 phase is built: day
 > planning, routines, multi-step chores, household groups, your calendar, namedays and birthdays,
 > time blocks, journal and tracking, goals, an installable app with notifications, and backups.
-> 1.2 adds waiting for results, checklists and default tasks, project ideas, project marks, a
-> daily health check-in and a guided tour.
+> 1.2 added waiting for results, checklists and default tasks, project ideas, project marks, a
+> daily health check-in and a guided tour. 1.3 adds the [Linux desktop app](#desktop-app-linux)
+> (works offline, or on one computer without a server), checklist steps on the timeline and in
+> the Agenda, default tasks with kinds, and focus options.
 > What changed per phase is in [`CHANGELOG.md`](CHANGELOG.md); decisions are in
 > [`docs/DECISIONS.md`](docs/DECISIONS.md), and later plans in [`docs/WORKPLAN.md`](docs/WORKPLAN.md).
 
