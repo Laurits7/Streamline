@@ -15,7 +15,7 @@ use crate::{
     error::{ApiResult, AppError, bad},
     events::Change,
     models::{ApiToken, Me, User},
-    util::{new_id, now, random_token, sha256_hex},
+    util::now,
 };
 
 #[derive(Serialize, utoipa::ToSchema)]
@@ -457,28 +457,8 @@ pub async fn create_token(
     if name.is_empty() || name.len() > 100 {
         return Err(bad("name must be 1-100 characters"));
     }
-    let token = format!("{}{}", auth::TOKEN_PREFIX, random_token());
-    let id = new_id();
-    let ts = now();
-    sqlx::query(
-        "INSERT INTO api_tokens (id, user_id, name, token_hash, created_at) VALUES (?,?,?,?,?)",
-    )
-    .bind(&id)
-    .bind(user.id())
-    .bind(name)
-    .bind(sha256_hex(&token))
-    .bind(&ts)
-    .execute(&state.db.write)
-    .await?;
-    Ok(Json(CreatedToken {
-        token,
-        info: ApiToken {
-            id,
-            name: name.into(),
-            created_at: ts,
-            last_used_at: None,
-        },
-    }))
+    let (token, info) = auth::issue_token(&state, user.id(), name).await?;
+    Ok(Json(CreatedToken { token, info }))
 }
 
 #[utoipa::path(delete, path = "/tokens/{id}", tag = "account", summary = "Revoke an API token", params(("id" = String, Path, description = "ULID")), responses((status = 204, description = "Done"), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]

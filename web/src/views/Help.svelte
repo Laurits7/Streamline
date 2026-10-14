@@ -19,6 +19,7 @@
     ['projects', 'Projects and the inbox'],
     ['devices', 'Phones, tablets and sync'],
     ['install', 'Install on your phone, notifications'],
+    ['desktop', 'Desktop app (Linux)'],
     ['groups', 'Sharing with your household'],
     ['places', 'Places'],
     ['calendar', 'Your calendar and the agenda'],
@@ -428,6 +429,21 @@
       <li>The day view and the agenda show each day's namedays, with your people highlighted.</li>
       <li>Admins can re-download the official Estonian list or upload another country's list.</li>
     </ul>
+  </section>
+
+  <section id="desktop">
+    <h2><Icon name="bolt" size={18} /> Desktop app (Linux)</h2>
+    <p>The desktop app is Streamline in its own window. It stays in the tray when you close the window, can start when you log in (Settings → Desktop app), and works offline. On first start it asks how to use it:</p>
+    <ul>
+      <li><strong>Connect to a server</strong>: your household's Streamline server, the address you open in the browser. You sign in once; the computer keeps its own key in the system keyring. Changes made offline are sent when the server is back.</li>
+      <li><strong>This computer only</strong>: Streamline runs inside the app and keeps your data on this computer, for when there's no server, say just a laptop. Routines, the end of the day and reminders run while the app is running (keep it in the tray). Backups are made daily into the data folder.</li>
+    </ul>
+    <p>
+      <strong>Moving to a server later</strong>: quit the app, copy the data folder (Settings → Desktop app → Open the data folder) to the new
+      server as its <code>data</code> folder <em>before</em> starting the server for the first time, then start it and connect the app to it
+      (“Use a server instead”). Your account there is called <code>me</code>: set its password first, in Settings → Desktop app.
+      Merging into a server that already has your data isn't supported.
+    </p>
   </section>
 
   <section id="install">

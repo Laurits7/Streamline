@@ -24,6 +24,9 @@
 - The desktop app works offline: it keeps a copy of your data, and changes made offline
   wait on the computer and are sent when the server is back, merged field by field with
   changes made elsewhere; a note says if anything clashed or was dropped (D-79, D-89).
+- The desktop app can also run on its own, without a server ("This computer only" on first
+  start), for a single laptop. Your data stays in a folder that can later be used to start
+  a real Streamline server (D-88).
 - API: updates can carry `base` (the values they were based on) and `edited_at`; the server
   merges them field by field with newer changes (checklists per item) and lists any
   `conflicts` in the response. Groundwork for the offline desktop app (D-79, D-85).

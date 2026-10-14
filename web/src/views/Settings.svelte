@@ -19,7 +19,12 @@
 
   // Desktop app (D-78): start at login.
   let autostart = $state(false)
-  if (desktop) invoke<boolean>('plugin:autostart|is_enabled').then((v) => (autostart = v)).catch(() => {})
+  let localOnly = $state(false)
+  let localPw = $state('')
+  if (desktop) {
+    invoke<boolean>('plugin:autostart|is_enabled').then((v) => (autostart = v)).catch(() => {})
+    invoke<DesktopStatus>('status').then((s) => (localOnly = s.mode === 'local')).catch(() => {})
+  }
   async function setAutostart(on: boolean) {
     try {
       await invoke(on ? 'plugin:autostart|enable' : 'plugin:autostart|disable')
@@ -774,7 +779,31 @@
   <section class="card" id="desktop">
     <h2>Desktop app</h2>
     {#await invoke<DesktopStatus>('status') then s}
-      <p class="help muted">Connected to <strong>{s.server}</strong> as {s.username}. This computer has its own key, listed under API tokens; signing out removes it.</p>
+      {#if s.mode === 'local'}
+        <p class="help muted">
+          Streamline runs on this computer only; your data stays here (backed up daily into the same folder). To move to a
+          server later, start a Streamline server with a copy of this folder as its <code>data</code> folder (see
+          <a href="/help#desktop">Help</a>).
+        </p>
+        <button class="btn small" onclick={() => invoke<string>('open_data_folder').catch((e) => toast(String(e), 'error'))}>Open the data folder</button>
+        <form
+          class="row local-pw"
+          onsubmit={async (e) => {
+            e.preventDefault()
+            try {
+              await invoke('set_local_password', { password: localPw })
+              localPw = ''
+              toast('Password set: sign in as “me” on a server that uses this data')
+            } catch (err) {
+              toast(String(err), 'error')
+            }
+          }}>
+          <input type="password" bind:value={localPw} minlength="8" autocomplete="new-password" placeholder="Password for a server later (user “me”)" aria-label="Password for a server later" />
+          <button class="btn small" type="submit" disabled={localPw.length < 8}>Set</button>
+        </form>
+      {:else}
+        <p class="help muted">Connected to <strong>{s.server}</strong> as {s.username}. This computer has its own key, listed under API tokens; signing out removes it.</p>
+      {/if}
     {/await}
     <label class="check plain">
       <input type="checkbox" checked={autostart} onchange={(e) => setAutostart((e.currentTarget as HTMLInputElement).checked)} />
@@ -785,7 +814,8 @@
 {/if}
 
 <section class="card">
-  <button class="btn" onclick={onlogout}><Icon name="logout" size={16} /> {desktop ? 'Sign out of this computer' : 'Sign out'}</button>
+  <button class="btn" onclick={onlogout}><Icon name="logout" size={16} /> {localOnly ? 'Use a server instead' : desktop ? 'Sign out of this computer' : 'Sign out'}</button>
+  {#if localOnly}<p class="help muted">Your data stays in its folder on this computer; choosing “This computer only” again brings it back.</p>{/if}
 </section>
 </div>
 
@@ -919,6 +949,9 @@
   }
   .token-box p {
     margin: 0 0 8px;
+  }
+  .local-pw {
+    margin: 10px 0 12px;
   }
   .row {
     display: flex;

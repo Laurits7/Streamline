@@ -1,5 +1,6 @@
 //! Streamline for the Linux desktop (D-78): the web app in a window, connected to the
-//! user's own Streamline server with a per-device token kept in the system keyring. The
+//! user's own Streamline server with a per-device token kept in the system keyring, or
+//! running Streamline inside the app on this computer only (D-88). The
 //! page reaches the server only through the commands here. It stays in the tray when the
 //! window is closed and can start at login.
 
@@ -29,6 +30,9 @@ struct Config {
     server: Option<String>,
     token_id: Option<String>,
     username: Option<String>,
+    /// `local`: Streamline runs inside the app, on this computer only (D-88).
+    #[serde(default)]
+    mode: Option<String>,
 }
 
 #[derive(Default)]
@@ -37,6 +41,8 @@ struct App {
     token: Mutex<Option<String>>,
     events: Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
     engine: OnceLock<Arc<Engine>>,
+    /// The server inside the app, once started (at most once per run).
+    local: tokio::sync::OnceCell<streamline::local::Local>,
 }
 
 fn config_path(app: &AppHandle) -> Result<PathBuf, String> {
@@ -76,15 +82,84 @@ struct Status {
     server: Option<String>,
     username: Option<String>,
     signed_in: bool,
+    /// `server` or `local`; none before the first run.
+    mode: Option<String>,
 }
 
 fn status_of(state: &App) -> Status {
     let c = state.config.lock().unwrap().clone();
+    let local = c.mode.as_deref() == Some("local");
     Status {
         server: c.server,
         username: c.username,
         signed_in: state.token.lock().unwrap().is_some(),
+        mode: if local {
+            Some("local".into())
+        } else {
+            c.token_id.as_ref().map(|_| "server".into())
+        },
     }
+}
+
+fn local_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("server"))
+}
+
+/// Run Streamline inside the app (D-88): start its server (the first time also creating
+/// the user) and sign the app in to it.
+async fn start_local(app: &AppHandle, display_name: &str) -> Result<(), String> {
+    let state = app.state::<App>();
+    let dir = local_dir(app)?;
+    let local = state
+        .local
+        .get_or_try_init(|| streamline::local::start(dir, display_name))
+        .await
+        .map_err(|e| format!("Couldn't start Streamline on this computer: {e}"))?;
+    let engine = engine(app);
+    engine.reset_for("local").await?;
+    engine.set_credentials(Some((local.url.clone(), local.token.clone())));
+    *state.token.lock().unwrap() = Some(local.token.clone());
+    Ok(())
+}
+
+/// First run: use Streamline on this computer only.
+#[tauri::command]
+async fn use_local(app: AppHandle, state: State<'_, App>, name: String) -> Result<Status, String> {
+    start_local(&app, &name).await?;
+    let config = Config {
+        mode: Some("local".into()),
+        ..state.config.lock().unwrap().clone()
+    };
+    save_config(&app, &config)?;
+    *state.config.lock().unwrap() = config;
+    Ok(status_of(&state))
+}
+
+/// On this computer only: a password for the account, for using the data on a server later.
+#[tauri::command]
+async fn set_local_password(state: State<'_, App>, password: String) -> Result<(), String> {
+    let local = state
+        .local
+        .get()
+        .ok_or("Streamline isn't running on this computer")?;
+    streamline::local::set_password(&local.state, &password)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Show the local data folder in the file manager.
+#[tauri::command]
+fn open_data_folder(app: AppHandle) -> Result<String, String> {
+    let dir = local_dir(&app)?;
+    std::process::Command::new("xdg-open")
+        .arg(&dir)
+        .spawn()
+        .map_err(|e| format!("Couldn't open {}: {e}", dir.display()))?;
+    Ok(dir.display().to_string())
 }
 
 #[tauri::command]
@@ -170,6 +245,7 @@ async fn connect(
         server: Some(server),
         token_id,
         username: Some(username),
+        mode: None,
     };
     save_config(&app, &config)?;
     *state.config.lock().unwrap() = config;
@@ -185,14 +261,16 @@ async fn sign_out(app: AppHandle, state: State<'_, App>) -> Result<(), String> {
     }
     let c = state.config.lock().unwrap().clone();
     let token = state.token.lock().unwrap().take();
-    if let (Some(server), Some(token), Some(id)) = (&c.server, &token, &c.token_id) {
+    // On this computer only: leaving keeps the data folder; choosing it again resumes.
+    let local = c.mode.as_deref() == Some("local");
+    if let (false, Some(server), Some(token), Some(id)) = (local, &c.server, &token, &c.token_id) {
         let _ = remote::client(Some(Duration::from_secs(10)))
             .delete(remote::api_url(server, &format!("/tokens/{id}"))?)
             .bearer_auth(token)
             .send()
             .await;
     }
-    if let Some(server) = c.server.clone() {
+    if let Some(server) = c.server.clone().filter(|_| !local) {
         let _ = keyring(server, |e| match e.delete_credential() {
             Ok(()) | Err(keyring::Error::NoEntry) => Ok(None),
             Err(e) => Err(e),
@@ -213,7 +291,12 @@ async fn sign_out(app: AppHandle, state: State<'_, App>) -> Result<(), String> {
 }
 
 fn credentials(state: &App) -> Option<(String, String)> {
-    let server = state.config.lock().unwrap().server.clone()?;
+    let local = state.config.lock().unwrap().mode.as_deref() == Some("local");
+    let server = if local {
+        state.local.get()?.url.clone()
+    } else {
+        state.config.lock().unwrap().server.clone()?
+    };
     let token = state.token.lock().unwrap().clone()?;
     Some((server, token))
 }
@@ -394,6 +477,9 @@ fn main() {
             sign_out,
             api,
             outbox_status,
+            use_local,
+            open_data_folder,
+            set_local_password,
             download,
             events_open,
             events_close
@@ -436,8 +522,15 @@ fn main() {
                     }));
                     *state.token.lock().unwrap() = token.ok().flatten();
                 }
+                let local = c.mode.as_deref() == Some("local");
                 *state.config.lock().unwrap() = c;
-                engine.set_credentials(credentials(&state));
+                if local {
+                    if let Err(e) = tauri::async_runtime::block_on(start_local(&handle, "")) {
+                        eprintln!("{e}");
+                    }
+                } else {
+                    engine.set_credentials(credentials(&state));
+                }
             }
 
             let open = MenuItem::with_id(app, "open", "Open Streamline", true, None::<&str>)?;

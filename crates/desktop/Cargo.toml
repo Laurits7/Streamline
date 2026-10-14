@@ -29,10 +29,10 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "sqlite"] }
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
 streamline-domain = { path = "../domain" }
+# "This computer only" runs the server inside the app (D-88); tests use it too.
+streamline = { path = "../server" }
 
 [dev-dependencies]
-# Tests run the real server in-process.
-streamline = { path = "../server" }
 axum = "0.8"
 
 [profile.release]

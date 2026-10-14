@@ -86,6 +86,27 @@ impl Config {
         })
     }
 
+    /// The server inside the desktop app (D-88): only reachable from this computer, on a
+    /// port the system picks; otherwise the defaults.
+    pub fn local(data_dir: PathBuf) -> Self {
+        Self {
+            bind: "127.0.0.1".parse().unwrap(),
+            port: 0,
+            data_dir,
+            initial_admin_user: None,
+            initial_admin_password: None,
+            trust_proxy: false,
+            cookie_secure: CookieSecure::Auto,
+            session_days: 90,
+            secret_key: None,
+            namedays_url: Some(crate::occasions::STAT_EE_URL.to_string()),
+            push_contact: "mailto:streamline@example.org".into(),
+            public_url: None,
+            backup_hours: 24,
+            backup_keep: 7,
+        }
+    }
+
     /// Config for tests: a throwaway data directory.
     pub fn for_tests(data_dir: PathBuf) -> Self {
         Self {

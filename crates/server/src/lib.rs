@@ -12,6 +12,7 @@ pub mod deps;
 pub mod error;
 pub mod events;
 pub mod jobs;
+pub mod local;
 pub mod merge;
 pub mod models;
 pub mod net;

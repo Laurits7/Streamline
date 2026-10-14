@@ -15,7 +15,13 @@ export const desktop = typeof window !== 'undefined' && !!tauri()
 export const invoke = <T>(cmd: string, args?: Record<string, unknown>) => tauri()!.core.invoke<T>(cmd, args)
 export const listen = <T>(name: string, cb: (payload: T) => void) => tauri()!.event.listen<T>(name, (e) => cb(e.payload))
 
-export type DesktopStatus = { server: string | null; username: string | null; signed_in: boolean }
+export type DesktopStatus = {
+  server: string | null
+  username: string | null
+  signed_in: boolean
+  /** `local`: Streamline runs inside the app on this computer only (D-88). */
+  mode: 'server' | 'local' | null
+}
 
 /**
  * Live events from the server, relayed by the app: the subset of `EventSource` the store
