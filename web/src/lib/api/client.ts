@@ -19,10 +19,27 @@ export const onUnauthorized = (l: Listener) => {
   return () => unauthorizedListeners.delete(l)
 }
 
+/** Records an optimistic write changed: [kind, id, the record now or null if deleted]. */
+export type Touched = [string, string, unknown][]
+let touched: Touched | null = null
+
+/**
+ * Run `send` (which makes its request straight away) telling the desktop app which records
+ * it changes, so the app can keep the write while the server can't be reached (9.5).
+ */
+export function withTouched<T>(t: Touched, send: () => T): T {
+  touched = t
+  try {
+    return send()
+  } finally {
+    touched = null
+  }
+}
+
 async function viaDesktop<T>(method: string, path: string, body?: unknown): Promise<T> {
   let r: { status: number; body: unknown; offline: boolean }
   try {
-    r = await invoke('api', { method, path, body: body ?? null })
+    r = await invoke('api', { method, path, body: body ?? null, touched: method === 'GET' ? null : touched })
   } catch (e) {
     throw new ApiError(400, String(e))
   }

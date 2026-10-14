@@ -37,6 +37,19 @@ describe('desktop app bridge (D-78)', () => {
     expect(connection.offline).toBe(true)
   })
 
+  it('tells the app which records a write changed, so it can wait offline (9.5)', async () => {
+    const calls: Record<string, unknown>[] = []
+    fakeTauri((_cmd, args) => {
+      calls.push(args)
+      return { status: 200, body: { id: 'T1', title: 'Laundry (offline)' }, offline: true }
+    })
+    const { api, withTouched } = await import('./api/client')
+    const t = await withTouched([['task', 'T1', { id: 'T1', title: 'Laundry (offline)' }]], () => api.patch('/tasks/T1', { title: 'Laundry (offline)' }))
+    expect(t).toEqual({ id: 'T1', title: 'Laundry (offline)' })
+    await api.get('/sync?since=0')
+    expect(calls.map((c) => c.touched)).toEqual([[['task', 'T1', { id: 'T1', title: 'Laundry (offline)' }]], null])
+  })
+
   it('relays live events like an EventSource', async () => {
     const emit = fakeTauri(() => null)
     const { DesktopEvents } = await import('./desktop')

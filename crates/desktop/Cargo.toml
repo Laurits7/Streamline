@@ -25,6 +25,15 @@ futures-util = { version = "0.3", default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
+# The local replica and outbox (9.5): the same SQLite driver as the server.
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "sqlite"] }
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+streamline-domain = { path = "../domain" }
+
+[dev-dependencies]
+# Tests run the real server in-process.
+streamline = { path = "../server" }
+axum = "0.8"
 
 [profile.release]
 opt-level = "s"

@@ -5,10 +5,11 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod engine;
 mod remote;
 
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use futures_util::StreamExt;
@@ -17,6 +18,8 @@ use serde_json::{Value, json};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, State, WindowEvent};
+
+use engine::Engine;
 
 const KEYRING_SERVICE: &str = "streamline-desktop";
 
@@ -33,6 +36,7 @@ struct App {
     config: Mutex<Config>,
     token: Mutex<Option<String>>,
     events: Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
+    engine: OnceLock<Arc<Engine>>,
 }
 
 fn config_path(app: &AppHandle) -> Result<PathBuf, String> {
@@ -158,6 +162,10 @@ async fn connect(
 
     let t = token.clone();
     keyring(server.clone(), move |e| e.set_password(&t).map(|_| None)).await?;
+    // A replica of another server or account isn't kept.
+    let engine = engine(&app);
+    engine.reset_for(&server).await?;
+    engine.set_credentials(Some((server.clone(), token.clone())));
     let config = Config {
         server: Some(server),
         token_id,
@@ -191,6 +199,10 @@ async fn sign_out(app: AppHandle, state: State<'_, App>) -> Result<(), String> {
         })
         .await;
     }
+    // This computer keeps nothing of the account once signed out.
+    let engine = engine(&app);
+    engine.set_credentials(None);
+    engine.clear().await?;
     let config = Config {
         server: c.server,
         ..Default::default()
@@ -200,84 +212,47 @@ async fn sign_out(app: AppHandle, state: State<'_, App>) -> Result<(), String> {
     Ok(())
 }
 
-#[derive(Serialize)]
-struct ApiResponse {
-    status: u16,
-    body: Value,
-    offline: bool,
-}
-
 fn credentials(state: &App) -> Option<(String, String)> {
     let server = state.config.lock().unwrap().server.clone()?;
     let token = state.token.lock().unwrap().clone()?;
     Some((server, token))
 }
 
-/// A request from the page to the server's `/api/v1{path}`. Status 0 means the server
-/// couldn't be reached.
+fn engine(app: &AppHandle) -> Arc<Engine> {
+    app.state::<App>()
+        .engine
+        .get()
+        .expect("engine opened at start")
+        .clone()
+}
+
+/// A request from the page to the server's `/api/v1{path}`, through the local replica
+/// and outbox (`touched`: the records the page changed with it, for working offline).
+/// Status 0 means the server couldn't be reached and the request couldn't wait.
 #[tauri::command]
 async fn api(
-    state: State<'_, App>,
+    app: AppHandle,
     method: String,
     path: String,
     body: Option<Value>,
-) -> Result<ApiResponse, String> {
-    let Some((server, token)) = credentials(&state) else {
-        return Ok(ApiResponse {
-            status: 401,
-            body: json!({"title": "Not signed in"}),
-            offline: false,
-        });
-    };
-    let method = reqwest::Method::from_bytes(method.as_bytes()).map_err(|e| e.to_string())?;
+    touched: Option<Vec<engine::Touched>>,
+) -> Result<engine::ApiResponse, String> {
     if !matches!(method.as_str(), "GET" | "POST" | "PUT" | "PATCH" | "DELETE") {
         return Err("refused method".into());
     }
-    let mut req = remote::client(Some(Duration::from_secs(60)))
-        .request(method, remote::api_url(&server, &path)?)
-        .bearer_auth(token);
-    if let Some(b) = body {
-        req = req.json(&b);
-    }
-    let res = match req.send().await {
-        Ok(r) => r,
-        Err(_) => {
-            return Ok(ApiResponse {
-                status: 0,
-                body: Value::Null,
-                offline: true,
-            });
-        }
-    };
-    let status = res.status().as_u16();
-    let offline = res
-        .headers()
-        .get("X-Streamline-Offline")
-        .is_some_and(|v| v == "1");
-    let bytes = read_limited(res).await?;
-    let body = if bytes.is_empty() {
-        Value::Null
-    } else {
-        serde_json::from_slice(&bytes).unwrap_or(Value::Null)
-    };
-    Ok(ApiResponse {
-        status,
-        body,
-        offline,
-    })
+    remote::check_path(&path)?;
+    Ok(engine(&app)
+        .request(&method, &path, body, touched.unwrap_or_default())
+        .await)
 }
 
-async fn read_limited(res: reqwest::Response) -> Result<Vec<u8>, String> {
-    let mut out = Vec::new();
-    let mut stream = res.bytes_stream();
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|e| e.to_string())?;
-        if out.len() + chunk.len() > remote::MAX_BODY {
-            return Err("response too large".into());
-        }
-        out.extend_from_slice(&chunk);
+/// How many changes are waiting to be sent.
+#[tauri::command]
+async fn outbox_status(app: AppHandle) -> engine::Report {
+    engine::Report {
+        pending: engine(&app).pending().await,
+        ..Default::default()
     }
-    Ok(out)
 }
 
 /// Save a download (export, CSV, backup) into the user's Downloads folder.
@@ -297,7 +272,7 @@ async fn download(
         .map_err(|e| e.without_url().to_string())?
         .error_for_status()
         .map_err(|e| e.without_url().to_string())?;
-    let bytes = read_limited(res).await?;
+    let bytes = remote::read_limited(res).await?;
     let name: String = filename
         .chars()
         .filter(|c| c.is_alphanumeric() || matches!(c, '.' | '-' | '_'))
@@ -373,8 +348,13 @@ fn start_events(app: &AppHandle) {
                             opened = true;
                             wait = 1;
                             let _ = app2.emit("server-stream", json!({"open": true}));
+                            // The server is back: send what waited.
+                            engine(&app2).kick();
                         }
                         for (event, data) in parser.feed(&String::from_utf8_lossy(&chunk)) {
+                            if event == "change" {
+                                engine(&app2).ingest_event(&data).await;
+                            }
                             let _ =
                                 app2.emit("server-event", json!({"event": event, "data": data}));
                         }
@@ -413,12 +393,33 @@ fn main() {
             connect,
             sign_out,
             api,
+            outbox_status,
             download,
             events_open,
             events_close
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
+            // The replica and outbox (9.5); reports go to the page as `outbox` events.
+            let data_dir = app.path().app_data_dir()?;
+            let emitter = handle.clone();
+            let engine = tauri::async_runtime::block_on(Engine::open(
+                &data_dir.join("replica.sqlite"),
+                move |r| {
+                    let _ = emitter.emit("outbox", r);
+                },
+            ))?;
+            app.state::<App>().engine.set(engine.clone()).ok();
+            // Waiting changes are retried every half minute, also without the window open.
+            let retry = engine.clone();
+            tauri::async_runtime::spawn(async move {
+                loop {
+                    tokio::time::sleep(Duration::from_secs(30)).await;
+                    if retry.pending().await > 0 {
+                        retry.replay().await;
+                    }
+                }
+            });
             // Saved settings and the token from the keyring.
             if let Ok(p) = config_path(&handle)
                 && let Ok(bytes) = std::fs::read(p)
@@ -436,6 +437,7 @@ fn main() {
                     *state.token.lock().unwrap() = token.ok().flatten();
                 }
                 *state.config.lock().unwrap() = c;
+                engine.set_credentials(credentials(&state));
             }
 
             let open = MenuItem::with_id(app, "open", "Open Streamline", true, None::<&str>)?;

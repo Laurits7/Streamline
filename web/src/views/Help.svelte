@@ -294,8 +294,12 @@
       instantly. The dot next to “Streamline” in the sidebar is green while live sync is connected.
     </p>
     <p>
-      If you're offline, a change you make is rejected with a message and undone. Full offline use is planned for
-      later.
+      In the browser, a change you make while offline is rejected with a message and undone. The <strong>Linux desktop
+      app</strong> works offline: it keeps a copy of your data, and changes you make offline wait on the computer (the
+      banner says how many) and are sent when the server is back. If the same thing was changed elsewhere meanwhile, the
+      newer change wins, field by field; a short note then says what was kept, and a change to something deleted
+      elsewhere is dropped. Adding, editing and deleting tasks, planning, projects, routines, the journal, health and
+      logged values work offline; a few other actions (starting a workflow, splitting a task, settings) need the server.
     </p>
   </section>
 

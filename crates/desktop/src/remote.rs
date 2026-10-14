@@ -121,6 +121,21 @@ impl reqwest::dns::Resolve for SafeResolver {
     }
 }
 
+/// A response body, refused past `MAX_BODY`.
+pub async fn read_limited(res: reqwest::Response) -> Result<Vec<u8>, String> {
+    use futures_util::StreamExt;
+    let mut out = Vec::new();
+    let mut stream = res.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| e.to_string())?;
+        if out.len() + chunk.len() > MAX_BODY {
+            return Err("response too large".into());
+        }
+        out.extend_from_slice(&chunk);
+    }
+    Ok(out)
+}
+
 /// Server-sent events, fed a chunk at a time (`/api/v1/events`).
 #[derive(Default)]
 pub struct SseParser {

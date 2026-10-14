@@ -652,11 +652,16 @@ own), then the server's merge support, then the desktop app on top of it.
       first run asks for the server URL and signs in for a device token (keyring); tray,
       close-to-tray, start at login; the web client detects the desktop app; CSP and
       outbound checks as in D-67.
-- [ ] **9.5 Local replica and outbox** (D-78, D-79): local SQLite replica fed by `/sync` and
+- [x] **9.5 Local replica and outbox** (D-78, D-79): local SQLite replica fed by `/sync` and
       `/events`; the UI reads and writes through the local engine; outbox replayed in order on
       reconnect with base values (9.3); "offline, changes will sync" banner instead of the
       read-only one, pending-change count, "synced with changes" notice; tests (offline edits,
       conflicts, delete vs edit, restart with a full outbox).
+- [ ] **9.5b "This computer only" mode** (D-88): the desktop app can run the Streamline server
+      in-process on 127.0.0.1 (data in the user's data folder) instead of connecting to one;
+      first-run choice between the two; background jobs (routines, rollover, reminders,
+      backups) run while the app runs; moving to a server later via export and import; tests;
+      help and README.
 - [ ] **9.6 Focus options** (D-82): mute and screens options on the focus start screen (off by
       default, last choice remembered), stored with the focus session and synced; desktop:
       mute/restore through `pactl`, overlay or full-screen timer windows on every monitor

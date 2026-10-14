@@ -2,7 +2,8 @@
   import ProjectMark from './lib/components/ProjectMark.svelte'
   import { connection } from './lib/connection.svelte'
   import { clearOfflineData } from './lib/pwa'
-  import { desktop, invoke } from './lib/desktop'
+  import { desktop, invoke, listen } from './lib/desktop'
+  import { syncNotice, type OutboxReport } from './lib/outbox'
   import { api, ApiError, onUnauthorized } from './lib/api/client'
   import Icon from './lib/components/Icon.svelte'
   import PullSheet from './lib/components/PullSheet.svelte'
@@ -51,6 +52,8 @@
   }
 
   async function logout() {
+    if (desktop && connection.pending && !confirm(`${connection.pending} change${connection.pending === 1 ? " hasn't" : "s haven't"} reached the server yet. Signing out discards them. Sign out anyway?`))
+      return
     try {
       // The desktop app revokes its device token and forgets it (D-78).
       if (desktop) await invoke('sign_out')
@@ -73,6 +76,25 @@
     const planning = n.kind === 'plan_evening' || n.kind === 'plan_morning'
     toast(n.title, 'info', { label: planning ? 'Plan now' : 'Open', run: () => router.go(n.url) })
   }
+
+  // Desktop app: changes made offline (9.5). The banner counts what's waiting; once it's
+  // sent, the app catches up and says if anything clashed or was refused.
+  $effect(() => {
+    if (!desktop) return
+    invoke<OutboxReport>('outbox_status').then((r) => (connection.pending = r.pending)).catch(() => {})
+    const off = listen<OutboxReport>('outbox', (r) => {
+      connection.pending = r.pending
+      if (!r.sent && !r.dropped.length) return
+      connection.offline = false
+      const notice = syncNotice(r, (k, id) => store.titleOf(k, id))
+      if (notice) toast(notice, 'info', { label: 'OK', run: () => {} })
+      else toast(`Synced ${r.sent} change${r.sent === 1 ? '' : 's'} made offline`)
+      store.sync().catch(() => {})
+    })
+    return () => {
+      off.then((u) => u())
+    }
+  })
 
   // Desktop app: downloads (export, CSV, backups) are saved by the app, which has the token.
   $effect(() => {
@@ -213,8 +235,14 @@
     </aside>
 
     <main class="content" class:wide={isDayRoute}>
-      {#if connection.offline}
+      {#if connection.offline && desktop}
+        <div class="offline" role="status">
+          You're offline. Changes are kept on this computer and sync when the server is back{connection.pending ? ` (${connection.pending} waiting)` : ''}.
+        </div>
+      {:else if connection.offline}
         <div class="offline" role="status">You're offline: showing what was last loaded. Changes need a connection.</div>
+      {:else if connection.pending}
+        <div class="offline syncing" role="status">Syncing {connection.pending} change{connection.pending === 1 ? '' : 's'} made offline…</div>
       {/if}
       {#if route.name === 'today'}
         <Day />
@@ -283,6 +311,10 @@
     margin-bottom: 12px;
     font-size: 14px;
     font-weight: 600;
+  }
+  .offline.syncing {
+    background: var(--accent-soft);
+    color: var(--accent);
   }
   .splash {
     min-height: 100dvh;

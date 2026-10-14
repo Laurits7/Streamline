@@ -21,6 +21,9 @@
   window, connected to your server with a per-computer key kept in the system keyring. It
   stays in the tray when closed and can start at login (Settings → Desktop app). Build it
   with `make desktop` (D-78, D-87).
+- The desktop app works offline: it keeps a copy of your data, and changes made offline
+  wait on the computer and are sent when the server is back, merged field by field with
+  changes made elsewhere; a note says if anything clashed or was dropped (D-79, D-89).
 - API: updates can carry `base` (the values they were based on) and `edited_at`; the server
   merges them field by field with newer changes (checklists per item) and lists any
   `conflicts` in the response. Groundwork for the offline desktop app (D-79, D-85).

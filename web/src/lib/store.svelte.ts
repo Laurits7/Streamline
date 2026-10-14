@@ -3,7 +3,7 @@
 // arrive over SSE and are merged by `rev`.
 
 import { SvelteMap } from 'svelte/reactivity'
-import { api, ApiError } from './api/client'
+import { api, ApiError, withTouched } from './api/client'
 import type { Calendar } from './api/types/Calendar'
 import type { CalendarAccountView } from './api/types/CalendarAccountView'
 import type { CalendarEvent } from './api/types/CalendarEvent'
@@ -495,7 +495,11 @@ class Store {
     let results: [Kind, Entity][] | void = undefined
     let failed: unknown = null
     try {
-      results = await send()
+      // The records as they are now, so the desktop app can keep the change offline.
+      results = await withTouched(
+        touched.map(([k, id]) => [k, id, this.map(k).get(id) ? $state.snapshot(this.map(k).get(id)) : null]),
+        send,
+      )
     } catch (e) {
       failed = e
     }
@@ -516,6 +520,12 @@ class Store {
       return
     }
     for (const [k, e] of results ?? []) this.applyRemote(k, e)
+  }
+
+  /** A record's name for messages: its title, name or date. */
+  titleOf(kind: string, id: string): string | null {
+    const e = this.map(kind as Kind)?.get(id) as { title?: string; name?: string; date?: string } | undefined
+    return e?.title ?? e?.name ?? e?.date ?? null
   }
 
   // ---- queries --------------------------------------------------------------
