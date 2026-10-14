@@ -544,7 +544,7 @@ Legend: **Deliverables** = what exists afterwards · **Tests** = what must be co
 - [ ] **7.6 GitHub integration**: import/link issues and PRs per project, mirror status.
 - [ ] **7.7 Calendar write-back**: `put_event` on the provider; write planned blocks as busy
       events to a dedicated calendar.
-- [ ] **7.8 Native app** *(on hold: owner prefers the web app, D-61)*: evaluate Tauri 2 reusing `web/`, with token auth and the
+- [ ] **7.8 Native app** *(Linux desktop app moved to Phase 9, D-78; phones stay on the PWA, D-61)*: evaluate Tauri 2 reusing `web/`, with token auth and the
       change feed.
 
 ---
@@ -622,6 +622,45 @@ the sharer's server is authoritative; members' servers hold a replica and forwar
 - [ ] **8.6 Tests and security review**: two servers in one test process (join, edit both ways,
       remove, revoke, home down, hostile peer input); compose file with two instances; review
       of the new server-to-server surface.
+
+### Phase 9: Desktop app, checklists everywhere, focus options (v1.3, D-78..D-83)
+
+Developed on the `v1.3` branch. Order: the small web features first (each releasable on its
+own), then the server's merge support, then the desktop app on top of it.
+
+- [ ] **9.1 Checklists complete their task** (D-80): on the server, ticking the last item
+      completes the task and unticking one on a done task reopens it (routine occurrences too,
+      with their usual completion side effects); drop the "complete it?" prompt in the client;
+      tests; help and CHANGELOG.
+- [ ] **9.2 Checklist popover and Agenda sublist** (D-81): hover popover on timeline items
+      with a checklist (tick, progress, open the task), long-press on touch, keyboard access
+      (focus + Enter), stays on screen near edges; indented tickable items under tasks in the
+      Agenda; tests for placement; help and CHANGELOG.
+- [ ] **9.3 Server merge for offline edits** (D-79): `crates/domain::merge` (per-field newest
+      wins, checklist per-item merge, delete beats edit) with tests; writes may carry `base`
+      values and `edited_at`; the response lists overwritten fields; creates with client ids
+      stay idempotent; covers tasks, day entries, routines, projects and tracking records the
+      client edits; OpenAPI and TS types.
+- [ ] **9.4 Desktop app shell** (D-78): `crates/desktop` (Tauri 2) with the built `web/`;
+      first run asks for the server URL and signs in for a device token (keyring); tray,
+      close-to-tray, start at login; the web client detects the desktop app; CSP and
+      outbound checks as in D-67.
+- [ ] **9.5 Local replica and outbox** (D-78, D-79): local SQLite replica fed by `/sync` and
+      `/events`; the UI reads and writes through the local engine; outbox replayed in order on
+      reconnect with base values (9.3); "offline, changes will sync" banner instead of the
+      read-only one, pending-change count, "synced with changes" notice; tests (offline edits,
+      conflicts, delete vs edit, restart with a full outbox).
+- [ ] **9.6 Focus options** (D-82): mute and screens options on the focus start screen (off by
+      default, last choice remembered), stored with the focus session and synced; desktop:
+      mute/restore through `pactl`, overlay or full-screen timer windows on every monitor
+      (follows monitors being plugged in), break colours; browser shows "needs the desktop
+      app"; tests for the state machine (what is muted/shown in which phase); help and CHANGELOG.
+- [ ] **9.7 Packaging** (D-83): release workflow builds the Linux app (tarball + .deb); 
+      `packaging/aur/streamline-desktop-bin` and `streamline-desktop` PKGBUILDs, .desktop
+      file and icons; `namcap` clean; build both in a clean Arch container; README section
+      on installing and on how the owner pushes the packages to the AUR.
+- [ ] **9.8 Phase gate** (Part D) plus: desktop app memory at idle, offline smoke test (pull
+      the network, edit, reconnect), security review of the local engine and token storage.
 
 ---
 
