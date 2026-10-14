@@ -195,7 +195,7 @@ git pull && docker compose up -d --build
 ```
 
 With the prebuilt image: `docker compose pull && docker compose up -d`. Pin a version with
-`image: ghcr.io/laurits7/streamline:1.2.0` instead of `latest` if you prefer to update on your own
+`image: ghcr.io/laurits7/streamline:1.3.0` instead of `latest` if you prefer to update on your own
 schedule. Database migrations run automatically on startup; going back to an older version after a
 migration means restoring the backup.
 

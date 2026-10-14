@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased (1.3.0)
+## 1.3.0 (2026-10-14)
 
 - Checklists complete their task: ticking the last step completes it (with Undo), and
   unticking a step of a completed task reopens it. Works the same for routines and on every
