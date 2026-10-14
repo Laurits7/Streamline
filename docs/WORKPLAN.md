@@ -527,6 +527,9 @@ Legend: **Deliverables** = what exists afterwards · **Tests** = what must be co
 
 ### Phase 7: Later (after v1.0, in the order given in §7.7)
 
+*v1.4 (D-93) takes 7.1, 7.2, 7.3, 7.6 and 7.7; 7.4 (thermal printing) is dropped and 7.5 stays
+postponed.*
+
 - [ ] **7.1 Integration framework + Mealie shopping list** *(needs Q-10)*: `IntegrationProvider`
       trait, encrypted settings, polling job, last-known state + warning on failure; read the
       live instance's `/docs` first. One open "Go shopping" task per list (deduplicated via
@@ -601,7 +604,7 @@ ideas: projects that aren't started yet, kept with a description.
 
 ---
 
-### Phase 8: Sync between Streamline servers (v1.1, D-69)
+### Phase 8: Sync between Streamline servers (v1.4, D-69, D-93)
 
 Shared projects across instances: each collaborator keeps their own server. Home-server model:
 the sharer's server is authoritative; members' servers hold a replica and forward writes.
@@ -679,6 +682,35 @@ own), then the server's merge support, then the desktop app on top of it.
       test passwords or tokens in the test, server or app logs; README, DECISIONS, OpenAPI
       and TS types current. *Left for the owner:* smoke test on a phone and behind the HTTPS
       proxy, and the pre-release tag.
+
+### Phase 10: Productivity (v1.4, D-93)
+
+Developed on the `v1.4` branch, with Phase 7's picked integrations and Phase 8. Order: the
+productivity features first (small, used daily), then 7.3, 7.7, 7.6, 7.1–7.2, then Phase 8,
+then the gate.
+
+- [ ] **10.1 README badges**: CI, latest release, licence, image, and what the CI enforces
+      (rustfmt, clippy with warnings as errors, tests, bundle budget).
+- [ ] **10.2 Command palette and keyboard shortcuts**: Ctrl+K (⌘K) searches tasks (titles,
+      notes, checklist steps), projects, routines, journal and pages, and runs actions on the
+      chosen item (open, plan today or tomorrow, focus, complete); single-key shortcuts
+      outside text fields (n new task, / search, g t Today, g i Inbox, g p Plan, j/k move,
+      x complete, ? lists them); pure ranking in `web/src/lib` with tests; help and CHANGELOG.
+- [ ] **10.3 Inbox triage**: process the inbox one item at a time with one-key decisions (do
+      now, today, tomorrow, pick a project, schedule, waiting, delete, skip), progress and
+      undo; tests; help and CHANGELOG.
+- [ ] **10.4 Weekly review**: a guided review: last week's numbers, overdue and stale tasks,
+      waiting items, projects without a next step, ideas to start or drop, then plan next
+      week; the goal review folds in; remembers when it was last done and reminds on the
+      chosen day; tests; help and CHANGELOG.
+- [ ] **10.5 Better estimates**: from estimates vs. focus time actually spent (domain,
+      tested): the usual overrun overall and per project and type of task, a suggested
+      estimate when planning and in the task sheet, and planning load using realistic
+      times (optional); Trends shows estimate accuracy; help and CHANGELOG.
+- [ ] **10.6 Morning digest**: one message each morning (time per user, off by default)
+      through push or ntfy: today's plan, fixed times, what's due, waiting items to check;
+      tests for the content; help and CHANGELOG.
+- [ ] **10.7 Phase gate** (Part D) for v1.4.
 
 ---
 
