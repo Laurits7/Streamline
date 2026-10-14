@@ -11,6 +11,7 @@ use crate::{
     auth::AuthUser,
     db::next_rev,
     error::{ApiResult, AppError, bad},
+    merge::Merged,
     events::Change,
     models::{
         ChecklistItem, DayEntry, TASK_STATUSES, Task, log_task_event, upsert_entry, upsert_task,
@@ -223,7 +224,8 @@ pub async fn create(
         .fetch_optional(&mut *tx)
         .await?
     {
-        if existing.owner_user_id.as_deref() == Some(user.id()) {
+        // A replayed create (offline outbox, D-79) gets the record, shared ones too.
+        if crate::visibility::can_see(&user, existing.owner_user_id.as_deref(), existing.owner_group_id.as_deref()) {
             return Ok(Json(existing));
         }
         return Err(AppError::Conflict("id already in use".into()));
@@ -392,6 +394,10 @@ pub struct PatchTask {
     waiting_note: Option<String>,
     /// Steps inside the task (replaces the list; D-71).
     checklist: Option<Vec<ChecklistItem>>,
+    /// An offline edit's base values and time (D-79).
+    #[serde(flatten)]
+    #[allow(dead_code)]
+    merge: crate::merge::MergeBase,
 }
 
 /// A check-back time as the server stores timestamps (UTC, milliseconds).
@@ -471,15 +477,16 @@ async fn check_also(
     Ok(out)
 }
 
-#[utoipa::path(patch, path = "/tasks/{id}", tag = "tasks", summary = "Update a task; status done completes it", params(("id" = String, Path, description = "ULID")), request_body = PatchTask, responses((status = 200, body = Task), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
+#[utoipa::path(patch, path = "/tasks/{id}", tag = "tasks", summary = "Update a task; status done completes it", params(("id" = String, Path, description = "ULID")), request_body = PatchTask, responses((status = 200, body = Merged<Task>), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
 pub async fn patch(
     State(state): State<AppState>,
     user: AuthUser,
     Path(id): Path<String>,
-    Json(c): Json<PatchTask>,
-) -> ApiResult<Json<Task>> {
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<Json<Merged<Task>>> {
     let mut tx = state.db.write.begin().await?;
     let mut t = load_visible(&mut tx, &user, &id).await?;
+    let (c, conflicts): (PatchTask, _) = crate::merge::prepare(body, Some(&t), Some(&t.updated_at))?;
     let old_status = t.status.clone();
     if let Some(v) = c.title {
         t.title = check_title(&v)?;
@@ -693,7 +700,7 @@ pub async fn patch(
     }
     tx.commit().await?;
     state.bus.publish(changes);
-    Ok(Json(t))
+    Ok(Json(Merged::new(t, conflicts)))
 }
 
 #[utoipa::path(delete, path = "/tasks/{id}", tag = "tasks", summary = "Delete a task", params(("id" = String, Path, description = "ULID")), responses((status = 204, description = "Done"), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]

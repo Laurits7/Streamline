@@ -5752,3 +5752,156 @@ async fn health_check_in() {
     let (_, mine, _) = t.req("GET", "/api/v1/sync", Some(&admin), None).await;
     assert_eq!(mine["health_days"].as_array().unwrap().len(), 1);
 }
+
+#[tokio::test]
+async fn offline_edits_merge_by_field() {
+    // D-79: an edit carries the values it was based on and when it was made.
+    let t = setup().await;
+    let admin = t.admin().await;
+    let item = |id: &str, done: bool| json!({"id": id, "text": id, "done": done});
+    let old = "2020-01-01T00:00:00Z";
+    let (_, task, _) = t
+        .req("POST", "/api/v1/tasks", Some(&admin), Some(json!({"title": "Laundry", "notes": "", "checklist": [item("a", false), item("b", false)]})))
+        .await;
+    let path = format!("/api/v1/tasks/{}", task["id"].as_str().unwrap());
+    // Online: renamed, and step a ticked.
+    let (_, v, _) = t
+        .req("PATCH", &path, Some(&admin), Some(json!({"title": "Laundry (online)", "checklist": [item("a", true), item("b", false)]})))
+        .await;
+    assert!(v.get("conflicts").is_none(), "{v}");
+
+    // An older offline edit: rename, notes, tick b, add c.
+    let base = json!({"title": "Laundry", "notes": "", "checklist": [item("a", false), item("b", false)]});
+    let (s, v, _) = t
+        .req("PATCH", &path, Some(&admin), Some(json!({
+            "title": "Laundry (offline)", "notes": "40°",
+            "checklist": [item("a", false), item("b", true), item("c", false)],
+            "base": base, "edited_at": old,
+        })))
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["title"], "Laundry (online)", "the newer change stays");
+    assert_eq!(v["notes"], "40°", "a field only one side changed applies");
+    let ticks: Vec<(&str, bool)> = v["checklist"].as_array().unwrap().iter().map(|i| (i["id"].as_str().unwrap(), i["done"].as_bool().unwrap())).collect();
+    assert_eq!(ticks, vec![("a", true), ("b", true), ("c", false)]);
+    assert_eq!(v["status"], "open");
+    assert_eq!(v["conflicts"], json!([{"field": "title", "item": null, "kept": "server", "server": "Laundry (online)", "client": "Laundry (offline)"}]));
+
+    // A newer offline edit wins, and says what it overwrote.
+    let (_, v, _) = t
+        .req("PATCH", &path, Some(&admin), Some(json!({"title": "Laundry (newest)", "base": {"title": "Laundry"}})))
+        .await;
+    assert_eq!(v["title"], "Laundry (newest)");
+    assert_eq!(v["conflicts"][0]["kept"], "client");
+    assert_eq!(v["conflicts"][0]["server"], "Laundry (online)");
+    // Bad merge info is refused.
+    for bad in [json!({"title": "x", "base": 3}), json!({"title": "x", "base": {}, "edited_at": "soon"})] {
+        let (s, _, _) = t.req("PATCH", &path, Some(&admin), Some(bad)).await;
+        assert_eq!(s, StatusCode::BAD_REQUEST);
+    }
+    // A deletion beats an edit.
+    t.req("DELETE", &path, Some(&admin), None).await;
+    let (s, _, _) = t
+        .req("PATCH", &path, Some(&admin), Some(json!({"title": "Too late", "base": {"title": "Laundry"}, "edited_at": old})))
+        .await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+
+    // Projects, routines, day entries and metric entries take the same merge.
+    let (_, p, _) = t.req("POST", "/api/v1/projects", Some(&admin), Some(json!({"name": "House"}))).await;
+    let ppath = format!("/api/v1/projects/{}", p["id"].as_str().unwrap());
+    t.req("PATCH", &ppath, Some(&admin), Some(json!({"name": "Home"}))).await;
+    let (_, v, _) = t
+        .req("PATCH", &ppath, Some(&admin), Some(json!({"name": "Flat", "description": "Rent", "base": {"name": "House", "description": ""}, "edited_at": old})))
+        .await;
+    assert_eq!((v["name"].as_str(), v["description"].as_str()), (Some("Home"), Some("Rent")), "{v}");
+    assert_eq!(v["conflicts"][0]["field"], "name");
+
+    let (_, r, _) = t
+        .req("POST", "/api/v1/series", Some(&admin), Some(json!({"title": "Vitamins", "mode": "repeat", "rrule": "FREQ=DAILY"})))
+        .await;
+    let rpath = format!("/api/v1/series/{}", r["id"].as_str().unwrap());
+    t.req("PATCH", &rpath, Some(&admin), Some(json!({"title": "Vitamin D"}))).await;
+    let (_, v, _) = t
+        .req("PATCH", &rpath, Some(&admin), Some(json!({"title": "Vitamin C", "base": {"title": "Vitamins"}, "edited_at": old})))
+        .await;
+    assert_eq!(v["title"], "Vitamin D", "{v}");
+
+    let (_, task2, _) = t.req("POST", "/api/v1/tasks", Some(&admin), Some(json!({"title": "Call plumber"}))).await;
+    let today = today_of(&t, &admin).await;
+    let (_, e, _) = t
+        .req("POST", &format!("/api/v1/days/{}/entries", ymd(today)), Some(&admin), Some(json!({"task_id": task2["id"], "start_time": "09:00"})))
+        .await;
+    let epath = format!("/api/v1/day-entries/{}", e["id"].as_str().unwrap());
+    t.req("PATCH", &epath, Some(&admin), Some(json!({"start_time": "10:00"}))).await;
+    let (_, v, _) = t
+        .req("PATCH", &epath, Some(&admin), Some(json!({"start_time": "11:00", "duration_min": 45, "base": {"start_time": "09:00", "duration_min": null}, "edited_at": old})))
+        .await;
+    assert_eq!((v["start_time"].as_str(), v["duration_min"].as_i64()), (Some("10:00"), Some(45)), "{v}");
+
+    let (_, m, _) = t.req("POST", "/api/v1/metrics", Some(&admin), Some(json!({"name": "Steps", "kind": "number"}))).await;
+    let (_, me, _) = t
+        .req("POST", &format!("/api/v1/metrics/{}/entries", m["id"].as_str().unwrap()), Some(&admin), Some(json!({"value": 1000})))
+        .await;
+    let mpath = format!("/api/v1/metric-entries/{}", me["id"].as_str().unwrap());
+    t.req("PATCH", &mpath, Some(&admin), Some(json!({"value": 2000}))).await;
+    let (_, v, _) = t
+        .req("PATCH", &mpath, Some(&admin), Some(json!({"value": 1500, "base": {"value": 1000}, "edited_at": old})))
+        .await;
+    assert_eq!(v["value"], 2000.0, "{v}");
+}
+
+#[tokio::test]
+async fn offline_edits_of_day_records() {
+    let t = setup().await;
+    let admin = t.admin().await;
+    let today = ymd(today_of(&t, &admin).await);
+    let old = "2020-01-01T00:00:00Z";
+    // Reflection: fields merge one by one; a record that didn't exist takes the edit.
+    let rec = format!("/api/v1/days/{today}/record");
+    let (_, v, _) = t
+        .req("PUT", &rec, Some(&admin), Some(json!({"journal": "offline", "base": {"journal": ""}, "edited_at": old})))
+        .await;
+    assert_eq!(v["journal"], "offline");
+    t.req("PUT", &rec, Some(&admin), Some(json!({"journal": "online"}))).await;
+    let (_, v, _) = t
+        .req("PUT", &rec, Some(&admin), Some(json!({"journal": "offline 2", "went_well": "sun", "base": {"journal": "offline", "went_well": ""}, "edited_at": old})))
+        .await;
+    assert_eq!((v["journal"].as_str(), v["went_well"].as_str()), (Some("online"), Some("sun")), "{v}");
+
+    // Health: the kind goes with whichever status was kept, so the pair stays valid.
+    let health = format!("/api/v1/days/{today}/health");
+    t.req("PUT", &health, Some(&admin), Some(json!({"status": "ok"}))).await;
+    t.req("PUT", &health, Some(&admin), Some(json!({"status": "sick", "kind": "cold"}))).await;
+    let (s, v, _) = t
+        .req("PUT", &health, Some(&admin), Some(json!({"status": "injured", "kind": "back", "note": "lifting", "base": {"status": "ok", "kind": null, "note": ""}, "edited_at": old})))
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!((v["status"].as_str(), v["kind"].as_str(), v["note"].as_str()), (Some("sick"), Some("cold"), Some("lifting")));
+    let (_, v, _) = t
+        .req("PUT", &health, Some(&admin), Some(json!({"status": "injured", "kind": "back", "base": {"status": "ok", "kind": null}})))
+        .await;
+    assert_eq!((v["status"].as_str(), v["kind"].as_str()), (Some("injured"), Some("back")));
+    // A cleared check-in stays cleared.
+    t.req("DELETE", &health, Some(&admin), None).await;
+    let (s, _, _) = t
+        .req("PUT", &health, Some(&admin), Some(json!({"status": "great", "base": {"status": "injured"}, "edited_at": old})))
+        .await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn replayed_creates_return_the_record() {
+    // An outbox may send a create twice; shared records too (D-79).
+    let t = setup().await;
+    let admin = t.admin().await;
+    let (_, g, _) = t.req("POST", "/api/v1/groups", Some(&admin), Some(json!({"name": "Family"}))).await;
+    let body = json!({"id": "01JC00000000000000000000AA", "title": "Shared chore", "owner_group_id": g["id"]});
+    let (s1, a, _) = t.req("POST", "/api/v1/tasks", Some(&admin), Some(body.clone())).await;
+    let (s2, b, _) = t.req("POST", "/api/v1/tasks", Some(&admin), Some(body)).await;
+    assert_eq!((s1, s2), (StatusCode::OK, StatusCode::OK), "{a} {b}");
+    assert_eq!(a["id"], b["id"]);
+    let body = json!({"id": "01JC00000000000000000000AB", "name": "Garden", "owner_group_id": g["id"]});
+    let (_, a, _) = t.req("POST", "/api/v1/projects", Some(&admin), Some(body.clone())).await;
+    let (s, b, _) = t.req("POST", "/api/v1/projects", Some(&admin), Some(body)).await;
+    assert_eq!((s, &a["id"]), (StatusCode::OK, &b["id"]));
+}

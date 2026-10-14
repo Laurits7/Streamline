@@ -11,6 +11,9 @@
 - Checklist steps show in the day log on the day they were done, so a chore spread over two
   days (wash on Monday, fold on Tuesday) shows up on both (D-84). On the timeline the 2/4
   chip moved to the second line so the title has the whole first line.
+- API: updates can carry `base` (the values they were based on) and `edited_at`; the server
+  merges them field by field with newer changes (checklists per item) and lists any
+  `conflicts` in the response. Groundwork for the offline desktop app (D-79, D-85).
 
 ## 1.2.0 (2026-10-08)
 
