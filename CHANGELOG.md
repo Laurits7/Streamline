@@ -28,6 +28,8 @@
   in a corner, full screen, or full screen only on breaks). Both off until you turn them on,
   and your choice is kept for next time. The desktop app applies them on every computer it
   runs on, whichever device started the timer (D-82, D-90).
+- Desktop app packages: a `.deb` and a tarball with every release, and the AUR packages
+  `streamline-desktop-bin` and `streamline-desktop` (D-83, D-91).
 - The desktop app can also run on its own, without a server ("This computer only" on first
   start), for a single laptop. Your data stays in a folder that can later be used to start
   a real Streamline server (D-88).

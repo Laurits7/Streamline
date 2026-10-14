@@ -1,0 +1,47 @@
+# Maintainer: Laurits7 <30724920+Laurits7 at users dot noreply dot github dot com>
+# The desktop app built from source (D-83). Update with packaging/aur/update.sh VERSION.
+pkgname=streamline-desktop
+pkgver=1.2.0
+pkgrel=1
+pkgdesc='Household todo and day planner: desktop app (connects to a Streamline server, works offline)'
+arch=('x86_64')
+url='https://github.com/Laurits7/Streamline'
+license=('GPL-3.0-or-later')
+# libayatana-appindicator (the tray icon) is loaded at run time, so namcap can't see it.
+depends=('webkit2gtk-4.1' 'gtk3' 'libayatana-appindicator' 'libsoup3' 'glib2' 'cairo' 'gdk-pixbuf2' 'dbus'
+         'libgcc' 'glibc' 'hicolor-icon-theme')
+makedepends=('cargo' 'npm')
+optdepends=('libpulse: mute the speakers during focus (pactl)')
+options=('!lto' '!debug')
+source=("Streamline-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+prepare() {
+  cd "Streamline-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')" --manifest-path crates/desktop/Cargo.toml
+  cd web
+  npm ci --no-audit --no-fund
+}
+
+build() {
+  cd "Streamline-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable CARGO_TARGET_DIR=target
+  # No build paths in the binary (panic messages carry source locations). makepkg still
+  # notes one reference to $srcdir: Tauri embeds the crate's folder for development use.
+  export RUSTFLAGS="${RUSTFLAGS:-} --remap-path-prefix=$srcdir=/build"
+  (cd web && npm run build)
+  cargo build --frozen --release --manifest-path crates/desktop/Cargo.toml
+}
+
+check() {
+  cd "Streamline-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable CARGO_TARGET_DIR=target
+  export RUSTFLAGS="${RUSTFLAGS:-} --remap-path-prefix=$srcdir=/build"
+  cargo test --frozen --release --manifest-path crates/desktop/Cargo.toml
+}
+
+package() {
+  cd "Streamline-$pkgver"
+  packaging/linux/stage.sh "$pkgdir" target/release/streamline-desktop
+}

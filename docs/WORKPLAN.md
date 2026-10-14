@@ -667,7 +667,7 @@ own), then the server's merge support, then the desktop app on top of it.
       mute/restore through `pactl`, overlay or full-screen timer windows on every monitor
       (follows monitors being plugged in), break colours; browser shows "needs the desktop
       app"; tests for the state machine (what is muted/shown in which phase); help and CHANGELOG.
-- [ ] **9.7 Packaging** (D-83): release workflow builds the Linux app (tarball + .deb); 
+- [x] **9.7 Packaging** (D-83): release workflow builds the Linux app (tarball + .deb); 
       `packaging/aur/streamline-desktop-bin` and `streamline-desktop` PKGBUILDs, .desktop
       file and icons; `namcap` clean; build both in a clean Arch container; README section
       on installing and on how the owner pushes the packages to the AUR.

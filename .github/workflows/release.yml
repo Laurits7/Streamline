@@ -43,6 +43,8 @@ jobs:
             echo
             echo "Quick start: download \`docker-compose.yml\` below into an empty directory and run \`docker compose up -d\`."
             echo
+            echo "Linux desktop app: \`streamline-desktop_${version}_amd64.deb\` (Debian, Ubuntu) or \`streamline-desktop-${version}-x86_64-linux.tar.gz\`; on Arch, \`streamline-desktop-bin\` or \`streamline-desktop\` from the AUR."
+            echo
             awk -v v="$version" '
               /^## / { if (p) exit; p = ($2 == v) ; next }
               p' CHANGELOG.md
@@ -56,3 +58,45 @@ jobs:
           else
             gh release create "$TAG" out/docker-compose.yml --verify-tag --title "Streamline ${TAG#v}" --notes-file out/notes.md
           fi
+
+  # The Linux desktop app (D-83), built from the tag: a tarball (also used by the AUR
+  # package streamline-desktop-bin) and a .deb, added to the release.
+  desktop:
+    needs: release
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ inputs.tag || github.event.workflow_run.head_branch }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - name: Check the desktop app's version
+        run: |
+          v=$(sed -n '/^\[package\]/,/^\[/ s/^version = "\(.*\)"/\1/p' crates/desktop/Cargo.toml)
+          test "$v" = "${TAG#v}" || { echo "crates/desktop is $v, the tag is $TAG: run scripts/bump-version.sh"; exit 1; }
+      - name: Libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev pkg-config
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Build
+        run: |
+          (cd web && npm ci && npm run build)
+          cargo build --release --locked --manifest-path crates/desktop/Cargo.toml
+      - name: Tarball and .deb
+        run: |
+          version="${TAG#v}"
+          packaging/linux/stage.sh out/stage
+          tar -C out/stage -czf "out/streamline-desktop-$version-x86_64-linux.tar.gz" usr
+          packaging/linux/deb.sh out/stage "$version" out
+          ls -la out
+      - name: Add to the release
+        run: gh release upload "$TAG" out/*.tar.gz out/*.deb --clobber

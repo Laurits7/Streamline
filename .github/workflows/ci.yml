@@ -49,6 +49,32 @@ jobs:
           test "$initial" -lt 153600
           test "$total" -lt 307200
 
+  # The Linux desktop app (D-78): its own Cargo workspace, with WebKitGTK.
+  desktop:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev pkg-config desktop-file-utils
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates/desktop
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: cd web && npm ci && npm run build
+      - run: cargo fmt --check --manifest-path crates/desktop/Cargo.toml
+      - run: cargo clippy --locked --all-targets --manifest-path crates/desktop/Cargo.toml -- -D warnings
+      - run: cargo test --locked --manifest-path crates/desktop/Cargo.toml
+      - run: desktop-file-validate packaging/linux/streamline-desktop.desktop
+
   # Multi-arch image (amd64 + arm64 via QEMU). Pull requests only build it, which
   # verifies the arm64 build; main and version tags also publish it to GHCR.
   image:

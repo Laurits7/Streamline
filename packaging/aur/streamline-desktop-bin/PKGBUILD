@@ -1,0 +1,23 @@
+# Maintainer: Laurits7 <30724920+Laurits7 at users dot noreply dot github dot com>
+# The desktop app as built by the release workflow (D-83). Update with
+# packaging/aur/update.sh VERSION, which sets pkgver, the checksum and .SRCINFO.
+pkgname=streamline-desktop-bin
+pkgver=1.2.0
+pkgrel=1
+pkgdesc='Household todo and day planner: desktop app (connects to a Streamline server, works offline)'
+arch=('x86_64')
+url='https://github.com/Laurits7/Streamline'
+license=('GPL-3.0-or-later')
+# libayatana-appindicator (the tray icon) is loaded at run time, so namcap can't see it.
+depends=('webkit2gtk-4.1' 'gtk3' 'libayatana-appindicator' 'libsoup3' 'glib2' 'cairo' 'gdk-pixbuf2' 'dbus'
+         'libgcc' 'glibc' 'hicolor-icon-theme')
+optdepends=('libpulse: mute the speakers during focus (pactl)')
+provides=('streamline-desktop')
+conflicts=('streamline-desktop')
+options=('!strip' '!debug')
+source_x86_64=("streamline-desktop-$pkgver-$CARCH-linux.tar.gz::$url/releases/download/v$pkgver/streamline-desktop-$pkgver-$CARCH-linux.tar.gz")
+sha256sums_x86_64=('SKIP')
+
+package() {
+  cp -a usr "$pkgdir/"
+}
