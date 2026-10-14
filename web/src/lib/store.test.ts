@@ -493,20 +493,30 @@ describe('default tasks (D-71)', () => {
   const tpl = (id: string, title: string, extra = {}) => ({
     id, owner_user_id: 'U1', owner_group_id: null, title, notes: '', checklist: [{ id: 'x', text: 'Sort', done: false }],
     estimate_min: 20, difficulty: null, importance: null, urgency: null, task_type_id: null, project_id: null, place_id: null,
-    created_at: TS, updated_at: TS, deleted_at: null, rev: 1, ...extra,
+    created_at: TS, updated_at: TS, deleted_at: null, rev: 1, kinds: [], ...extra,
   })
 
   it('suggests matches and creates tasks with a fresh checklist', async () => {
     await load({ projects: [project('P1')], task_templates: [tpl('D1', 'Do laundry'), tpl('D2', 'Water plants'), tpl('D3', 'Laundry towels')] })
-    expect(store.matchDefaults('laun').map((t) => t.id)).toEqual(['D3', 'D1'])
+    expect(store.matchDefaults('laun').map((m) => m.tpl.id)).toEqual(['D3', 'D1'])
     expect(store.matchDefaults('l')).toEqual([])
     mockApi((_m, _p, body) => task((body as { id: string }).id, body as Partial<Task>))
-    const id = store.createFromDefault('D1', { day: '2026-10-06', project_id: 'P1' })!
+    const [id] = store.createFromDefault('D1', { day: '2026-10-06', project_id: 'P1' })
     const t = store.tasks.get(id)!
     expect(t).toMatchObject({ title: 'Do laundry', estimate_min: 20, project_id: 'P1' })
     expect(t.checklist).toHaveLength(1)
     expect(t.checklist[0].id).not.toBe('x')
     expect(store.entryForTask(id)?.date).toBe('2026-10-06')
+  })
+
+  it('adds one task per chosen kind (D-86)', async () => {
+    const kinds = [{ id: 'lin', name: 'Linen', checklist: [] }, { id: 'col', name: 'Colours', checklist: [] }]
+    await load({ task_templates: [tpl('D1', 'Laundry', { kinds })] })
+    mockApi((_m, _p, body) => task((body as { id: string }).id, body as Partial<Task>))
+    const ids = store.createFromDefault('D1', { day: '2026-10-06' }, ['lin', 'col'])
+    expect(ids.map((id) => store.tasks.get(id)!.title)).toEqual(['Laundry: Linen', 'Laundry: Colours'])
+    expect(store.tasks.get(ids[0])!.checklist.map((i) => i.text)).toEqual(['Sort'])
+    expect(ids.every((id) => store.entryForTask(id)?.date === '2026-10-06')).toBe(true)
   })
 })
 

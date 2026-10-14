@@ -5905,3 +5905,37 @@ async fn replayed_creates_return_the_record() {
     let (s, b, _) = t.req("POST", "/api/v1/projects", Some(&admin), Some(body)).await;
     assert_eq!((s, &a["id"]), (StatusCode::OK, &b["id"]));
 }
+
+#[tokio::test]
+async fn default_tasks_have_kinds() {
+    // D-86: Laundry → linen, colours; each kind with its own steps (stored unticked).
+    let t = setup().await;
+    let admin = t.admin().await;
+    let item = |text: &str, done: bool| json!({"id": text.split(' ').next().unwrap(), "text": text, "done": done});
+    let (s, v, _) = t
+        .req("POST", "/api/v1/task-templates", Some(&admin), Some(json!({
+            "title": "Laundry", "checklist": [item("Wash", false), item("Fold", false)],
+            "kinds": [
+                {"id": "linen", "name": " Linen ", "checklist": [item("Wash at 60°", true), item("Iron", false)]},
+                {"id": "colours", "name": "Colours"},
+                {"id": "x", "name": " "},
+            ],
+        })))
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["kinds"], json!([
+        {"id": "linen", "name": "Linen", "checklist": [item("Wash at 60°", false), item("Iron", false)]},
+        {"id": "colours", "name": "Colours", "checklist": []},
+    ]));
+    let path = format!("/api/v1/task-templates/{}", v["id"].as_str().unwrap());
+    let (_, v, _) = t
+        .req("PATCH", &path, Some(&admin), Some(json!({"kinds": [{"id": "whites", "name": "Whites"}]})))
+        .await;
+    assert_eq!(v["kinds"][0]["name"], "Whites");
+    let (s, _, _) = t
+        .req("PATCH", &path, Some(&admin), Some(json!({"kinds": [{"id": "a", "name": "A"}, {"id": "a", "name": "B"}]})))
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    let (_, sync, _) = t.req("GET", "/api/v1/sync?since=0", Some(&admin), None).await;
+    assert_eq!(sync["task_templates"][0]["kinds"][0]["id"], "whites");
+}

@@ -11,6 +11,12 @@
 - Checklist steps show in the day log on the day they were done, so a chore spread over two
   days (wash on Monday, fold on Tuesday) shows up on both (D-84). On the timeline the 2/4
   chip moved to the second line so the title has the whole first line.
+- Default tasks can have kinds: Laundry → linen, colours; garbage → bio, paper. Picking one
+  asks which kinds this time and adds a task for each, with the kind's own steps or the
+  default task's (D-86).
+- "Add a task…" shows your default tasks as soon as you click into it, narrows them as you
+  type (kind names too), and lets you pick with the arrow keys; Enter without a pick still
+  adds what you typed.
 - API: updates can carry `base` (the values they were based on) and `edited_at`; the server
   merges them field by field with newer changes (checklists per item) and lists any
   `conflicts` in the response. Groundwork for the offline desktop app (D-79, D-85).

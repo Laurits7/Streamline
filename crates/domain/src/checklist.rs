@@ -34,13 +34,7 @@ pub fn normalize(items: Vec<Item>) -> Result<Vec<Item>, &'static str> {
         if it.text.chars().count() > MAX_TEXT {
             return Err("checklist items must be at most 200 characters");
         }
-        let id_ok = !it.id.is_empty()
-            && it.id.len() <= 40
-            && it
-                .id
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
-        if !id_ok {
+        if !valid_id(&it.id) {
             return Err("checklist item ids must be 1-40 letters, digits, - or _");
         }
         if out.iter().any(|o| o.id == it.id) {
@@ -117,6 +111,47 @@ pub fn stamp(old: &[Item], new: Vec<Item>, now: DateTime<Utc>, user: &str) -> Ve
         .collect()
 }
 
+/// A kind of a default task (D-86): "Laundry" → linen, colours; picking kinds adds one
+/// task per kind, with the kind's steps, or the default task's when it has none.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Kind {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub checklist: Vec<Item>,
+}
+
+pub const MAX_KINDS: usize = 20;
+
+/// Validate a default task's kinds: names trimmed and at most 80 characters, unnamed
+/// kinds dropped, ids as for items and unique, at most `MAX_KINDS`; steps as `normalize`,
+/// stored unticked.
+pub fn normalize_kinds(kinds: Vec<Kind>) -> Result<Vec<Kind>, &'static str> {
+    let mut out: Vec<Kind> = Vec::with_capacity(kinds.len());
+    for mut k in kinds {
+        k.name = k.name.trim().to_string();
+        if k.name.is_empty() {
+            continue;
+        }
+        if k.name.chars().count() > 80 {
+            return Err("kind names must be at most 80 characters");
+        }
+        if !valid_id(&k.id) || out.iter().any(|o| o.id == k.id) {
+            return Err("kind ids must be unique, 1-40 letters, digits, - or _");
+        }
+        k.checklist = fresh(&normalize(k.checklist)?);
+        out.push(k);
+    }
+    if out.len() > MAX_KINDS {
+        return Err("a default task can have at most 20 kinds");
+    }
+    Ok(out)
+}
+
+fn valid_id(id: &str) -> bool {
+    !id.is_empty() && id.len() <= 40 && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+}
+
 /// (done, total)
 pub fn progress(items: &[Item]) -> (usize, usize) {
     (items.iter().filter(|i| i.done).count(), items.len())
@@ -156,6 +191,28 @@ mod tests {
             done_at: None,
             done_by: None,
         }
+    }
+
+    #[test]
+    fn normalizes_kinds() {
+        let k = |id: &str, name: &str, steps: Vec<Item>| Kind {
+            id: id.into(),
+            name: name.into(),
+            checklist: steps,
+        };
+        let got = normalize_kinds(vec![
+            k("l", " Linen ", vec![it("w", "Wash", true)]),
+            k("x", "  ", vec![]),
+            k("c", "Colours", vec![]),
+        ])
+        .unwrap();
+        assert_eq!(got, vec![k("l", "Linen", vec![it("w", "Wash", false)]), k("c", "Colours", vec![])]);
+        assert!(normalize_kinds(vec![k("a", "A", vec![]), k("a", "B", vec![])]).is_err());
+        assert!(normalize_kinds(vec![k("a b", "A", vec![])]).is_err());
+        assert!(normalize_kinds(vec![k("a", &"x".repeat(81), vec![])]).is_err());
+        assert!(normalize_kinds(vec![k("a", "A", vec![it("s", "", false), it("s", "x", false), it("s", "y", false)])]).is_err());
+        let many: Vec<Kind> = (0..21).map(|i| k(&i.to_string(), "x", vec![])).collect();
+        assert!(normalize_kinds(many).is_err());
     }
 
     #[test]

@@ -412,6 +412,37 @@ pub struct WorkflowTemplate {
     pub rev: i64,
 }
 
+/// A kind of a default task (D-86), e.g. Laundry → linen. Adding it makes a task
+/// "Laundry: linen" with these steps, or the default task's when there are none.
+#[derive(Debug, Clone, Serialize, serde::Deserialize, TS, utoipa::ToSchema)]
+#[ts(export)]
+pub struct TemplateKind {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub checklist: Vec<ChecklistItem>,
+}
+
+impl From<TemplateKind> for streamline_domain::checklist::Kind {
+    fn from(k: TemplateKind) -> Self {
+        Self {
+            id: k.id,
+            name: k.name,
+            checklist: k.checklist.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+impl From<streamline_domain::checklist::Kind> for TemplateKind {
+    fn from(k: streamline_domain::checklist::Kind) -> Self {
+        Self {
+            id: k.id,
+            name: k.name,
+            checklist: k.checklist.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
 /// A default task (D-71): a ready-made task, e.g. "Do laundry" with its checklist.
 #[derive(Debug, Clone, Serialize, FromRow, TS, utoipa::ToSchema)]
 #[ts(export)]
@@ -425,6 +456,10 @@ pub struct TaskTemplate {
     #[ts(as = "Vec<ChecklistItem>")]
     #[schema(value_type = Vec<ChecklistItem>)]
     pub checklist: sqlx::types::Json<Vec<ChecklistItem>>,
+    /// Kinds to choose from when adding it (D-86); empty = a single task.
+    #[ts(as = "Vec<TemplateKind>")]
+    #[schema(value_type = Vec<TemplateKind>)]
+    pub kinds: sqlx::types::Json<Vec<TemplateKind>>,
     pub estimate_min: Option<i32>,
     pub difficulty: Option<i32>,
     pub importance: Option<i32>,
@@ -446,17 +481,18 @@ pub async fn upsert_task_template(
 ) -> sqlx::Result<()> {
     sqlx::query(
         "INSERT INTO task_templates (id, owner_user_id, owner_group_id, title, notes, checklist, estimate_min, difficulty,
-           importance, urgency, task_type_id, project_id, place_id, created_at, updated_at, deleted_at, rev)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+           importance, urgency, task_type_id, project_id, place_id, created_at, updated_at, deleted_at, rev, kinds)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
          ON CONFLICT(id) DO UPDATE SET owner_user_id=excluded.owner_user_id, owner_group_id=excluded.owner_group_id,
            title=excluded.title, notes=excluded.notes, checklist=excluded.checklist, estimate_min=excluded.estimate_min,
            difficulty=excluded.difficulty, importance=excluded.importance, urgency=excluded.urgency,
            task_type_id=excluded.task_type_id, project_id=excluded.project_id, place_id=excluded.place_id,
-           updated_at=excluded.updated_at, deleted_at=excluded.deleted_at, rev=excluded.rev",
+           updated_at=excluded.updated_at, deleted_at=excluded.deleted_at, rev=excluded.rev, kinds=excluded.kinds",
     )
     .bind(&t.id).bind(&t.owner_user_id).bind(&t.owner_group_id).bind(&t.title).bind(&t.notes).bind(&t.checklist)
     .bind(t.estimate_min).bind(t.difficulty).bind(t.importance).bind(t.urgency).bind(&t.task_type_id)
     .bind(&t.project_id).bind(&t.place_id).bind(&t.created_at).bind(&t.updated_at).bind(&t.deleted_at).bind(t.rev)
+    .bind(&t.kinds)
     .execute(conn)
     .await
     .map(|_| ())

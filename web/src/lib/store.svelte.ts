@@ -51,6 +51,7 @@ import { ulid } from './ulid'
 import { pickSub, pickTop, type Shape } from './marks'
 import { checkBackDue, isWaiting } from './waiting'
 import { statusAfter } from './checklist'
+import { allDefaults, matchDefaults, tasksFor, type DefaultMatch } from './defaults'
 
 type Kind =
   | 'task'
@@ -1355,18 +1356,12 @@ class Store {
   // ---- default tasks (D-71) -----------------------------------------------------
 
   defaultTasks(): TaskTemplate[] {
-    return [...this.taskTemplates.values()].sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }))
+    return allDefaults(this.taskTemplates.values()).map((m) => m.tpl)
   }
 
-  /** Default tasks whose title starts with (or has a word starting with) what's typed. */
-  matchDefaults(q: string, limit = 5): TaskTemplate[] {
-    const s = q.trim().toLowerCase()
-    if (s.length < 2) return []
-    const starts = (t: TaskTemplate) => t.title.toLowerCase().startsWith(s)
-    return this.defaultTasks()
-      .filter((t) => starts(t) || t.title.toLowerCase().split(/\s+/).some((w) => w.startsWith(s)))
-      .sort((a, b) => Number(starts(b)) - Number(starts(a)))
-      .slice(0, limit)
+  /** Default tasks (and their kinds) matching what's typed (D-86). */
+  matchDefaults(q: string, limit = 6): DefaultMatch[] {
+    return matchDefaults(this.taskTemplates.values(), q, limit)
   }
 
   async saveDefaultTask(id: string | null, body: Partial<Omit<TaskTemplate, 'id' | 'rev'>>): Promise<TaskTemplate | null> {
@@ -1409,16 +1404,19 @@ class Store {
     })
   }
 
-  /** A new task from a default task; where it's added decides the project if the default has none. */
-  createFromDefault(templateId: string, ctx: { day?: string; project_id?: string | null } = {}): string | null {
+  /**
+   * New tasks from a default task: one per chosen kind, or one without kinds (D-86). Where
+   * they're added decides the project if the default has none.
+   */
+  createFromDefault(templateId: string, ctx: { day?: string; project_id?: string | null } = {}, kindIds: string[] = []): string[] {
     const tpl = this.taskTemplates.get(templateId)
-    if (!tpl) return null
+    if (!tpl) return []
     const projectId = tpl.project_id && this.projects.has(tpl.project_id) ? tpl.project_id : (ctx.project_id ?? null)
     const idea = !!projectId && this.projects.get(projectId)?.status === 'idea'
-    return this.createTask({
-      title: tpl.title,
+    return tasksFor(tpl, kindIds).map(({ title, checklist }) => this.createTask({
+      title,
       notes: tpl.notes,
-      checklist: tpl.checklist.map((i) => ({ ...i, id: ulid(), done: false })),
+      checklist: checklist.map((i) => ({ id: ulid(), text: i.text, done: false })),
       estimate_min: tpl.estimate_min,
       difficulty: tpl.difficulty,
       importance: tpl.importance,
@@ -1427,7 +1425,7 @@ class Store {
       ...(tpl.place_id && this.places.has(tpl.place_id) ? { place_id: tpl.place_id } : {}),
       project_id: projectId,
       ...(ctx.day && !idea ? { day: ctx.day } : {}),
-    })
+    }))
   }
 
   // ---- workflows -------------------------------------------------------------

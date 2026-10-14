@@ -278,7 +278,7 @@
     <QuickAdd
       placeholder={isToday ? 'Add a task for today…' : `Add a task for ${dayLabel(date, store.today).toLowerCase()}…`}
       onadd={(title) => store.createTask({ title, day: date })}
-      ondefault={(id) => store.createFromDefault(id, { day: date })} />
+      ondefault={(id, kinds) => store.createFromDefault(id, { day: date }, kinds)} />
 
     {#if !wide}{@render timeline()}{/if}
 
