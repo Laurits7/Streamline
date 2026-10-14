@@ -92,6 +92,15 @@ fn merge<P: DeserializeOwned, R: Serialize>(
     };
     let base = edit.remove("base");
     let edited_at = edit.remove("edited_at");
+    // The checklist merge compares item lists pairwise: refuse oversized ones before it
+    // runs (they'd be refused by validation afterwards anyway; security review).
+    let too_long = |list: Option<&Value>| {
+        list.and_then(Value::as_array)
+            .is_some_and(|l| l.len() > streamline_domain::checklist::MAX_ITEMS)
+    };
+    if too_long(edit.get("checklist")) || too_long(base.as_ref().and_then(|b| b.get("checklist"))) {
+        return Err(bad("a checklist can have at most 50 items"));
+    }
     let mut conflicts = Vec::new();
     match (base, current) {
         (None | Some(Value::Null), _) | (_, None) => {}

@@ -83,6 +83,8 @@ pub async fn get_log(
     );
     // Main-project name of a task (subproject paths are shown by the client from ids).
     const PROJECT: &str = "(SELECT name FROM projects p WHERE p.id = t.project_id)";
+    // Steps of tasks the user can still see (not after leaving the group, say).
+    let visible = crate::visibility::visible_sql("t.");
     let sql = format!(
         "SELECT e.at AS at, e.kind AS kind, t.id AS task_id, t.title AS title, {PROJECT} AS project, NULL AS minutes, NULL AS extra
            FROM task_events e JOIN tasks t ON t.id = e.task_id
@@ -98,7 +100,7 @@ pub async fn get_log(
          SELECT json_extract(i.value, '$.done_at'), 'step', t.id, t.title, {PROJECT}, NULL, json_extract(i.value, '$.text')
            FROM tasks t, json_each(t.checklist) i
           WHERE t.deleted_at IS NULL AND t.checklist <> '[]' AND t.updated_at >= ?2
-            AND json_extract(i.value, '$.done') AND json_extract(i.value, '$.done_by') = ?1
+            AND {visible} AND json_extract(i.value, '$.done') AND json_extract(i.value, '$.done_by') = ?1
             AND json_extract(i.value, '$.done_at') >= ?2 AND json_extract(i.value, '$.done_at') < ?3
          UNION ALL
          SELECT t.started_at, 'started', t.id, t.title, {PROJECT}, NULL, NULL

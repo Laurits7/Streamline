@@ -88,7 +88,18 @@ pub fn check_path(path: &str) -> Result<(), String> {
 
 pub fn api_url(server: &str, path: &str) -> Result<Url, String> {
     check_path(path)?;
-    Url::parse(&format!("{server}/api/v1{path}")).map_err(|e| e.to_string())
+    let url = Url::parse(&format!("{server}/api/v1{path}")).map_err(|e| e.to_string())?;
+    // Encoded dots (`%2e%2e`) still count as `..` for the parser: whatever the page asks
+    // for has to stay under the server's /api/v1 (security review).
+    let prefix = Url::parse(server)
+        .map_err(|e| e.to_string())?
+        .path()
+        .trim_end_matches('/')
+        .to_string();
+    if !url.path().starts_with(&format!("{prefix}/api/v1/")) {
+        return Err(format!("refused path {path}"));
+    }
+    Ok(url)
 }
 
 /// The HTTP client for the configured server. Name resolution is checked as well, so a
@@ -136,6 +147,9 @@ pub async fn read_limited(res: reqwest::Response) -> Result<Vec<u8>, String> {
     Ok(out)
 }
 
+/// Longest event line kept while waiting for its end.
+const MAX_LINE: usize = 1024 * 1024;
+
 /// Server-sent events, fed a chunk at a time (`/api/v1/events`).
 #[derive(Default)]
 pub struct SseParser {
@@ -148,6 +162,13 @@ impl SseParser {
     /// Complete events in `chunk` (with what was left from earlier chunks), as (event, data).
     pub fn feed(&mut self, chunk: &str) -> Vec<(String, String)> {
         self.buf.push_str(chunk);
+        // A line that never ends (a broken or hostile server) can't grow without limit.
+        if self.buf.len() > MAX_LINE {
+            self.buf.clear();
+            self.data.clear();
+            self.event.clear();
+            return Vec::new();
+        }
         let mut out = Vec::new();
         while let Some(i) = self.buf.find('\n') {
             let line: String = self.buf.drain(..=i).collect();
@@ -233,6 +254,17 @@ mod tests {
             api_url("https://e.org/s", "/me").unwrap().as_str(),
             "https://e.org/s/api/v1/me"
         );
+        for sneaky in [
+            "/%2e%2e/%2e%2e/admin",
+            "/%2E%2E/x",
+            "/a/%2e%2e/%2e%2e/%2e%2e/x",
+        ] {
+            assert!(api_url("https://e.org/s", sneaky).is_err(), "{sneaky}");
+        }
+        assert!(
+            api_url("https://e.org/s", "/tasks/%2e%2e").is_ok(),
+            "staying under /api/v1 is fine"
+        );
     }
 
     #[test]
@@ -251,6 +283,12 @@ mod tests {
                 ("change".into(), "{\"kind\":\"task\",\"data\":1}".into()),
                 ("message".into(), "a\nb".into())
             ]
+        );
+        // An endless line is dropped, and the stream carries on after it.
+        assert!(p.feed(&"x".repeat(MAX_LINE + 1)).is_empty());
+        assert_eq!(
+            p.feed("\nevent: hello\ndata: 1\n\n"),
+            vec![("hello".into(), "1".into())]
         );
     }
 }

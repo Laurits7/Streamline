@@ -5866,6 +5866,15 @@ async fn offline_edits_merge_by_field() {
         let (s, _, _) = t.req("PATCH", &path, Some(&admin), Some(bad)).await;
         assert_eq!(s, StatusCode::BAD_REQUEST);
     }
+    // Oversized checklists are refused before the (pairwise) checklist merge runs.
+    let many: Vec<Value> = (0..51).map(|i| item(&format!("x{i}"), false)).collect();
+    for body in [
+        json!({"checklist": many.clone(), "base": {"checklist": []}}),
+        json!({"checklist": [], "base": {"checklist": many}}),
+    ] {
+        let (s, _, _) = t.req("PATCH", &path, Some(&admin), Some(body)).await;
+        assert_eq!(s, StatusCode::BAD_REQUEST);
+    }
     // A deletion beats an edit.
     t.req("DELETE", &path, Some(&admin), None).await;
     let (s, _, _) = t
@@ -6182,4 +6191,71 @@ async fn focus_options_are_kept_with_the_timer() {
     // Nothing to change while idle.
     let (_, v, _) = focus(json!({"action": "options", "mute": true})).await;
     assert_eq!(v["timer"]["mute"], false);
+}
+
+#[tokio::test]
+async fn step_log_only_shows_tasks_still_visible() {
+    // Security review: after leaving a group, its tasks' steps leave your day log too.
+    let t = setup().await;
+    let admin = t.admin().await;
+    let ben = t.user(&admin, "ben").await;
+    let (_, me_ben, _) = t.req("GET", "/api/v1/me", Some(&ben), None).await;
+    let ben_id = me_ben["id"].as_str().unwrap().to_string();
+    let (_, g, _) = t
+        .req(
+            "POST",
+            "/api/v1/groups",
+            Some(&admin),
+            Some(json!({"name": "Home"})),
+        )
+        .await;
+    let gid = g["id"].as_str().unwrap().to_string();
+    t.req(
+        "POST",
+        &format!("/api/v1/groups/{gid}/members"),
+        Some(&admin),
+        Some(json!({"user_id": ben_id})),
+    )
+    .await;
+    let (_, task, _) = t
+        .req("POST", "/api/v1/tasks", Some(&admin), Some(json!({"title": "Laundry", "owner_group_id": gid, "checklist": [{"id": "w", "text": "Wash", "done": false}, {"id": "f", "text": "Fold", "done": false}]})))
+        .await;
+    let path = format!("/api/v1/tasks/{}", task["id"].as_str().unwrap());
+    let (s, _, _) = t
+        .req("PATCH", &path, Some(&ben), Some(json!({"checklist": [{"id": "w", "text": "Wash", "done": true}, {"id": "f", "text": "Fold", "done": false}]})))
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    let today = ymd(today_of(&t, &ben).await);
+    let steps = |log: Value| {
+        log.as_array()
+            .unwrap()
+            .iter()
+            .filter(|i| i["kind"] == "step")
+            .count()
+    };
+    let (_, log, _) = t
+        .req(
+            "GET",
+            &format!("/api/v1/days/{today}/log"),
+            Some(&ben),
+            None,
+        )
+        .await;
+    assert_eq!(steps(log), 1);
+    t.req(
+        "DELETE",
+        &format!("/api/v1/groups/{gid}/members/{ben_id}"),
+        Some(&admin),
+        None,
+    )
+    .await;
+    let (_, log, _) = t
+        .req(
+            "GET",
+            &format!("/api/v1/days/{today}/log"),
+            Some(&ben),
+            None,
+        )
+        .await;
+    assert_eq!(steps(log), 0);
 }

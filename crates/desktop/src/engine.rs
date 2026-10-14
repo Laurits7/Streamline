@@ -136,7 +136,9 @@ impl Engine {
             .filename(path)
             .create_if_missing(true)
             .journal_mode(SqliteJournalMode::Wal)
-            .busy_timeout(Duration::from_secs(5));
+            .busy_timeout(Duration::from_secs(5))
+            // Signing out leaves no readable remains in free pages.
+            .pragma("secure_delete", "on");
         let db = SqlitePoolOptions::new()
             .max_connections(4)
             .connect_with(opts)
@@ -166,12 +168,13 @@ impl Engine {
         *self.creds.lock().unwrap() = creds;
     }
 
-    /// Before signing in to `server`: a replica of another server (or account) is dropped.
-    pub async fn reset_for(&self, server: &str) -> Result<(), String> {
-        let current: Option<String> = self.meta("server").await;
-        if current.as_deref() != Some(server) {
+    /// Before signing in as `account` (server and user, or `local`): a replica of another
+    /// one is dropped, with anything still waiting in its outbox.
+    pub async fn reset_for(&self, account: &str) -> Result<(), String> {
+        let current: Option<String> = self.meta("account").await;
+        if current.as_deref() != Some(account) {
             self.clear().await?;
-            self.set_meta("server", server).await;
+            self.set_meta("account", account).await;
         }
         Ok(())
     }

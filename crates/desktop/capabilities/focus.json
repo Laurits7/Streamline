@@ -2,6 +2,12 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "focus",
   "description": "The focus timer windows (one per monitor, D-82): they only receive the timer and can hide full screen.",
-  "windows": ["focus-*"],
-  "permissions": ["core:event:allow-listen", "core:event:allow-unlisten"]
+  "windows": [
+    "focus-*"
+  ],
+  "permissions": [
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "allow-focus-hide"
+  ]
 }

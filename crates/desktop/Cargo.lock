@@ -4922,6 +4922,7 @@ dependencies = [
  "chrono",
  "futures-util",
  "keyring",
+ "libc",
  "reqwest",
  "rustls",
  "serde",

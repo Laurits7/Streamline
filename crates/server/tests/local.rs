@@ -26,6 +26,15 @@ async fn local_server_starts_and_signs_the_app_in() {
         ),
         (Some("me"), Some("Anna"), Some(true))
     );
+    // First-run setup is closed from the moment it listens (another local account can't claim it).
+    let res = http
+        .post(format!("{}/api/v1/setup", first.url))
+        .header("content-type", "application/json")
+        .body(r#"{"username":"intruder","password":"intruder pw"}"#)
+        .send()
+        .await
+        .unwrap();
+    assert_ne!(res.status(), 200);
 
     // A later start keeps the user and data, and replaces the app's token.
     let second = streamline::local::start(dir.clone(), "ignored")

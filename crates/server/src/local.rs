@@ -25,6 +25,9 @@ pub struct Local {
 /// (`display_name`; a random password, since the app signs itself in).
 pub async fn start(data_dir: PathBuf, display_name: &str) -> anyhow::Result<Local> {
     let (app, state) = crate::build(Config::local(data_dir)).await?;
+    // The user exists before anything listens: with no users, first-run setup is open,
+    // and another account on this computer could claim the server (security review).
+    let token = token(&state, display_name).await?;
     crate::jobs::spawn(state.clone());
     crate::calsync::spawn(state.clone());
     crate::backup::spawn(state.clone());
@@ -37,7 +40,6 @@ pub async fn start(data_dir: PathBuf, display_name: &str) -> anyhow::Result<Loca
         )
         .await;
     });
-    let token = token(&state, display_name).await?;
     Ok(Local { url, token, state })
 }
 

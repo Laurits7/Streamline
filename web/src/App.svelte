@@ -96,10 +96,18 @@
     }
   })
 
-  // Desktop app: downloads (export, CSV, backups) are saved by the app, which has the token.
+  // Desktop app: downloads (export, CSV, backups) are saved by the app, which has the token;
+  // outside links open in the browser.
   $effect(() => {
     if (!desktop) return
     const click = (e: MouseEvent) => {
+      // Links to other sites open in the browser, not in the app window.
+      const link = (e.target as HTMLElement).closest?.<HTMLAnchorElement>('a[href^="http:"], a[href^="https:"]')
+      if (link && new URL(link.href).origin !== location.origin) {
+        e.preventDefault()
+        invoke('open_external', { url: link.href }).catch((err) => toast(String(err), 'error'))
+        return
+      }
       const a = (e.target as HTMLElement).closest?.<HTMLAnchorElement>('a[download][href^="/api/v1/"]')
       if (!a) return
       e.preventDefault()
@@ -116,6 +124,8 @@
     boot()
     return onUnauthorized(() => {
       // Signed out or expired: this device keeps no copy of the data (shared devices).
+      // The desktop app's key was revoked: forget it and the replica (security review).
+      if (desktop && phase === 'app') invoke('sign_out').catch(() => {})
       clearOfflineData()
       if (phase === 'app') {
         store.stop()

@@ -152,6 +152,26 @@ async fn set_local_password(state: State<'_, App>, password: String) -> Result<(
         .map_err(|e| e.to_string())
 }
 
+/// Open a link in the user's browser (the app window only shows the app itself).
+#[tauri::command]
+fn open_external(url: String) -> Result<(), String> {
+    let parsed = reqwest::Url::parse(&url).map_err(|_| "not a link".to_string())?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return Err("only web links open outside the app".into());
+    }
+    std::process::Command::new("xdg-open")
+        .arg(parsed.as_str())
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("Couldn't open the link: {e}"))
+}
+
+/// The app's own pages: anything else opens in the browser, never inside the app window,
+/// which has no address bar (security review).
+fn own_page(url: &reqwest::Url) -> bool {
+    url.scheme() == "tauri" || url.host_str() == Some("tauri.localhost")
+}
+
 /// Full screen focus timer: hide it until the next interval (Esc).
 #[tauri::command]
 fn focus_hide(focus: State<'_, Arc<focus::Focus>>) {
@@ -219,7 +239,14 @@ async fn connect(
         .and_then(|v| v.split(';').next())
         .ok_or("The server didn't start a session")?
         .to_string();
-    let created: Value = http
+    // Answers are size-limited: the server may not be what it claims (security review).
+    let read = |bytes: Vec<u8>| serde_json::from_slice::<Value>(&bytes).map_err(|e| e.to_string());
+    let me = read(remote::read_limited(res).await?)?;
+    let user_id = me["id"]
+        .as_str()
+        .ok_or("The server didn't say who signed in")?
+        .to_string();
+    let res = http
         .post(remote::api_url(&server, "/tokens")?)
         .header(reqwest::header::COOKIE, &cookie)
         .json(&json!({"name": device_name()}))
@@ -227,10 +254,8 @@ async fn connect(
         .await
         .map_err(unreachable)?
         .error_for_status()
-        .map_err(|e| format!("Couldn't create a device token: {}", e.without_url()))?
-        .json()
-        .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| format!("Couldn't create a device token: {}", e.without_url()))?;
+    let created = read(remote::read_limited(res).await?)?;
     let _ = http
         .post(remote::api_url(&server, "/auth/logout")?)
         .header(reqwest::header::COOKIE, &cookie)
@@ -246,7 +271,9 @@ async fn connect(
     keyring(server.clone(), move |e| e.set_password(&t).map(|_| None)).await?;
     // A replica of another server or account isn't kept.
     let engine = engine(&app);
-    engine.reset_for(&server).await?;
+    // The replica belongs to one account on one server: another one starts afresh, and
+    // nothing of the previous account is replayed as this one (security review).
+    engine.reset_for(&format!("{server} {user_id}")).await?;
     engine.set_credentials(Some((server.clone(), token.clone())));
     let config = Config {
         server: Some(server),
@@ -468,6 +495,12 @@ fn show(app: &AppHandle) {
 }
 
 fn main() {
+    // Everything the app writes (config, replica, the local server's data, downloads) is
+    // private to the user, also where home folders are readable by others (security review).
+    // SAFETY: umask only sets the process's file-creation mask; called before any threads.
+    unsafe {
+        libc::umask(0o077);
+    }
     let minimized = std::env::args().any(|a| a == "--minimized");
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
@@ -477,6 +510,19 @@ fn main() {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             Some(vec!["--minimized"]),
         ))
+        .plugin(
+            tauri::plugin::Builder::<tauri::Wry, ()>::new("navigation")
+                .on_navigation(|_, url| {
+                    if own_page(url) {
+                        return true;
+                    }
+                    if matches!(url.scheme(), "http" | "https") {
+                        let _ = open_external(url.to_string());
+                    }
+                    false
+                })
+                .build(),
+        )
         .manage(App::default())
         .manage(Arc::new(focus::Focus::default()))
         .invoke_handler(tauri::generate_handler![
@@ -489,6 +535,7 @@ fn main() {
             open_data_folder,
             set_local_password,
             focus_hide,
+            open_external,
             download,
             events_open,
             events_close
