@@ -8,6 +8,9 @@
 - Checklists on the timeline and in the Agenda: hover a task on the timeline (long-press on a
   phone, or its 2/4 chip with the keyboard) to tick its steps in a small popover; the Agenda
   shows each task's steps under it, tickable (D-81).
+- Checklist steps show in the day log on the day they were done, so a chore spread over two
+  days (wash on Monday, fold on Tuesday) shows up on both (D-84). On the timeline the 2/4
+  chip moved to the second line so the title has the whole first line.
 
 ## 1.2.0 (2026-10-08)
 

@@ -1,6 +1,8 @@
 //! Checklists inside a task (D-71): "Do laundry" → sort, wash, hang, fold. The task is
-//! planned and completed as one; ticking the last item completes it (D-80).
+//! planned and completed as one; ticking the last item completes it (D-80). Each tick
+//! records when and by whom, so the day log shows steps on the day they were done (D-84).
 
+use chrono::{DateTime, SecondsFormat, Utc};
 use serde::{Deserialize, Serialize};
 
 pub const MAX_ITEMS: usize = 50;
@@ -12,6 +14,12 @@ pub struct Item {
     pub id: String,
     pub text: String,
     pub done: bool,
+    /// When it was ticked (UTC, RFC 3339 with milliseconds), set by the server.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub done_at: Option<String>,
+    /// Who ticked it (user id).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub done_by: Option<String>,
 }
 
 /// Validate and tidy a list: texts trimmed, empty items dropped; ids must be short,
@@ -52,6 +60,8 @@ pub fn fresh(items: &[Item]) -> Vec<Item> {
         .iter()
         .map(|i| Item {
             done: false,
+            done_at: None,
+            done_by: None,
             ..i.clone()
         })
         .collect()
@@ -61,9 +71,48 @@ pub fn fresh(items: &[Item]) -> Vec<Item> {
 /// ticks, new ones start unticked.
 pub fn keep_ticks(new: &[Item], old: &[Item]) -> Vec<Item> {
     new.iter()
-        .map(|i| Item {
-            done: old.iter().any(|o| o.id == i.id && o.done),
-            ..i.clone()
+        .map(|i| match old.iter().find(|o| o.id == i.id && o.done) {
+            Some(o) => Item {
+                done: true,
+                done_at: o.done_at.clone(),
+                done_by: o.done_by.clone(),
+                ..i.clone()
+            },
+            None => Item {
+                done: false,
+                done_at: None,
+                done_by: None,
+                ..i.clone()
+            },
+        })
+        .collect()
+}
+
+/// Record who ticked what and when (D-84) for a list replacing `old`: items that were
+/// already ticked keep their record, unticked ones lose it, and newly ticked ones get
+/// `user` and the time the client sent (an offline tick replayed later), or `now` if it
+/// sent none, a malformed one or one in the future.
+pub fn stamp(old: &[Item], new: Vec<Item>, now: DateTime<Utc>, user: &str) -> Vec<Item> {
+    let fmt = |t: DateTime<Utc>| t.to_rfc3339_opts(SecondsFormat::Millis, true);
+    new.into_iter()
+        .map(|mut i| {
+            if !i.done {
+                i.done_at = None;
+                i.done_by = None;
+            } else if let Some(o) = old.iter().find(|o| o.id == i.id && o.done) {
+                i.done_at = o.done_at.clone();
+                i.done_by = o.done_by.clone();
+            } else {
+                let sent = i
+                    .done_at
+                    .as_deref()
+                    .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
+                    .map(|t| t.with_timezone(&Utc))
+                    .filter(|t| *t <= now);
+                i.done_at = Some(fmt(sent.unwrap_or(now)));
+                i.done_by = Some(user.to_string());
+            }
+            i
         })
         .collect()
 }
@@ -104,7 +153,42 @@ mod tests {
             id: id.into(),
             text: text.into(),
             done,
+            done_at: None,
+            done_by: None,
         }
+    }
+
+    #[test]
+    fn stamps_ticks() {
+        let now: DateTime<Utc> = "2026-10-14T10:00:00Z".parse().unwrap();
+        let at = |i: &Item| (i.done_at.clone(), i.done_by.clone());
+        let mut old = vec![it("a", "Wash", true), it("b", "Fold", false)];
+        old[0].done_at = Some("2026-10-13T08:00:00.000Z".into());
+        old[0].done_by = Some("u1".into());
+        // Already ticked: keeps its record even if the client sends another.
+        let mut next = vec![it("a", "Wash", true), it("b", "Fold", true)];
+        next[0].done_at = Some("2026-10-14T09:00:00Z".into());
+        let got = stamp(&old, next, now, "u2");
+        assert_eq!(at(&got[0]), (Some("2026-10-13T08:00:00.000Z".into()), Some("u1".into())));
+        // Newly ticked without a time: now, by the caller.
+        assert_eq!(at(&got[1]), (Some("2026-10-14T10:00:00.000Z".into()), Some("u2".into())));
+        // An offline tick keeps its (past) time, normalised to UTC.
+        let mut next = vec![it("b", "Fold", true)];
+        next[0].done_at = Some("2026-10-13T23:30:00+02:00".into());
+        assert_eq!(stamp(&old, next, now, "u2")[0].done_at.as_deref(), Some("2026-10-13T21:30:00.000Z"));
+        // Future or malformed times become now.
+        for bad in ["2026-10-15T00:00:00Z", "yesterday"] {
+            let mut next = vec![it("b", "Fold", true)];
+            next[0].done_at = Some(bad.into());
+            assert_eq!(stamp(&old, next, now, "u2")[0].done_at.as_deref(), Some("2026-10-14T10:00:00.000Z"));
+        }
+        // Unticking clears it.
+        let mut next = vec![it("a", "Wash", false)];
+        next[0].done_by = Some("u1".into());
+        assert_eq!(at(&stamp(&old, next, now, "u2")[0]), (None, None));
+        // Fresh copies and kept ticks carry the record along or drop it.
+        assert_eq!(at(&fresh(&old)[0]), (None, None));
+        assert_eq!(at(&keep_ticks(&[it("a", "Wash!", false)], &old)[0]), at(&old[0]));
     }
 
     #[test]

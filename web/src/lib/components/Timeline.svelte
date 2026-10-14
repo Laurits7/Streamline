@@ -296,6 +296,7 @@
             class:done={b.task.status !== 'open'}
             class:clash={clashes.has(b.entry.id)}
             class:short={b.dur < 40}
+            class:has-steps={b.task.checklist.length > 0}
             style:top="{b.start * PX}px"
             style:height="{Math.max(b.dur, SNAP) * PX - 2}px"
             style:left="{(b.lane / b.lanes) * 100}%"
@@ -598,6 +599,17 @@
   }
   .steps.all {
     color: var(--ok, #15803d);
+  }
+  /* On the second line, so the title keeps the whole first line; short blocks have one. */
+  .block:not(.short) .steps {
+    position: absolute;
+    right: 6px;
+    top: 21px;
+  }
+  .block.has-steps:not(.short) .time {
+    padding-right: 40px;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .resize {
     position: absolute;

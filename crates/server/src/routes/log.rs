@@ -18,7 +18,8 @@ use crate::{AppState, auth::AuthUser, error::ApiResult, util::parse_date};
 pub struct LogItem {
     /// When it happened (UTC). Missed items use the end of the day.
     pub at: String,
-    /// `completed`, `skipped`, `wont_do`, `missed`, `started`, `created`, `focus`, `planned`.
+    /// `completed`, `skipped`, `wont_do`, `missed`, `started`, `created`, `focus`, `planned`,
+    /// `step` (a checklist item ticked, D-84; `title` is the task's).
     pub kind: String,
     pub task_id: Option<String>,
     pub title: String,
@@ -61,6 +62,7 @@ fn sentence(r: &Row) -> String {
             ),
         },
         "planned" => format!("Planned {}", r.title),
+        "step" => format!("Did “{}” of {what}", r.extra.as_deref().unwrap_or("")),
         _ => what,
     }
 }
@@ -92,6 +94,12 @@ pub async fn get_log(
            FROM task_events e JOIN tasks t ON t.id = e.task_id
           WHERE t.owner_user_id = ?1 AND t.deleted_at IS NULL AND e.kind = 'missed'
             AND (json_extract(e.data, '$.date') = ?4 OR json_extract(e.data, '$.window_end') = ?4)
+         UNION ALL
+         SELECT json_extract(i.value, '$.done_at'), 'step', t.id, t.title, {PROJECT}, NULL, json_extract(i.value, '$.text')
+           FROM tasks t, json_each(t.checklist) i
+          WHERE t.deleted_at IS NULL AND t.checklist <> '[]' AND t.updated_at >= ?2
+            AND json_extract(i.value, '$.done') AND json_extract(i.value, '$.done_by') = ?1
+            AND json_extract(i.value, '$.done_at') >= ?2 AND json_extract(i.value, '$.done_at') < ?3
          UNION ALL
          SELECT t.started_at, 'started', t.id, t.title, {PROJECT}, NULL, NULL
            FROM tasks t

@@ -794,11 +794,18 @@ class Store {
     )
   }
 
-  /** Tick or untick a checklist item; the last tick completes the task (D-80). */
+  /** Tick or untick a checklist item; the last tick completes the task (D-80). The tick
+   * carries its time, so one made offline is logged on the day it was made (D-84). */
   tickItem(id: string, itemId: string) {
     const t = this.tasks.get(id)
     if (!t) return
-    const checklist = t.checklist.map((i) => (i.id === itemId ? { ...i, done: !i.done } : i))
+    const checklist = t.checklist.map((i) =>
+      i.id !== itemId
+        ? i
+        : i.done
+          ? { id: i.id, text: i.text, done: false }
+          : { ...i, done: true, done_at: new Date().toISOString(), done_by: this.me?.id },
+    )
     this.updateTask(id, { checklist })
     if (t.status === 'open' && this.tasks.get(id)?.status === 'done')
       toast(`All steps done: completed “${t.title}”`, 'info', { label: 'Undo', run: () => this.tickItem(id, itemId) })

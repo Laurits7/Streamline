@@ -5468,10 +5468,66 @@ async fn checklists_on_tasks_and_routines() {
     let (_, o, _) = t
         .req("GET", &format!("/api/v1/tasks/{oid}"), Some(&admin), None)
         .await;
-    assert_eq!(
-        o["checklist"],
-        json!([item("s", "Sort", true), item("h", "Hang", false)])
-    );
+    let kept: Vec<(Value, Value)> = o["checklist"].as_array().unwrap().iter().map(|i| (i["id"].clone(), i["done"].clone())).collect();
+    assert_eq!(kept, vec![(json!("s"), json!(true)), (json!("h"), json!(false))]);
+    // The tick keeps its record (D-84).
+    assert!(o["checklist"][0]["done_at"].is_string());
+}
+
+#[tokio::test]
+async fn checklist_steps_show_in_the_day_log_on_the_day_they_were_done() {
+    // D-84: wash on one day, fold on the next; each day's log shows its step.
+    let t = setup().await;
+    let admin = t.admin().await;
+    let today = today_of(&t, &admin).await;
+    let yesterday = ymd(today - chrono::Duration::days(1));
+    let item = |id: &str, done: bool| json!({"id": id, "text": id, "done": done});
+    let (_, task, _) = t
+        .req(
+            "POST",
+            "/api/v1/tasks",
+            Some(&admin),
+            Some(json!({"title": "Do laundry", "checklist": [item("Wash", false), item("Fold", false)]})),
+        )
+        .await;
+    let path = format!("/api/v1/tasks/{}", task["id"].as_str().unwrap());
+    // Washed yesterday (an offline tick replayed now carries its own time).
+    let washed = format!("{yesterday}T12:00:00.000Z");
+    let mut wash = item("Wash", true);
+    wash["done_at"] = json!(washed);
+    let (_, v, _) = t
+        .req("PATCH", &path, Some(&admin), Some(json!({"checklist": [wash, item("Fold", false)]})))
+        .await;
+    assert_eq!(v["checklist"][0]["done_at"], washed.as_str());
+    assert!(v["checklist"][1].get("done_at").is_none());
+    // Folded today: the server stamps it, and keeps the earlier tick as it was.
+    let (_, v, _) = t
+        .req("PATCH", &path, Some(&admin), Some(json!({"checklist": [item("Wash", true), item("Fold", true)]})))
+        .await;
+    assert_eq!(v["status"], "done");
+    assert_eq!(v["checklist"][0]["done_at"], washed.as_str());
+    assert!(v["checklist"][1]["done_at"].is_string());
+    assert_eq!(v["checklist"][1]["done_by"], v["completed_by"]);
+
+    let log = |date: String| {
+        let t = &t;
+        let admin = admin.clone();
+        async move {
+            let (_, v, _) = t.req("GET", &format!("/api/v1/days/{date}/log"), Some(&admin), None).await;
+            v.as_array().unwrap().iter().map(|i| (i["kind"].as_str().unwrap().to_string(), i["text"].as_str().unwrap().to_string())).collect::<Vec<_>>()
+        }
+    };
+    let y = log(yesterday.clone()).await;
+    assert!(y.contains(&("step".into(), "Did “Wash” of “Do laundry”".into())), "{y:?}");
+    assert!(!y.iter().any(|(k, x)| k == "step" && x.contains("Fold")));
+    let d = log(ymd(today)).await;
+    assert!(d.contains(&("step".into(), "Did “Fold” of “Do laundry”".into())), "{d:?}");
+    assert!(d.iter().any(|(k, _)| k == "completed"));
+    // Unticking takes the step out of the log again.
+    t.req("PATCH", &path, Some(&admin), Some(json!({"checklist": [item("Wash", true), item("Fold", false)]})))
+        .await;
+    let d = log(ymd(today)).await;
+    assert!(!d.iter().any(|(k, _)| k == "step"), "{d:?}");
 }
 
 #[tokio::test]

@@ -211,7 +211,10 @@ pub async fn create(
         check_position(p)?;
     }
     let entry_id = id_or_new(c.day_entry_id)?;
-    let checklist = crate::models::checklist(c.checklist).map_err(bad)?;
+    let checklist = crate::models::with_checklist(
+        &crate::models::checklist(c.checklist).map_err(bad)?,
+        |new| streamline_domain::checklist::stamp(&[], new.to_vec(), chrono::Utc::now(), user.id()),
+    );
     let task_type_id = c.task_type_id.unwrap_or_else(|| DEFAULT_TASK_TYPE.into());
 
     let mut tx = state.db.write.begin().await?;
@@ -538,10 +541,12 @@ pub async fn patch(
     // the request sets the status itself.
     let mut checklist_status = None;
     if let Some(v) = c.checklist {
-        let new = crate::models::checklist(v).map_err(bad)?;
         let dom = |l: &[ChecklistItem]| -> Vec<streamline_domain::checklist::Item> {
             l.iter().cloned().map(Into::into).collect()
         };
+        let new = crate::models::with_checklist(&crate::models::checklist(v).map_err(bad)?, |new| {
+            streamline_domain::checklist::stamp(&dom(&t.checklist), new.to_vec(), chrono::Utc::now(), user.id())
+        });
         checklist_status =
             streamline_domain::checklist::status_after(&dom(&t.checklist), &dom(&new), &t.status)
                 .map(String::from);

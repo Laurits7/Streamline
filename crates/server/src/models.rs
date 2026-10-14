@@ -251,6 +251,14 @@ pub struct ChecklistItem {
     pub id: String,
     pub text: String,
     pub done: bool,
+    /// When it was ticked (UTC); set by the server, or the time of an offline tick (D-84).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub done_at: Option<String>,
+    /// Who ticked it (user id).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub done_by: Option<String>,
 }
 
 impl From<ChecklistItem> for streamline_domain::checklist::Item {
@@ -259,6 +267,8 @@ impl From<ChecklistItem> for streamline_domain::checklist::Item {
             id: i.id,
             text: i.text,
             done: i.done,
+            done_at: i.done_at,
+            done_by: i.done_by,
         }
     }
 }
@@ -269,6 +279,8 @@ impl From<streamline_domain::checklist::Item> for ChecklistItem {
             id: i.id,
             text: i.text,
             done: i.done,
+            done_at: i.done_at,
+            done_by: i.done_by,
         }
     }
 }

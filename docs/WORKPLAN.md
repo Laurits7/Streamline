@@ -636,6 +636,9 @@ own), then the server's merge support, then the desktop app on top of it.
       with a checklist (tick, progress, open the task), long-press on touch, keyboard access
       (focus + Enter), stays on screen near edges; indented tickable items under tasks in the
       Agenda; tests for placement; help and CHANGELOG.
+- [x] **9.2a Steps logged per day** (D-84): `done_at`/`done_by` on checklist items (server-stamped,
+      offline tick times kept), a `step` entry in the day log; the timeline's 2/4 chip moves to
+      the second line so the title keeps the first; tests; help and CHANGELOG.
 - [ ] **9.3 Server merge for offline edits** (D-79): `crates/domain::merge` (per-field newest
       wins, checklist per-item merge, delete beats edit) with tests; writes may carry `base`
       values and `edited_at`; the response lists overwritten fields; creates with client ids

@@ -6,7 +6,8 @@ export type LogItem = {
  */
 at: string, 
 /**
- * `completed`, `skipped`, `wont_do`, `missed`, `started`, `created`, `focus`, `planned`.
+ * `completed`, `skipped`, `wont_do`, `missed`, `started`, `created`, `focus`, `planned`,
+ * `step` (a checklist item ticked, D-84; `title` is the task's).
  */
 kind: string, task_id: string | null, title: string, 
 /**

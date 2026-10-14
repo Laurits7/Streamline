@@ -24,12 +24,13 @@
     created: 'plus',
     focus: 'target',
     planned: 'calendar',
+    step: 'checklist',
   }
 
   // Refresh (debounced) whenever something that shows up in the log changes.
   $effect(() => {
     void date
-    for (const t of store.tasks.values()) void t.status, void t.started_at
+    for (const t of store.tasks.values()) void t.status, void t.started_at, void t.checklist
     void store.focusSessions.size
     void store.dayPlans.size
     const timer = setTimeout(async () => {
