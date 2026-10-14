@@ -6,6 +6,7 @@
 
   const sections = [
     ['start', 'Getting started'],
+    ['keys', 'Search and keyboard shortcuts'],
     ['today', 'The Today view'],
     ['planning', 'Planning your day'],
     ['blocks', 'Time blocks, overlaps and suggested times'],
@@ -51,6 +52,23 @@
     </ol>
     <p>New here? <strong>Take the tour</strong> (the button above, or in Settings) for a two-minute walk through where everything is. It's offered once when you first sign in.</p>
     <p>Tasks live in projects. Planning a day doesn't move them: the day plan is a separate layer on top, so your projects stay tidy.</p>
+  </section>
+
+  <section id="keys">
+    <h2><Icon name="search" size={18} /> Search and keyboard shortcuts</h2>
+    <p>
+      <strong>Search</strong> (in the sidebar, the tab bar on phones, or <kbd>Ctrl K</kbd>, <kbd>⌘K</kbd> on a Mac, or
+      <kbd>/</kbd>) finds tasks by title, notes and checklist steps, projects, routines, journal days and pages, even
+      with letters missing or without accents. <kbd>Enter</kbd> opens what's chosen; on a task, <kbd>Tab</kbd> (or
+      <strong>⋯</strong>) shows what you can do: complete, plan for today or tomorrow, focus on it, go to its project. If
+      nothing fits, it offers to add what you typed to the inbox.
+    </p>
+    <p>
+      Single keys, when you're not typing in a field: <kbd>n</kbd> new task, <kbd>j</kbd>/<kbd>k</kbd> move through the
+      tasks on the page, then <kbd>x</kbd> complete, <kbd>t</kbd> plan for today, <kbd>f</kbd> focus, <kbd>Enter</kbd>
+      open. <kbd>g</kbd> then a letter goes to a page (<kbd>g t</kbd> Today, <kbd>g i</kbd> Inbox, <kbd>g p</kbd> plan
+      the day…). <kbd>?</kbd> lists them all.
+    </p>
   </section>
 
   <section id="today">

@@ -3,6 +3,11 @@
 ## Unreleased (1.4.0)
 
 - README badges: build status, latest release, licence, image, and what CI enforces.
+- Search and commands: Ctrl+K (⌘K), "/" or the Search button finds tasks (also by notes and
+  checklist steps), projects, routines, journal days and pages, and acts on a task (complete,
+  plan, focus); text that matches nothing can go straight to the inbox. Keyboard shortcuts:
+  n new task, j/k and x/t/f on the selected task, g then a letter to go to a page, ? for
+  the list.
 
 ## 1.3.0 (2026-10-14)
 

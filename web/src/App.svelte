@@ -14,6 +14,9 @@
   import MiniTimer from './lib/components/MiniTimer.svelte'
   import { announce, live } from './lib/announce.svelte'
   import RoutineSheet from './lib/components/RoutineSheet.svelte'
+  import CommandPalette from './lib/components/CommandPalette.svelte'
+  import Sheet from './lib/components/Sheet.svelte'
+  import { keyReader, SHORTCUTS, typing, type KeyAction } from './lib/keys'
   import WorkflowSheet from './lib/components/WorkflowSheet.svelte'
   import StartWorkflowSheet from './lib/components/StartWorkflowSheet.svelte'
   import PlaceTracker from './lib/components/PlaceTracker.svelte'
@@ -76,6 +79,61 @@
     const planning = n.kind === 'plan_evening' || n.kind === 'plan_morning'
     toast(n.title, 'info', { label: planning ? 'Plan now' : 'Open', run: () => router.go(n.url) })
   }
+
+  // Keyboard shortcuts and the command palette (10.2).
+  const mac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform)
+  $effect(() => {
+    const read = keyReader()
+    const selected = () => (document.activeElement as HTMLElement | null)?.closest<HTMLElement>('[data-task]')?.dataset.task ?? null
+    const perform = (a: KeyAction) => {
+      if (a.kind === 'palette') ui.palette = true
+      else if (a.kind === 'help') ui.shortcuts = true
+      else if (a.kind === 'go') router.go(a.to === 'plan' ? `/plan/${store.today}` : a.to)
+      else if (a.kind === 'new') {
+        const add = document.querySelector<HTMLInputElement>('[data-tour=quickadd] input')
+        if (add) add.focus()
+        else ui.palette = true
+      } else if (a.kind === 'move') {
+        const rows = [...document.querySelectorAll<HTMLElement>('[data-task] .main')].filter((el) => el.offsetParent !== null)
+        if (!rows.length) return
+        const at = rows.findIndex((el) => el === document.activeElement)
+        const next = rows[at < 0 ? 0 : Math.max(0, Math.min(rows.length - 1, at + a.by))]
+        next.focus()
+        next.scrollIntoView({ block: 'nearest' })
+      } else {
+        const id = selected()
+        const t = id ? store.tasks.get(id) : undefined
+        if (!t) return toast('Select a task first: j and k move through the list')
+        if (a.kind === 'complete') {
+          store.toggleDone(t.id)
+          announce(t.status === 'done' ? `Reopened “${t.title}”` : `Completed “${t.title}”`)
+        } else if (a.kind === 'today' && t.status === 'open') {
+          store.plan(t.id, store.today)
+          toast(`“${t.title}” planned for today`)
+        } else if (a.kind === 'focus' && t.status === 'open') {
+          store.focus('start', t.id)
+          router.go('/focus')
+        }
+      }
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (phase !== 'app') return
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        ui.palette = !ui.palette
+        return
+      }
+      if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || typing(e.target)) return
+      // Not while a sheet, the palette or the tour is open.
+      if (ui.palette || ui.tour !== null || document.querySelector('[role=dialog][aria-modal=true]')) return
+      const a = read(e.key, Date.now())
+      if (!a) return
+      e.preventDefault()
+      perform(a)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  })
 
   // Desktop app: changes made offline (9.5). The banner counts what's waiting; once it's
   // sent, the app catches up and says if anything clashed or was refused.
@@ -206,6 +264,8 @@
         Streamline
         <span class="live" class:on={store.live} title={store.live ? 'Live sync connected' : 'Reconnecting…'}></span>
       </div>
+      <button class="search" onclick={() => (ui.palette = true)} title="Search and commands"
+        ><Icon name="search" size={16} /> Search <kbd>{mac ? '⌘K' : 'Ctrl K'}</kbd></button>
       <nav aria-label="Main">
         <a href="/" class="drop-zone" draggable="false" aria-current={todayActive} use:droppable={toToday}><Icon name="sun" /> Today</a>
         <a href="/agenda" draggable="false" aria-current={active('agenda')}><Icon name="calendar" /> Agenda</a>
@@ -296,6 +356,7 @@
       <a href="/inbox" class="drop-zone" draggable="false" aria-current={active('inbox')} use:droppable={toProject(null)}><Icon name="inbox" size={22} /><span>Inbox</span></a>
       <a href="/agenda" aria-current={active('agenda')}><Icon name="calendar" size={22} /><span>Agenda</span></a>
       <a href="/projects" aria-current={projectsActive}><Icon name="folder" size={22} /><span>Projects</span></a>
+      <button type="button" onclick={() => (ui.palette = true)}><Icon name="search" size={22} /><span>Search</span></button>
       <a href="/settings" aria-current={route.name === 'settings' || route.name === 'help' ? 'page' : undefined}><Icon name="settings" size={22} /><span>Settings</span></a>
     </nav>
   </div>
@@ -304,6 +365,17 @@
   {#if ui.event}<EventSheet id={ui.event} />{/if}
   {#if ui.pullFor}<PullSheet date={ui.pullFor} />{/if}
   {#if ui.routine}{#key ui.routine}<RoutineSheet id={ui.routine} />{/key}{/if}
+  {#if ui.palette}<CommandPalette />{/if}
+  {#if ui.shortcuts}
+    <Sheet title="Keyboard shortcuts" onclose={() => (ui.shortcuts = false)}>
+      <table class="keys">
+        <tbody>
+          {#each SHORTCUTS as [k, what] (k)}<tr><td><kbd>{mac ? k.replace('Ctrl K', '⌘K') : k}</kbd></td><td>{what}</td></tr>{/each}
+        </tbody>
+      </table>
+      <p class="muted small-note">Single keys work when you're not typing in a field. Select a task with j and k, then act on it.</p>
+    </Sheet>
+  {/if}
   {#if ui.workflow}{#key ui.workflow}<WorkflowSheet id={ui.workflow} />{/key}{/if}
   {#if ui.startWorkflow}{#key ui.startWorkflow}<StartWorkflowSheet id={ui.startWorkflow} />{/key}{/if}
 {/if}
@@ -313,6 +385,47 @@
 <div class="sr-only" aria-live="polite">{live.message}</div>
 
 <style>
+  .search {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 10px;
+    padding: 7px 10px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 14px;
+    width: 100%;
+  }
+  .search:hover {
+    border-color: var(--accent);
+    color: var(--text);
+  }
+  .search kbd,
+  .keys kbd {
+    margin-left: auto;
+    font: inherit;
+    font-size: 11px;
+    padding: 1px 6px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+  }
+  .keys {
+    border-collapse: collapse;
+    width: 100%;
+    font-size: 14px;
+  }
+  .keys td {
+    padding: 5px 4px;
+    border-bottom: 1px solid var(--border);
+  }
+  .keys td:first-child {
+    width: 90px;
+    white-space: nowrap;
+  }
+  .small-note {
+    font-size: 13px;
+  }
   .offline {
     background: var(--warn-soft);
     color: var(--warn);
@@ -364,7 +477,8 @@
     -webkit-backdrop-filter: blur(16px);
     border-top: 1px solid var(--border);
   }
-  .tabbar a {
+  .tabbar a,
+  .tabbar button {
     display: flex;
     flex-direction: column;
     align-items: center;

@@ -691,7 +691,7 @@ then the gate.
 
 - [x] **10.1 README badges**: CI, latest release, licence, image, and what the CI enforces
       (rustfmt, clippy with warnings as errors, tests, bundle budget).
-- [ ] **10.2 Command palette and keyboard shortcuts**: Ctrl+K (⌘K) searches tasks (titles,
+- [x] **10.2 Command palette and keyboard shortcuts**: Ctrl+K (⌘K) searches tasks (titles,
       notes, checklist steps), projects, routines, journal and pages, and runs actions on the
       chosen item (open, plan today or tomorrow, focus, complete); single-key shortcuts
       outside text fields (n new task, / search, g t Today, g i Inbox, g p Plan, j/k move,

@@ -310,3 +310,15 @@ body.dragging-active .drop-zone {
   color: var(--muted);
   background: var(--surface-3);
 }
+
+/* Keys in help texts and the shortcut list. */
+kbd {
+  font: inherit;
+  font-size: 0.85em;
+  padding: 0 5px;
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: var(--surface);
+  white-space: nowrap;
+}

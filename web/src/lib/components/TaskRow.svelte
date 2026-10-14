@@ -54,6 +54,7 @@
   class:closed
   class:blocked={task.blocked && task.status === 'open'}
   data-id={entry?.id ?? task.id}
+  data-task={task.id}
   use:draggable={{
     disabled: task.status !== 'open' && !(dragClosed && task.status === 'done'),
     item: () => ({
