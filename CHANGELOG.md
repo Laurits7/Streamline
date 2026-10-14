@@ -5,6 +5,9 @@
 - Checklists complete their task: ticking the last step completes it (with Undo), and
   unticking a step of a completed task reopens it. Works the same for routines and on every
   device (D-80).
+- Checklists on the timeline and in the Agenda: hover a task on the timeline (long-press on a
+  phone, or its 2/4 chip with the keyboard) to tick its steps in a small popover; the Agenda
+  shows each task's steps under it, tickable (D-81).
 
 ## 1.2.0 (2026-10-08)
 

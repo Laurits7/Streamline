@@ -1,5 +1,6 @@
 <script lang="ts">
-  // Week agenda (SPEC §6.5): calendar events and timed tasks, day by day.
+  // Week agenda (SPEC §6.5): calendar events and timed tasks, day by day. A task's
+  // checklist is listed under it and can be ticked here (D-81).
   import { timeRange } from '../lib/calendar'
   import Check from '../lib/components/Check.svelte'
   import Icon from '../lib/components/Icon.svelte'
@@ -100,6 +101,19 @@
             <Check done={r.done} onclick={() => store.toggleDone(r.taskId)} label="Complete {r.title}" />
             <button class="what" onclick={() => (ui.editing = r.taskId)}>{r.title}</button>
           </div>
+          {@const steps = store.tasks.get(r.taskId)?.checklist ?? []}
+          {#if steps.length}
+            <ul class="steps" aria-label="Checklist of {r.title}">
+              {#each steps as it (it.id)}
+                <li class:done={it.done}>
+                  <label>
+                    <input type="checkbox" checked={it.done} onchange={() => store.tickItem(r.taskId, it.id)} />
+                    <span>{it.text}</span>
+                  </label>
+                </li>
+              {/each}
+            </ul>
+          {/if}
         {/if}
       {/each}
       {#if a.untimed}
@@ -219,6 +233,28 @@
     height: 18px;
   }
   .task.done .what {
+    text-decoration: line-through;
+    color: var(--muted);
+  }
+  /* Lined up under the task's title: time column + check + gap. */
+  .steps {
+    list-style: none;
+    margin: 0 0 4px;
+    padding: 0 0 0 126px;
+    font-size: 13px;
+  }
+  .steps label {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    padding: 2px 0;
+    cursor: pointer;
+  }
+  .steps input {
+    margin-top: 2px;
+    flex: none;
+  }
+  .steps .done span {
     text-decoration: line-through;
     color: var(--muted);
   }

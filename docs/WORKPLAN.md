@@ -632,7 +632,7 @@ own), then the server's merge support, then the desktop app on top of it.
       completes the task and unticking one on a done task reopens it (routine occurrences too,
       with their usual completion side effects); drop the "complete it?" prompt in the client;
       tests; help and CHANGELOG.
-- [ ] **9.2 Checklist popover and Agenda sublist** (D-81): hover popover on timeline items
+- [x] **9.2 Checklist popover and Agenda sublist** (D-81): hover popover on timeline items
       with a checklist (tick, progress, open the task), long-press on touch, keyboard access
       (focus + Enter), stays on screen near edges; indented tickable items under tasks in the
       Agenda; tests for placement; help and CHANGELOG.

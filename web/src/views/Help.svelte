@@ -212,7 +212,7 @@
       <li><strong>Project</strong> and <strong>due date</strong>.</li>
       <li><strong>Estimate</strong>: how long you think it takes. Used for “time left” on the Today view and as the default block length on the timeline.</li>
       <li><strong>Difficulty</strong> (easy, medium, hard), <strong>importance</strong> and <strong>urgency</strong>. Important and urgent tasks get a label in lists. Later these will drive the planner and the priority matrix.</li>
-      <li><strong>Checklist</strong>: the steps inside a task (Do laundry: sort, wash, hang, fold). Tick them as you go; lists, the timeline and the board show how far along it is (2/4). Ticking the last step completes the task; unticking a step reopens it. A task carried to the next day keeps its ticks. Routines can have a checklist too: each occurrence starts unticked.</li>
+      <li><strong>Checklist</strong>: the steps inside a task (Do laundry: sort, wash, hang, fold). Tick them as you go; lists, the timeline and the board show how far along it is (2/4). On the timeline, hover a task (or long-press it on a phone, or tap its 2/4) to tick steps without opening it; the <a href="/agenda">Agenda</a> lists the steps under each task. Ticking the last step completes the task; unticking a step reopens it. A task carried to the next day keeps its ticks. Routines can have a checklist too: each occurrence starts unticked.</li>
       <li><strong>Notes</strong>: details and links.</li>
       <li><strong>Save as default task</strong> (at the bottom): keep a ready-made copy (title, checklist, estimate and the rest) of a task you add often. Then start typing in any “Add a task…” field (<em>laun…</em>) and pick <em>Do laundry</em>, or tap the list button at the end of the field. Its checklist starts unticked. Manage them in <a href="/settings#default-tasks">Settings → Default tasks</a>, where you can also share them with a group.</li>
       <li><strong>Won't do</strong> closes a task without completing it. <strong>Delete</strong> removes it.</li>
@@ -372,7 +372,7 @@
     <ul>
       <li>Events show on the day's timeline in their calendar's colour, next to your scheduled tasks. All-day events appear above it.</li>
       <li>Busy events count against the day's free time in the planner; events marked “free” are striped and don't.</li>
-      <li><a href="/agenda">Agenda</a> shows a week at a time: events and timed tasks, day by day.</li>
+      <li><a href="/agenda">Agenda</a> shows a week at a time: events and timed tasks, day by day, with each task's checklist under it to tick.</li>
       <li><strong>Tap an event</strong> to put it in a project (for a repeating event, every time it repeats) and to add todos for it, e.g. “Prepare the agenda” for a meeting. Todos are due on the event's day and go into its project; the event shows how many are done (✓ 1/2), the project page lists its upcoming events, and the todo links back to its event.</li>
       <li>Streamline only reads your calendar. It checks for changes every 15 minutes, or press <em>Sync now</em>.</li>
       <li>Untick a calendar to hide it, or pick another colour. If the server can't be reached, the last known events stay and Settings shows the error.</li>

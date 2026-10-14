@@ -58,14 +58,17 @@ let active = false
 export type DraggableOptions = {
   item: (down: PointerEvent, node: HTMLElement) => DragItem | null
   disabled?: boolean
+  /** Touch long-press: return true to handle it (e.g. open a popover); the drag then starts only once the finger moves. */
+  hold?: () => boolean
 }
 
 export function draggable(node: HTMLElement, opts: DraggableOptions) {
   let o = opts
   node.setAttribute('data-draggable', '')
+  let held = false // a long-press handled by `hold`: moving now drags instead of scrolling
 
   function onDown(e: PointerEvent) {
-    if (o.disabled || active || e.button !== 0 || !e.isPrimary) return
+    if ((o.disabled && !o.hold) || active || e.button !== 0 || !e.isPrimary) return
     const t = e.target as HTMLElement
     if (t.closest('[data-nodrag], input, textarea, select')) return
     if (t.closest('[data-draggable]') !== node) return // nested draggables: innermost wins
@@ -76,6 +79,7 @@ export function draggable(node: HTMLElement, opts: DraggableOptions) {
     let timer: ReturnType<typeof setTimeout> | undefined
 
     const cancel = () => {
+      held = false
       clearTimeout(timer)
       window.removeEventListener('pointermove', onMove)
       window.removeEventListener('pointerup', cancel)
@@ -84,12 +88,15 @@ export function draggable(node: HTMLElement, opts: DraggableOptions) {
     }
     const begin = (at: { clientX: number; clientY: number }) => {
       cancel()
+      if (o.disabled) return
       const item = o.item(e, node)
       if (item) start(node, item, e, at)
     }
     const onMove = (ev: PointerEvent) => {
       const dist = Math.hypot(ev.clientX - sx, ev.clientY - sy)
-      if (longPress) {
+      if (held) {
+        if (dist > 8) begin(ev)
+      } else if (longPress) {
         if (dist > 8) cancel() // the finger moved first: it's a scroll, not a drag
       } else if (dist > 5) begin(ev)
     }
@@ -102,7 +109,8 @@ export function draggable(node: HTMLElement, opts: DraggableOptions) {
       node.addEventListener('contextmenu', noMenu)
       timer = setTimeout(() => {
         navigator.vibrate?.(12)
-        begin(e)
+        if (o.hold?.()) held = true
+        else begin(e)
       }, 350)
     }
   }
@@ -110,7 +118,7 @@ export function draggable(node: HTMLElement, opts: DraggableOptions) {
   // Browsers decide at touchstart whether a gesture may scroll, so the listener that
   // stops scrolling once a long-press drag has begun must exist before the touch.
   const onTouchMove = (e: TouchEvent) => {
-    if (active) e.preventDefault()
+    if (active || held) e.preventDefault()
   }
   node.addEventListener('pointerdown', onDown)
   node.addEventListener('touchmove', onTouchMove, { passive: false })
