@@ -20,7 +20,7 @@ jobs:
       (github.event.workflow_run.conclusion == 'success' &&
        github.event.workflow_run.event == 'push' &&
        startsWith(github.event.workflow_run.head_branch, 'v'))
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     env:
@@ -28,7 +28,7 @@ jobs:
       TAG: ${{ inputs.tag || github.event.workflow_run.head_branch }}
     steps:
       # The default branch, so the template and changelog are the current ones.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Check the tag exists
         run: git ls-remote --exit-code --tags origin "refs/tags/$TAG"
       - name: Compose file and release notes
@@ -70,7 +70,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       TAG: ${{ inputs.tag || github.event.workflow_run.head_branch }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ env.TAG }}
       - name: Check the desktop app's version
@@ -82,7 +82,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev pkg-config
       - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm

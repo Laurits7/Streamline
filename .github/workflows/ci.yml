@@ -7,11 +7,14 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Runners are pinned to Ubuntu 24.04 rather than ubuntu-latest (which moves to Ubuntu 26
+# from 2026-10-19): the desktop app's .deb has to install on 24.04, and a release
+# shouldn't change runner under us. Move all jobs together when it's time.
 jobs:
   rust:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -24,13 +27,13 @@ jobs:
         run: git diff --exit-code -- web/src/lib/api/types
 
   web:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: web
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
@@ -53,7 +56,7 @@ jobs:
   desktop:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Libraries
         run: |
           sudo apt-get update
@@ -64,7 +67,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: crates/desktop
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
@@ -78,30 +81,30 @@ jobs:
   # Multi-arch image (amd64 + arm64 via QEMU). Pull requests only build it, which
   # verifies the arm64 build; main and version tags also publish it to GHCR.
   image:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [rust, web]
     permissions:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - uses: actions/checkout@v7
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
         if: github.event_name != 'pull_request'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ghcr.io/${{ github.repository_owner }}/streamline
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=semver,pattern={{version}}
             type=sha,format=short
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v7
         with:
           context: .
           platforms: linux/amd64,linux/arm64
