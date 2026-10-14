@@ -2,6 +2,7 @@
   import ProjectMark from './lib/components/ProjectMark.svelte'
   import { connection } from './lib/connection.svelte'
   import { clearOfflineData } from './lib/pwa'
+  import { desktop, invoke } from './lib/desktop'
   import { api, ApiError, onUnauthorized } from './lib/api/client'
   import Icon from './lib/components/Icon.svelte'
   import PullSheet from './lib/components/PullSheet.svelte'
@@ -34,7 +35,9 @@
       // First sign-in: offer the guided tour (once; it can be replayed from Help).
       if (!store.pref(TOUR_PREF, null) && !location.pathname.startsWith('/focus')) ui.tour = 0
     } catch (e) {
-      if (e instanceof ApiError && e.status === 401) {
+      if (e instanceof ApiError && e.status === 401 && desktop) {
+        phase = 'login' // the desktop app connects to a server that's already set up
+      } else if (e instanceof ApiError && e.status === 401) {
         try {
           const s = await api.get<{ needs_setup: boolean }>('/setup')
           phase = s.needs_setup ? 'setup' : 'login'
@@ -49,7 +52,9 @@
 
   async function logout() {
     try {
-      await api.post('/auth/logout')
+      // The desktop app revokes its device token and forgets it (D-78).
+      if (desktop) await invoke('sign_out')
+      else await api.post('/auth/logout')
     } catch {
       /* ignore */
     }
@@ -68,6 +73,22 @@
     const planning = n.kind === 'plan_evening' || n.kind === 'plan_morning'
     toast(n.title, 'info', { label: planning ? 'Plan now' : 'Open', run: () => router.go(n.url) })
   }
+
+  // Desktop app: downloads (export, CSV, backups) are saved by the app, which has the token.
+  $effect(() => {
+    if (!desktop) return
+    const click = (e: MouseEvent) => {
+      const a = (e.target as HTMLElement).closest?.<HTMLAnchorElement>('a[download][href^="/api/v1/"]')
+      if (!a) return
+      e.preventDefault()
+      const path = a.getAttribute('href')!.slice('/api/v1'.length)
+      invoke<string>('download', { path, filename: a.getAttribute('download') || path.split('/').pop() })
+        .then((saved) => toast(`Saved to ${saved}`, 'info'))
+        .catch((err) => toast(`Download failed: ${err}`, 'error'))
+    }
+    document.addEventListener('click', click, true)
+    return () => document.removeEventListener('click', click, true)
+  })
 
   $effect(() => {
     boot()

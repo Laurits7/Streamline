@@ -1,5 +1,6 @@
 <script lang="ts">
   import { api, ApiError } from '../lib/api/client'
+  import { desktop, invoke, type DesktopStatus } from '../lib/desktop'
 
   let { setup, onlogin }: { setup: boolean; onlogin: () => void } = $props()
   let username = $state('')
@@ -7,11 +8,30 @@
   let displayName = $state('')
   let error = $state('')
   let busy = $state(false)
+  // Desktop app (D-78): which server to connect to, remembered from last time.
+  let server = $state('')
+  if (desktop)
+    invoke<DesktopStatus>('status').then((s) => {
+      server ||= s.server ?? ''
+      username ||= s.username ?? ''
+    })
 
   async function submit(e: Event) {
     e.preventDefault()
     busy = true
     error = ''
+    if (desktop) {
+      try {
+        await invoke('connect', { server, username, password })
+        password = ''
+        onlogin()
+      } catch (e) {
+        error = String(e)
+      } finally {
+        busy = false
+      }
+      return
+    }
     try {
       if (setup) await api.post('/setup', { username, password, display_name: displayName || null })
       else await api.post('/auth/login', { username, password })
@@ -34,8 +54,12 @@
     <div class="logo" aria-hidden="true">
       <img src="/icons/icon.svg" width="44" height="44" alt="" />
     </div>
-    <h1>{setup ? 'Welcome to Streamline' : 'Sign in'}</h1>
+    <h1>{setup ? 'Welcome to Streamline' : desktop ? 'Connect to your server' : 'Sign in'}</h1>
     {#if setup}<p class="muted">Create the admin account for this household. You can add more people later in Settings.</p>{/if}
+    {#if desktop}
+      <p class="muted">The address you open Streamline at in the browser. You sign in once; this computer then keeps its own key in the system keyring.</p>
+      <label><span>Server</span><input type="text" bind:value={server} placeholder="streamline.lan:3000" autocapitalize="none" spellcheck="false" required /></label>
+    {/if}
     <label><span>Username</span><input type="text" bind:value={username} autocomplete="username" autocapitalize="none" required /></label>
     {#if setup}<label><span>Your name</span><input type="text" bind:value={displayName} autocomplete="name" /></label>{/if}
     <label>
@@ -43,7 +67,7 @@
       <input type="password" bind:value={password} autocomplete={setup ? 'new-password' : 'current-password'} minlength={setup ? 8 : undefined} required />
     </label>
     {#if error}<p class="error" role="alert">{error}</p>{/if}
-    <button class="btn primary" type="submit" disabled={busy}>{setup ? 'Create account' : 'Sign in'}</button>
+    <button class="btn primary" type="submit" disabled={busy}>{setup ? 'Create account' : desktop ? (busy ? 'Connecting…' : 'Connect') : 'Sign in'}</button>
   </form>
 </main>
 

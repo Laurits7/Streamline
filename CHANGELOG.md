@@ -17,6 +17,10 @@
 - "Add a task…" shows your default tasks as soon as you click into it, narrows them as you
   type (kind names too), and lets you pick with the arrow keys; Enter without a pick still
   adds what you typed.
+- Linux desktop app (first part; packages come later in 1.3): Streamline in its own
+  window, connected to your server with a per-computer key kept in the system keyring. It
+  stays in the tray when closed and can start at login (Settings → Desktop app). Build it
+  with `make desktop` (D-78, D-87).
 - API: updates can carry `base` (the values they were based on) and `edited_at`; the server
   merges them field by field with newer changes (checklists per item) and lists any
   `conflicts` in the response. Groundwork for the offline desktop app (D-79, D-85).

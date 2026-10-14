@@ -51,6 +51,7 @@ import { ulid } from './ulid'
 import { pickSub, pickTop, type Shape } from './marks'
 import { checkBackDue, isWaiting } from './waiting'
 import { statusAfter } from './checklist'
+import { DesktopEvents, desktop } from './desktop'
 import { allDefaults, matchDefaults, tasksFor, type DefaultMatch } from './defaults'
 
 type Kind =
@@ -205,7 +206,7 @@ class Store {
   onNotification: ((n: Notification) => void) | null = null
 
   private pending = new Map<string, number>()
-  private es: EventSource | null = null
+  private es: EventSource | DesktopEvents | null = null
   private syncChain: Promise<void> = Promise.resolve()
   private deltaQueued: Promise<void> | null = null
   /** Bumped on sign-out so late responses for the previous session are ignored. */
@@ -374,7 +375,7 @@ class Store {
 
   private connect() {
     this.es?.close()
-    const es = new EventSource('/api/v1/events')
+    const es = desktop ? new DesktopEvents() : new EventSource('/api/v1/events')
     this.es = es
     // `hello` arrives on every (re)connect: catch up on anything we missed.
     es.addEventListener('hello', () => {
@@ -430,7 +431,7 @@ class Store {
     es.onerror = () => {
       this.live = false
       // Closed for good (e.g. session expired): verify auth, retry later.
-      if (es.readyState === EventSource.CLOSED) {
+      if (es.readyState === 2) {
         setTimeout(() => {
           if (this.es === es && this.me) {
             this.sync()

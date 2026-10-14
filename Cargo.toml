@@ -1,6 +1,8 @@
 [workspace]
 resolver = "3"
 members = ["crates/domain", "crates/server"]
+# The desktop app is its own workspace (Tauri/WebKit stay out of the server build).
+exclude = ["crates/desktop"]
 
 [workspace.package]
 version = "1.2.0"

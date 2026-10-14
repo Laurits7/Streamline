@@ -9,12 +9,25 @@
   import type { UserSummary } from '../lib/api/types/UserSummary'
   import Icon from '../lib/components/Icon.svelte'
   import PlaceSwitcher from '../lib/components/PlaceSwitcher.svelte'
+  import { desktop, invoke, type DesktopStatus } from '../lib/desktop'
   import { disablePush, enablePush, pushBlocker, pushEnabled } from '../lib/pwa'
   import { store } from '../lib/store.svelte'
   import { toast } from '../lib/toast.svelte'
   import { ui } from '../lib/ui.svelte'
 
   let { onlogout }: { onlogout: () => void } = $props()
+
+  // Desktop app (D-78): start at login.
+  let autostart = $state(false)
+  if (desktop) invoke<boolean>('plugin:autostart|is_enabled').then((v) => (autostart = v)).catch(() => {})
+  async function setAutostart(on: boolean) {
+    try {
+      await invoke(on ? 'plugin:autostart|enable' : 'plugin:autostart|disable')
+      autostart = on
+    } catch (e) {
+      toast(`Couldn't change it: ${e}`, 'error')
+    }
+  }
 
   const me = $derived(store.me!)
   const zones: string[] = (Intl as unknown as { supportedValuesOf?: (k: string) => string[] }).supportedValuesOf?.('timeZone') ?? []
@@ -432,7 +445,7 @@
           <option value="max">highest</option>
         </select>
         <input class="small-time" type="time" value={m.reminder_time ?? ''} aria-label="Reminder" title="Remind me if not logged by" onchange={(e) => store.updateMetric(m.id, { reminder_time: (e.currentTarget as HTMLInputElement).value || null })} />
-        <a class="btn small" href="/api/v1/metrics/{m.id}/csv" download>CSV</a>
+        <a class="btn small" href="/api/v1/metrics/{m.id}/csv" download="{m.name}.csv">CSV</a>
         <label class="btn small file">Import<input type="file" accept=".csv,text/csv,text/plain" onchange={(e) => importCsv(m.id, (e.currentTarget as HTMLInputElement).files?.[0])} /></label>
         <button class="btn small" onclick={() => store.updateMetric(m.id, { archived: !m.archived })}>{m.archived ? 'Show' : 'Hide'}</button>
         {#if !m.key}<button class="btn small danger" onclick={() => confirm(`Delete “${m.name}” and everything logged for it?`) && store.deleteMetric(m.id)}>Delete</button>{/if}
@@ -450,7 +463,7 @@
     <button class="btn" type="submit">Add</button>
   </form>
   <p class="help muted export">
-    Import takes CSV rows of <code>date,value</code> (weight in kg). <a href="/api/v1/export" download>Download all your data (JSON)</a>
+    Import takes CSV rows of <code>date,value</code> (weight in kg). <a href="/api/v1/export" download="streamline-export.json">Download all your data (JSON)</a>
   </p>
 </section>
 
@@ -750,15 +763,29 @@
     {#each backups as b (b.name)}
       <div class="line">
         <span>{new Date(b.created_at).toLocaleString(me.locale || undefined, { dateStyle: 'medium', timeStyle: 'short' })} <span class="muted small">· {mb(b.bytes)}</span></span>
-        <a class="btn small" href="/api/v1/admin/backups/{b.name}" download>Download</a>
+        <a class="btn small" href="/api/v1/admin/backups/{b.name}" download={b.name}>Download</a>
       </div>
     {:else}<p class="muted small">No backups yet.</p>{/each}
     <button class="btn" onclick={backupNow} disabled={backingUp}>{backingUp ? 'Backing up…' : 'Back up now'}</button>
   </section>
 {/if}
 
+{#if desktop}
+  <section class="card" id="desktop">
+    <h2>Desktop app</h2>
+    {#await invoke<DesktopStatus>('status') then s}
+      <p class="help muted">Connected to <strong>{s.server}</strong> as {s.username}. This computer has its own key, listed under API tokens; signing out removes it.</p>
+    {/await}
+    <label class="check plain">
+      <input type="checkbox" checked={autostart} onchange={(e) => setAutostart((e.currentTarget as HTMLInputElement).checked)} />
+      Start Streamline when I log in (in the tray, without opening the window)
+    </label>
+    <p class="help muted">Closing the window keeps Streamline in the tray, so it stays up to date. Quit it from the tray menu.</p>
+  </section>
+{/if}
+
 <section class="card">
-  <button class="btn" onclick={onlogout}><Icon name="logout" size={16} /> Sign out</button>
+  <button class="btn" onclick={onlogout}><Icon name="logout" size={16} /> {desktop ? 'Sign out of this computer' : 'Sign out'}</button>
 </section>
 </div>
 

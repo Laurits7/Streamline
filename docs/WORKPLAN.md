@@ -648,7 +648,7 @@ own), then the server's merge support, then the desktop app on top of it.
       values and `edited_at`; the response lists overwritten fields; creates with client ids
       stay idempotent; covers tasks, day entries, routines, projects and tracking records the
       client edits; OpenAPI and TS types.
-- [ ] **9.4 Desktop app shell** (D-78): `crates/desktop` (Tauri 2) with the built `web/`;
+- [x] **9.4 Desktop app shell** (D-78): `crates/desktop` (Tauri 2) with the built `web/`;
       first run asks for the server URL and signs in for a device token (keyring); tray,
       close-to-tray, start at login; the web client detects the desktop app; CSP and
       outbound checks as in D-67.
