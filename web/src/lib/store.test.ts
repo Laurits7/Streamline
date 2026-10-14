@@ -124,7 +124,7 @@ function mockApi(handler: Handler) {
 
 function syncResponse(data: Partial<SyncResponse> = {}): SyncResponse {
   return { rev: 10, full: true, me: ME, today: '2026-10-06', task_types: [], projects: [], tasks: [], day_entries: [], day_plans: [],
-    focus_timer: { task_id: null, phase: 'idle', running_since_ms: null, elapsed_ms: 0, length_min: 0, cycle_done: 0, rev: 0 },
+    focus_timer: { task_id: null, phase: 'idle', running_since_ms: null, elapsed_ms: 0, length_min: 0, cycle_done: 0, mute: false, screens: 'off', rev: 0 },
     focus_sessions: [], series: [], places: [], workflows: [], task_templates: [], groups: [], calendar_account: null, calendars: [], events: [], event_projects: [], people: [], occasion_templates: [], day_templates: [], time_blocks: [], day_records: [], metrics: [], metric_entries: [], health_days: [], goals: [], server_now: Date.now(), ...data }
 }
 
@@ -534,5 +534,26 @@ describe('health check-in (D-75)', () => {
       ['PUT', '/days/2026-10-06/health'],
       ['PUT', '/days/2026-10-06/health'],
     ])
+  })
+})
+
+describe('focus options (D-82)', () => {
+  it('starts with the last choice and changes a running timer', async () => {
+    await load()
+    expect(store.focusOptions()).toEqual({ mute: false, screens: 'off' })
+    const timer = (extra = {}) => ({ timer: { ...store.focusTimer, ...extra, rev: 20 }, server_now: Date.now() })
+    mockApi((_m, path, body) => (path === '/me/prefs' ? { ...ME, prefs: body } : timer(body as object)))
+    // Idle: only remembered.
+    await store.setFocusOptions({ screens: 'fullscreen_breaks', mute: true })
+    expect(calls.map((c) => c.path)).toEqual(['/me/prefs'])
+    expect(store.focusOptions()).toEqual({ mute: true, screens: 'fullscreen_breaks' })
+    // Starting sends them.
+    await store.focus('start', null)
+    expect(calls.at(-1)!.body).toMatchObject({ action: 'start', mute: true, screens: 'fullscreen_breaks' })
+    expect(store.focusTimer).toMatchObject({ phase: 'work', mute: true, screens: 'fullscreen_breaks' })
+    // While focusing, a change goes to the timer too.
+    await store.setFocusOptions({ screens: 'overlay' })
+    expect(calls.at(-1)!.body).toEqual({ action: 'options', mute: true, screens: 'overlay' })
+    expect(store.focusTimer.screens).toBe('overlay')
   })
 })

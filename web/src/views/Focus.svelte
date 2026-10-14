@@ -1,6 +1,7 @@
 <script lang="ts">
   // Distraction-free focus view (SPEC §6.9): one task, a big timer, and the task's
   // details. The timer state is the server's, so it matches on every device.
+  import FocusOptions from '../lib/components/FocusOptions.svelte'
   import Icon from '../lib/components/Icon.svelte'
   import { addDays, fmtMinutes } from '../lib/dates'
   import { clock, isWaiting, mmss, PHASE_LABEL } from '../lib/focus.svelte'
@@ -83,6 +84,7 @@
         <p class="muted">Nothing planned for today. Plan your day, or just start a timer.</p>
       {/if}
       <button class="btn" onclick={() => store.focus('start', null)}><Icon name="target" size={16} /> Just focus, no task</button>
+      <FocusOptions />
     </section>
   {:else}
     <section class="timer" aria-live="off">
@@ -111,6 +113,7 @@
         <button class="btn" onclick={() => store.focus('stop')}><Icon name="stop" size={16} /> Stop</button>
       {/if}
     </div>
+    <FocusOptions />
 
     {#if task}
       <article class="task card">

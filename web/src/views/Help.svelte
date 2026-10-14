@@ -202,6 +202,7 @@
       <li>The timer runs on the server: start it on your phone and the same countdown shows on your computer. Leave the focus view and a small timer stays in the corner.</li>
       <li>Focus time is added to the task's <em>time spent</em>, so you can compare it with your estimate. Starting focus also marks the task <em>in progress</em>.</li>
       <li>From the focus view: mark the task done (the next planned task starts), set it <em>waiting for results</em> and move on, snooze it to tomorrow, or jump to the next task.</li>
+      <li><strong>Mute speakers while working</strong> and <strong>Timer on every screen</strong> (both under the timer, off until you turn them on; your choice is kept for next time). They need the <a href="#desktop">desktop app</a>, and every computer running it follows them, whichever device started the timer. Speakers are muted only while a focus interval runs and come back as they were for breaks and pauses. The timer can be small in a corner of each monitor (it ignores the mouse), full screen, or full screen only on breaks; it's blue while working and green on breaks. Full screen covers only a running interval: press <em>Esc</em> (or <em>Hide</em>) to put it away until the next one.</li>
     </ul>
   </section>
 

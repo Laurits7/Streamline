@@ -6143,3 +6143,43 @@ async fn default_tasks_have_kinds() {
         .await;
     assert_eq!(sync["task_templates"][0]["kinds"][0]["id"], "whites");
 }
+
+#[tokio::test]
+async fn focus_options_are_kept_with_the_timer() {
+    // D-82: chosen at start, changed while focusing, reset when stopped; synced to every device.
+    let t = setup().await;
+    let admin = t.admin().await;
+    let focus = |body: Value| t.req("POST", "/api/v1/focus", Some(&admin), Some(body));
+    let (_, v, _) = focus(json!({"action": "start"})).await;
+    assert_eq!(
+        (v["timer"]["mute"].as_bool(), v["timer"]["screens"].as_str()),
+        (Some(false), Some("off")),
+        "off by default"
+    );
+    let (_, v, _) =
+        focus(json!({"action": "start", "mute": true, "screens": "fullscreen_breaks"})).await;
+    assert_eq!(
+        (v["timer"]["mute"].as_bool(), v["timer"]["screens"].as_str()),
+        (Some(true), Some("fullscreen_breaks"))
+    );
+    let (_, v, _) = focus(json!({"action": "options", "screens": "overlay"})).await;
+    assert_eq!(
+        (v["timer"]["mute"].as_bool(), v["timer"]["screens"].as_str()),
+        (Some(true), Some("overlay")),
+        "mute kept"
+    );
+    let (_, sync, _) = t
+        .req("GET", "/api/v1/sync?since=0", Some(&admin), None)
+        .await;
+    assert_eq!(sync["focus_timer"]["screens"], "overlay");
+    let (s, _, _) = focus(json!({"action": "options", "screens": "huge"})).await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    let (_, v, _) = focus(json!({"action": "stop"})).await;
+    assert_eq!(
+        (v["timer"]["mute"].as_bool(), v["timer"]["screens"].as_str()),
+        (Some(false), Some("off"))
+    );
+    // Nothing to change while idle.
+    let (_, v, _) = focus(json!({"action": "options", "mute": true})).await;
+    assert_eq!(v["timer"]["mute"], false);
+}

@@ -187,6 +187,13 @@ impl Engine {
         Ok(())
     }
 
+    /// A value `/sync` sends once (`me`, `focus_timer`…) as last seen.
+    pub async fn single(&self, key: &str) -> Option<Value> {
+        self.meta(&format!("single:{key}"))
+            .await
+            .and_then(|v| serde_json::from_str(&v).ok())
+    }
+
     async fn meta(&self, key: &str) -> Option<String> {
         sqlx::query_scalar("SELECT value FROM meta WHERE key = ?")
             .bind(key)
@@ -478,7 +485,8 @@ impl Engine {
         });
     }
 
-    async fn record(&self, key: &str, id: &str) -> Option<Value> {
+    /// One of the server's records as last seen.
+    pub async fn record(&self, key: &str, id: &str) -> Option<Value> {
         let json: Option<String> =
             sqlx::query_scalar("SELECT json FROM records WHERE key = ?1 AND id = ?2")
                 .bind(key)

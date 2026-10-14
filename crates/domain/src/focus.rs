@@ -53,6 +53,63 @@ impl Default for Settings {
     }
 }
 
+/// Where the desktop app shows the timer during focus (D-82).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Screens {
+    #[default]
+    Off,
+    /// A small always-on-top countdown in a corner of every monitor.
+    Overlay,
+    /// The countdown covers every monitor.
+    Fullscreen,
+    /// The overlay while working, full screen during breaks.
+    FullscreenBreaks,
+}
+
+impl Screens {
+    pub fn parse(s: &str) -> Option<Self> {
+        Some(match s {
+            "off" => Self::Off,
+            "overlay" => Self::Overlay,
+            "fullscreen" => Self::Fullscreen,
+            "fullscreen_breaks" => Self::FullscreenBreaks,
+            _ => return None,
+        })
+    }
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::Overlay => "overlay",
+            Self::Fullscreen => "fullscreen",
+            Self::FullscreenBreaks => "fullscreen_breaks",
+        }
+    }
+}
+
+/// Focus options chosen when starting (D-82); both off by default. The server keeps them
+/// with the timer, and every computer running the desktop app applies them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Options {
+    /// Mute the speakers while working.
+    pub mute: bool,
+    pub screens: Screens,
+}
+
+/// What the desktop app shows on the monitors right now.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Show {
+    Nothing,
+    Overlay,
+    Fullscreen,
+}
+
+/// What the desktop app does right now: mute the speakers, and what to show.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Effects {
+    pub mute: bool,
+    pub show: Show,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Timer {
     pub phase: Phase,
@@ -64,6 +121,7 @@ pub struct Timer {
     pub length_min: u32,
     /// Completed work intervals since the last long break.
     pub cycle_done: u32,
+    pub options: Options,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -89,7 +147,10 @@ pub enum Action {
     /// Start working on a task (or without one). Interrupts whatever is running.
     Start {
         task_id: Option<String>,
+        options: Options,
     },
+    /// Change the focus options while focusing.
+    SetOptions(Options),
     Pause,
     Resume,
     /// End the current interval early and move to the next.
@@ -109,6 +170,36 @@ impl Timer {
             elapsed_ms: 0,
             length_min: 0,
             cycle_done: 0,
+            options: Options::default(),
+        }
+    }
+
+    /// What the desktop app does now (D-82). Speakers are muted only while a work interval
+    /// runs: breaks, pauses and the wait before the next interval have sound. Full screen
+    /// only covers a running interval, so a paused or waiting timer never locks you out.
+    pub fn effects(&self) -> Effects {
+        if self.phase == Phase::Idle {
+            return Effects {
+                mute: false,
+                show: Show::Nothing,
+            };
+        }
+        let running = self.running_since.is_some();
+        let full = |on: bool| {
+            if on && running {
+                Show::Fullscreen
+            } else {
+                Show::Overlay
+            }
+        };
+        Effects {
+            mute: self.options.mute && running && self.phase == Phase::Work,
+            show: match self.options.screens {
+                Screens::Off => Show::Nothing,
+                Screens::Overlay => Show::Overlay,
+                Screens::Fullscreen => full(true),
+                Screens::FullscreenBreaks => full(self.phase.is_break()),
+            },
         }
     }
 
@@ -193,13 +284,19 @@ impl Timer {
     pub fn apply(self, action: Action, now: i64, s: &Settings) -> (Timer, Vec<Session>) {
         let (mut t, mut out) = self.advance(now, s);
         match action {
-            Action::Start { task_id } => {
+            Action::Start { task_id, options } => {
                 out.extend(t.session(now, false));
                 if t.phase == Phase::LongBreak {
                     t.cycle_done = 0; // cutting a long break short still starts a new cycle
                 }
                 t.task_id = task_id;
+                t.options = options;
                 t.begin(Phase::Work, Some(now), s);
+            }
+            Action::SetOptions(options) => {
+                if t.phase != Phase::Idle {
+                    t.options = options;
+                }
             }
             Action::Pause => {
                 if t.running_since.is_some() {
@@ -255,6 +352,7 @@ mod tests {
             .apply(
                 Action::Start {
                     task_id: Some("task".into()),
+                    options: Options::default(),
                 },
                 T0,
                 &S,
@@ -355,6 +453,7 @@ mod tests {
         let (t, s) = start().apply(
             Action::Start {
                 task_id: Some("other".into()),
+                options: Options::default(),
             },
             T0 + 20_000,
             &S,
@@ -368,6 +467,7 @@ mod tests {
         let (t, s) = start().apply(
             Action::Start {
                 task_id: Some("other".into()),
+                options: Options::default(),
             },
             m(12),
             &S,
@@ -377,5 +477,110 @@ mod tests {
             (Some("task"), 12, false)
         );
         assert_eq!((t.phase, t.remaining(m(12))), (Phase::Work, 25 * MIN));
+    }
+
+    #[test]
+    fn what_is_muted_and_shown_in_each_phase() {
+        let opts = |mute, screens| Options { mute, screens };
+        let at = |t: &Timer| t.effects();
+        let run = |o: Options| {
+            Timer::idle()
+                .apply(
+                    Action::Start {
+                        task_id: None,
+                        options: o,
+                    },
+                    T0,
+                    &S,
+                )
+                .0
+        };
+        let e = |mute, show| Effects { mute, show };
+
+        // Off by default: nothing happens.
+        assert_eq!(at(&start()), e(false, Show::Nothing));
+        assert_eq!(at(&Timer::idle()), e(false, Show::Nothing));
+
+        // Muted while working; sound back on pause, in the break, and when waiting to start.
+        let t = run(opts(true, Screens::Overlay));
+        assert_eq!(at(&t), e(true, Show::Overlay));
+        let paused = t.clone().apply(Action::Pause, m(5), &S).0;
+        assert_eq!(at(&paused), e(false, Show::Overlay));
+        let brk = t.clone().advance(m(25), &S).0;
+        assert_eq!(brk.phase, Phase::ShortBreak);
+        assert_eq!(at(&brk), e(false, Show::Overlay));
+        let waiting = brk.clone().advance(m(30), &S).0;
+        assert_eq!((waiting.phase, waiting.running_since), (Phase::Work, None));
+        assert_eq!(at(&waiting), e(false, Show::Overlay));
+        // Stopping ends everything.
+        assert_eq!(
+            at(&t.clone().apply(Action::Stop, m(3), &S).0),
+            e(false, Show::Nothing)
+        );
+
+        // Full screen covers running intervals; paused or waiting it steps back to the overlay.
+        let t = run(opts(false, Screens::Fullscreen));
+        assert_eq!(at(&t), e(false, Show::Fullscreen));
+        assert_eq!(
+            at(&t.clone().apply(Action::Pause, m(5), &S).0),
+            e(false, Show::Overlay)
+        );
+        assert_eq!(
+            at(&t.clone().advance(m(25), &S).0),
+            e(false, Show::Fullscreen)
+        );
+        assert_eq!(at(&t.clone().advance(m(30), &S).0), e(false, Show::Overlay));
+
+        // Full screen on breaks only: the overlay while working.
+        let t = run(opts(true, Screens::FullscreenBreaks));
+        assert_eq!(at(&t), e(true, Show::Overlay));
+        assert_eq!(
+            at(&t.clone().advance(m(25), &S).0),
+            e(false, Show::Fullscreen)
+        );
+        // A long break counts as a break too.
+        let mut long = t.clone();
+        for i in 0..4 {
+            long = long.advance(m(30 * i + 25), &S).0;
+            if i < 3 {
+                let options = long.options;
+                long = long
+                    .apply(
+                        Action::Start {
+                            task_id: None,
+                            options,
+                        },
+                        m(30 * i + 30),
+                        &S,
+                    )
+                    .0;
+            }
+        }
+        assert_eq!(long.phase, Phase::LongBreak);
+        assert_eq!(at(&long), e(false, Show::Fullscreen));
+
+        // Options can change mid-session, and survive the switch to a break; stopping resets them.
+        let t = start()
+            .apply(Action::SetOptions(opts(true, Screens::Overlay)), m(1), &S)
+            .0;
+        assert_eq!(at(&t), e(true, Show::Overlay));
+        assert_eq!(
+            t.clone().advance(m(25), &S).0.options,
+            opts(true, Screens::Overlay)
+        );
+        assert_eq!(
+            Timer::idle()
+                .apply(Action::SetOptions(opts(true, Screens::Overlay)), T0, &S)
+                .0,
+            Timer::idle()
+        );
+        assert_eq!(
+            t.apply(Action::Stop, m(2), &S).0.options,
+            Options::default()
+        );
+        for s in ["off", "overlay", "fullscreen", "fullscreen_breaks"] {
+            assert_eq!(Screens::parse(s).unwrap().as_str(), s);
+        }
+        assert_eq!(Screens::parse("huge"), None);
     }
 }

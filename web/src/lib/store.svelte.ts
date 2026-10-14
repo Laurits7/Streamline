@@ -145,8 +145,13 @@ const IDLE_TIMER: FocusTimer = {
   elapsed_ms: 0,
   length_min: 0,
   cycle_done: 0,
+  mute: false,
+  screens: 'off',
   rev: 0,
 }
+/** Focus options (D-82): off by default, the last choice is the next default. */
+export type FocusOptions = Pick<FocusTimer, 'mute' | 'screens'>
+const FOCUS_OPTIONS_PREF = 'focusOptions'
 const byPosition = (a: { position: string }, b: { position: string }) =>
   a.position < b.position ? -1 : a.position > b.position ? 1 : 0
 
@@ -1174,6 +1179,7 @@ class Store {
         elapsed_ms: 0,
         length_min: this.me?.focus_work_min ?? 25,
         cycle_done: prev.phase === 'long_break' ? 0 : prev.cycle_done,
+        ...this.focusOptions(),
       })
     else if (action === 'pause' && t.running_since_ms !== null)
       Object.assign(t, { elapsed_ms: t.elapsed_ms + (at - t.running_since_ms), running_since_ms: null })
@@ -1185,8 +1191,34 @@ class Store {
       if (task && task.status === 'open' && !task.started_at) this.tasks.set(taskId, { ...task, started_at: now() })
     }
     try {
-      const r = await api.post<FocusState>('/focus', { action, task_id: taskId ?? null })
+      const r = await api.post<FocusState>('/focus', {
+        action,
+        task_id: taskId ?? null,
+        ...(action === 'start' ? this.focusOptions() : {}),
+      })
       this.clockOffset = r.server_now - Date.now()
+      if (r.timer.rev >= this.focusTimer.rev) this.focusTimer = r.timer
+    } catch (e) {
+      this.focusTimer = prev
+      toast(e instanceof ApiError ? e.message : 'Could not reach the server', 'error')
+    }
+  }
+
+  /** The focus options to start with: the last ones chosen, both off at first (D-82). */
+  focusOptions(): FocusOptions {
+    const o = this.pref<Partial<FocusOptions>>(FOCUS_OPTIONS_PREF, {})
+    return { mute: o.mute ?? false, screens: o.screens ?? 'off' }
+  }
+
+  /** Change the focus options: remembered for next time, and applied now if focusing. */
+  async setFocusOptions(patch: Partial<FocusOptions>) {
+    const next = { ...this.focusOptions(), ...patch }
+    this.setPref(FOCUS_OPTIONS_PREF, next)
+    if (this.focusTimer.phase === 'idle') return
+    const prev = this.focusTimer
+    this.focusTimer = { ...prev, ...next }
+    try {
+      const r = await api.post<FocusState>('/focus', { action: 'options', ...next })
       if (r.timer.rev >= this.focusTimer.rev) this.focusTimer = r.timer
     } catch (e) {
       this.focusTimer = prev

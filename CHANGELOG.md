@@ -24,6 +24,10 @@
 - The desktop app works offline: it keeps a copy of your data, and changes made offline
   wait on the computer and are sent when the server is back, merged field by field with
   changes made elsewhere; a note says if anything clashed or was dropped (D-79, D-89).
+- Focus options: mute the speakers while working, and show the timer on every screen (small
+  in a corner, full screen, or full screen only on breaks). Both off until you turn them on,
+  and your choice is kept for next time. The desktop app applies them on every computer it
+  runs on, whichever device started the timer (D-82, D-90).
 - The desktop app can also run on its own, without a server ("This computer only" on first
   start), for a single laptop. Your data stays in a folder that can later be used to start
   a real Streamline server (D-88).

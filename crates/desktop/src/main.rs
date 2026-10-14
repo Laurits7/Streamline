@@ -7,6 +7,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod engine;
+mod focus;
 mod remote;
 
 use std::path::PathBuf;
@@ -149,6 +150,12 @@ async fn set_local_password(state: State<'_, App>, password: String) -> Result<(
     streamline::local::set_password(&local.state, &password)
         .await
         .map_err(|e| e.to_string())
+}
+
+/// Full screen focus timer: hide it until the next interval (Esc).
+#[tauri::command]
+fn focus_hide(focus: State<'_, Arc<focus::Focus>>) {
+    focus.hide();
 }
 
 /// Show the local data folder in the file manager.
@@ -471,6 +478,7 @@ fn main() {
             Some(vec!["--minimized"]),
         ))
         .manage(App::default())
+        .manage(Arc::new(focus::Focus::default()))
         .invoke_handler(tauri::generate_handler![
             status,
             connect,
@@ -480,6 +488,7 @@ fn main() {
             use_local,
             open_data_folder,
             set_local_password,
+            focus_hide,
             download,
             events_open,
             events_close
@@ -496,6 +505,9 @@ fn main() {
                 },
             ))?;
             app.state::<App>().engine.set(engine.clone()).ok();
+            // Focus options on this computer: muting and the timer on every monitor (D-82).
+            app.state::<Arc<focus::Focus>>()
+                .spawn(handle.clone(), engine.clone());
             // Waiting changes are retried every half minute, also without the window open.
             let retry = engine.clone();
             tauri::async_runtime::spawn(async move {
@@ -564,11 +576,19 @@ fn main() {
         })
         .on_window_event(|window, event| {
             // Closing the window keeps the app (and syncing) in the tray.
-            if let WindowEvent::CloseRequested { api, .. } = event {
+            if let WindowEvent::CloseRequested { api, .. } = event
+                && window.label() == "main"
+            {
                 api.prevent_close();
                 let _ = window.hide();
             }
         })
-        .run(tauri::generate_context!())
-        .expect("error while running Streamline");
+        .build(tauri::generate_context!())
+        .expect("error while starting Streamline")
+        .run(|app, event| {
+            // Quitting mid-focus gives the speakers back.
+            if let tauri::RunEvent::Exit = event {
+                app.state::<Arc<focus::Focus>>().restore();
+            }
+        });
 }

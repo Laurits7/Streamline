@@ -620,6 +620,11 @@ pub struct FocusTimer {
     pub length_min: i32,
     /// Completed work intervals since the last long break.
     pub cycle_done: i32,
+    /// Mute the speakers while working (desktop app, D-82).
+    pub mute: bool,
+    /// Timer on every monitor (desktop app, D-82).
+    #[ts(type = "'off' | 'overlay' | 'fullscreen' | 'fullscreen_breaks'")]
+    pub screens: String,
     #[ts(type = "number")]
     pub rev: i64,
 }

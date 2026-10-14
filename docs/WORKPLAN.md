@@ -662,7 +662,7 @@ own), then the server's merge support, then the desktop app on top of it.
       first-run choice between the two; background jobs (routines, rollover, reminders,
       backups) run while the app runs; moving to a server later by starting one on a copy of
       the data folder (password for `me` set in Settings); tests; help.
-- [ ] **9.6 Focus options** (D-82): mute and screens options on the focus start screen (off by
+- [x] **9.6 Focus options** (D-82): mute and screens options on the focus start screen (off by
       default, last choice remembered), stored with the focus session and synced; desktop:
       mute/restore through `pactl`, overlay or full-screen timer windows on every monitor
       (follows monitors being plugged in), break colours; browser shows "needs the desktop
