@@ -12,6 +12,7 @@ use crate::{
     db::next_rev,
     error::{ApiResult, AppError, bad},
     events::Change,
+    merge::Merged,
     models::{
         ChecklistItem, DayEntry, TASK_STATUSES, Task, log_task_event, upsert_entry, upsert_task,
     },
@@ -211,7 +212,10 @@ pub async fn create(
         check_position(p)?;
     }
     let entry_id = id_or_new(c.day_entry_id)?;
-    let checklist = crate::models::checklist(c.checklist).map_err(bad)?;
+    let checklist = crate::models::with_checklist(
+        &crate::models::checklist(c.checklist).map_err(bad)?,
+        |new| streamline_domain::checklist::stamp(&[], new.to_vec(), chrono::Utc::now(), user.id()),
+    );
     let task_type_id = c.task_type_id.unwrap_or_else(|| DEFAULT_TASK_TYPE.into());
 
     let mut tx = state.db.write.begin().await?;
@@ -220,7 +224,12 @@ pub async fn create(
         .fetch_optional(&mut *tx)
         .await?
     {
-        if existing.owner_user_id.as_deref() == Some(user.id()) {
+        // A replayed create (offline outbox, D-79) gets the record, shared ones too.
+        if crate::visibility::can_see(
+            &user,
+            existing.owner_user_id.as_deref(),
+            existing.owner_group_id.as_deref(),
+        ) {
             return Ok(Json(existing));
         }
         return Err(AppError::Conflict("id already in use".into()));
@@ -389,6 +398,10 @@ pub struct PatchTask {
     waiting_note: Option<String>,
     /// Steps inside the task (replaces the list; D-71).
     checklist: Option<Vec<ChecklistItem>>,
+    /// An offline edit's base values and time (D-79).
+    #[serde(flatten)]
+    #[allow(dead_code)]
+    merge: crate::merge::MergeBase,
 }
 
 /// A check-back time as the server stores timestamps (UTC, milliseconds).
@@ -468,15 +481,17 @@ async fn check_also(
     Ok(out)
 }
 
-#[utoipa::path(patch, path = "/tasks/{id}", tag = "tasks", summary = "Update a task; status done completes it", params(("id" = String, Path, description = "ULID")), request_body = PatchTask, responses((status = 200, body = Task), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
+#[utoipa::path(patch, path = "/tasks/{id}", tag = "tasks", summary = "Update a task; status done completes it", params(("id" = String, Path, description = "ULID")), request_body = PatchTask, responses((status = 200, body = Merged<Task>), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
 pub async fn patch(
     State(state): State<AppState>,
     user: AuthUser,
     Path(id): Path<String>,
-    Json(c): Json<PatchTask>,
-) -> ApiResult<Json<Task>> {
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<Json<Merged<Task>>> {
     let mut tx = state.db.write.begin().await?;
     let mut t = load_visible(&mut tx, &user, &id).await?;
+    let (c, conflicts): (PatchTask, _) =
+        crate::merge::prepare(body, Some(&t), Some(&t.updated_at))?;
     let old_status = t.status.clone();
     if let Some(v) = c.title {
         t.title = check_title(&v)?;
@@ -534,8 +549,26 @@ pub async fn patch(
     if let Some(v) = c.also_project_ids {
         t.also_project_ids = sqlx::types::Json(check_also(&mut tx, &user, &t.project_id, v).await?);
     }
+    // Ticking the last item completes the task, unticking one reopens it (D-80), unless
+    // the request sets the status itself.
+    let mut checklist_status = None;
     if let Some(v) = c.checklist {
-        t.checklist = sqlx::types::Json(crate::models::checklist(v).map_err(bad)?);
+        let dom = |l: &[ChecklistItem]| -> Vec<streamline_domain::checklist::Item> {
+            l.iter().cloned().map(Into::into).collect()
+        };
+        let new =
+            crate::models::with_checklist(&crate::models::checklist(v).map_err(bad)?, |new| {
+                streamline_domain::checklist::stamp(
+                    &dom(&t.checklist),
+                    new.to_vec(),
+                    chrono::Utc::now(),
+                    user.id(),
+                )
+            });
+        checklist_status =
+            streamline_domain::checklist::status_after(&dom(&t.checklist), &dom(&new), &t.status)
+                .map(String::from);
+        t.checklist = sqlx::types::Json(new);
     }
     if let Some(v) = c.position {
         check_position(&v)?;
@@ -564,7 +597,7 @@ pub async fn patch(
         check_task_type(&mut tx, &user, &v).await?;
         t.task_type_id = v;
     }
-    if let Some(status) = c.status
+    if let Some(status) = c.status.or(checklist_status)
         && status != t.status
     {
         if !TASK_STATUSES.contains(&status.as_str()) {
@@ -678,7 +711,7 @@ pub async fn patch(
     }
     tx.commit().await?;
     state.bus.publish(changes);
-    Ok(Json(t))
+    Ok(Json(Merged::new(t, conflicts)))
 }
 
 #[utoipa::path(delete, path = "/tasks/{id}", tag = "tasks", summary = "Delete a task", params(("id" = String, Path, description = "ULID")), responses((status = 204, description = "Done"), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]

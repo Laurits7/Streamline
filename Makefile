@@ -1,7 +1,7 @@
 # Developer shortcuts. Run `make dev-server` and `make dev-web` in two terminals,
 # then open http://localhost:5173 (Vite proxies /api to the Rust server).
 
-.PHONY: dev-server dev-web test check types build docker up measure clean-data
+.PHONY: dev-server dev-web test check types build desktop docker up measure clean-data
 
 dev-server:
 	DATA_DIR=./data LOG_LEVEL=debug,sqlx=warn cargo run -p streamline
@@ -25,6 +25,12 @@ types:
 build:
 	cd web && npm ci && npm run build
 	cargo build --release -p streamline
+
+# The Linux desktop app (D-78): its own Cargo workspace, needs webkit2gtk-4.1 and a tray
+# library (libayatana-appindicator) installed.
+desktop:
+	cd web && npm run build
+	cargo build --release --manifest-path crates/desktop/Cargo.toml
 
 docker:
 	docker compose build

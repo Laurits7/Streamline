@@ -34,7 +34,7 @@ use crate::AppState;
 #[openapi(
     info(
         title = "Streamline API",
-        description = "Self-hosted household todo and day planner. Authenticate with the session cookie or `Authorization: Bearer <token>` (create tokens in Settings). Ids are ULIDs; clients may supply their own when creating records. Every record has `rev`; `GET /sync?since=<rev>` returns what changed, including deletions (`deleted_at`).",
+        description = "Self-hosted household todo and day planner. Authenticate with the session cookie or `Authorization: Bearer <token>` (create tokens in Settings). Ids are ULIDs; clients may supply their own when creating records. Every record has `rev`; `GET /sync?since=<rev>` returns what changed, including deletions (`deleted_at`). Updates made offline can send `base` (the values the edited fields had) and `edited_at`: the server merges them with newer changes field by field and lists any `conflicts` in the response.",
     ),
     servers((url = "/api/v1")),
     modifiers(&Security),

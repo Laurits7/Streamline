@@ -34,6 +34,10 @@ pub struct PutHealth {
     kind: Option<String>,
     #[serde(default)]
     note: String,
+    /// An offline edit's base values and time (D-79).
+    #[serde(flatten)]
+    #[allow(dead_code)]
+    merge: crate::merge::MergeBase,
 }
 
 async fn health_row(
@@ -48,25 +52,45 @@ async fn health_row(
         .await
 }
 
-#[utoipa::path(put, path = "/days/{date}/health", tag = "tracking", summary = "Set the day's health check-in (one per day)", params(("date" = String, Path, description = "YYYY-MM-DD")), request_body = PutHealth, responses((status = 200, body = HealthDay), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
+#[utoipa::path(put, path = "/days/{date}/health", tag = "tracking", summary = "Set the day's health check-in (one per day)", params(("date" = String, Path, description = "YYYY-MM-DD")), request_body = PutHealth, responses((status = 200, body = crate::merge::Merged<HealthDay>), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
 pub async fn put_health(
     State(state): State<AppState>,
     user: AuthUser,
     Path(date): Path<String>,
-    Json(c): Json<PutHealth>,
-) -> ApiResult<Json<HealthDay>> {
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<Json<crate::merge::Merged<HealthDay>>> {
     let day = parse_date(&date)?;
     if day > crate::rollover::today_for(&user.user) {
         return Err(bad("can't record health for a day that hasn't come yet"));
+    }
+    let mut tx = state.db.write.begin().await?;
+    let ts = now();
+    let existing = health_row(&mut tx, user.id(), &date).await?;
+    // An offline edit of a check-in cleared since then stays cleared (D-79).
+    if existing.as_ref().is_some_and(|h| h.deleted_at.is_some())
+        && body.get("base").is_some_and(|b| !b.is_null())
+    {
+        return Err(AppError::NotFound);
+    }
+    let sent = |k: &str| body.get(k).and_then(|v| v.as_str()).map(String::from);
+    let (sent_status, sent_kind) = (sent("status"), sent("kind"));
+    let live = existing.as_ref().filter(|h| h.deleted_at.is_none());
+    let (mut c, conflicts): (PutHealth, _) =
+        crate::merge::prepare_put(body, live, live.map(|h| h.updated_at.as_str()))?;
+    // The kind belongs to the status: it comes from the side whose status was kept.
+    if let Some(h) = live {
+        if sent_status.as_deref() != Some(c.status.as_str()) {
+            c.kind = h.kind.clone();
+        } else if c.status != h.status {
+            c.kind = sent_kind;
+        }
     }
     streamline_domain::health::validate(&c.status, c.kind.as_deref()).map_err(bad)?;
     let note = c.note.trim().to_string();
     if note.chars().count() > streamline_domain::health::MAX_NOTE {
         return Err(bad("note must be at most 200 characters"));
     }
-    let mut tx = state.db.write.begin().await?;
-    let ts = now();
-    let mut h = match health_row(&mut tx, user.id(), &date).await? {
+    let mut h = match existing {
         Some(h) => h,
         None => HealthDay {
             id: new_id(),
@@ -90,7 +114,7 @@ pub async fn put_health(
     upsert_health_day(&mut tx, &h).await?;
     tx.commit().await?;
     state.bus.publish([Change::health_day(&h)]);
-    Ok(Json(h))
+    Ok(Json(crate::merge::Merged::new(h, conflicts)))
 }
 
 #[utoipa::path(delete, path = "/days/{date}/health", tag = "tracking", summary = "Clear the day's health check-in", params(("date" = String, Path, description = "YYYY-MM-DD")), responses((status = 204, description = "Done"), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
@@ -123,16 +147,33 @@ pub struct PutRecord {
     went_well: Option<String>,
     went_badly: Option<String>,
     tomorrow: Option<String>,
+    /// An offline edit's base values and time (D-79).
+    #[serde(flatten)]
+    #[allow(dead_code)]
+    merge: crate::merge::MergeBase,
 }
 
-#[utoipa::path(put, path = "/days/{date}/record", tag = "tracking", summary = "Save the day's reflection (fields left out are kept)", params(("date" = String, Path, description = "YYYY-MM-DD")), request_body = PutRecord, responses((status = 200, body = DayRecord), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
+#[utoipa::path(put, path = "/days/{date}/record", tag = "tracking", summary = "Save the day's reflection (fields left out are kept)", params(("date" = String, Path, description = "YYYY-MM-DD")), request_body = PutRecord, responses((status = 200, body = crate::merge::Merged<DayRecord>), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
 pub async fn put_record(
     State(state): State<AppState>,
     user: AuthUser,
     Path(date): Path<String>,
-    Json(c): Json<PutRecord>,
-) -> ApiResult<Json<DayRecord>> {
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<Json<crate::merge::Merged<DayRecord>>> {
     parse_date(&date)?;
+    let mut tx = state.db.write.begin().await?;
+    let ts = now();
+    let existing: Option<DayRecord> =
+        sqlx::query_as("SELECT * FROM day_records WHERE user_id = ? AND date = ?")
+            .bind(user.id())
+            .bind(&date)
+            .fetch_optional(&mut *tx)
+            .await?;
+    let (c, conflicts): (PutRecord, _) = crate::merge::prepare(
+        body,
+        existing.as_ref(),
+        existing.as_ref().map(|r| r.updated_at.as_str()),
+    )?;
     for f in [&c.journal, &c.went_well, &c.went_badly, &c.tomorrow]
         .into_iter()
         .flatten()
@@ -141,30 +182,22 @@ pub async fn put_record(
             return Err(bad("text too long"));
         }
     }
-    let mut tx = state.db.write.begin().await?;
-    let ts = now();
-    let mut r: DayRecord =
-        match sqlx::query_as("SELECT * FROM day_records WHERE user_id = ? AND date = ?")
-            .bind(user.id())
-            .bind(&date)
-            .fetch_optional(&mut *tx)
-            .await?
-        {
-            Some(r) => r,
-            None => DayRecord {
-                id: new_id(),
-                user_id: user.id().into(),
-                date,
-                journal: String::new(),
-                went_well: String::new(),
-                went_badly: String::new(),
-                tomorrow: String::new(),
-                created_at: ts.clone(),
-                updated_at: ts.clone(),
-                deleted_at: None,
-                rev: 0,
-            },
-        };
+    let mut r: DayRecord = match existing {
+        Some(r) => r,
+        None => DayRecord {
+            id: new_id(),
+            user_id: user.id().into(),
+            date,
+            journal: String::new(),
+            went_well: String::new(),
+            went_badly: String::new(),
+            tomorrow: String::new(),
+            created_at: ts.clone(),
+            updated_at: ts.clone(),
+            deleted_at: None,
+            rev: 0,
+        },
+    };
     if let Some(v) = c.journal {
         r.journal = v;
     }
@@ -183,7 +216,7 @@ pub async fn put_record(
     upsert_day_record(&mut tx, &r).await?;
     tx.commit().await?;
     state.bus.publish([Change::day_record(&r)]);
-    Ok(Json(r))
+    Ok(Json(crate::merge::Merged::new(r, conflicts)))
 }
 
 #[utoipa::path(get, path = "/days/{date}/summary", tag = "tracking", summary = "The day's summary: planned vs. done, routines, events, focus, metrics and reflection", params(("date" = String, Path, description = "YYYY-MM-DD")), responses((status = 200, body = DaySummary), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
@@ -524,6 +557,10 @@ pub struct PatchEntry {
     value: Option<f64>,
     note: Option<String>,
     date: Option<String>,
+    /// An offline edit's base values and time (D-79).
+    #[serde(flatten)]
+    #[allow(dead_code)]
+    merge: crate::merge::MergeBase,
 }
 
 async fn load_entry(
@@ -541,15 +578,17 @@ async fn load_entry(
     .ok_or(AppError::NotFound)
 }
 
-#[utoipa::path(patch, path = "/metric-entries/{id}", tag = "tracking", summary = "Correct a logged value", params(("id" = String, Path, description = "ULID")), request_body = PatchEntry, responses((status = 200, body = MetricEntry), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
+#[utoipa::path(patch, path = "/metric-entries/{id}", tag = "tracking", summary = "Correct a logged value", params(("id" = String, Path, description = "ULID")), request_body = PatchEntry, responses((status = 200, body = crate::merge::Merged<MetricEntry>), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
 pub async fn patch_entry(
     State(state): State<AppState>,
     user: AuthUser,
     Path(id): Path<String>,
-    Json(c): Json<PatchEntry>,
-) -> ApiResult<Json<MetricEntry>> {
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<Json<crate::merge::Merged<MetricEntry>>> {
     let mut tx = state.db.write.begin().await?;
     let mut e = load_entry(&mut tx, &user, &id).await?;
+    let (c, conflicts): (PatchEntry, _) =
+        crate::merge::prepare(body, Some(&e), Some(&e.updated_at))?;
     let m = load_metric(&mut tx, &user, &e.metric_id).await?;
     if let Some(v) = c.value {
         check_value(&m, v)?;
@@ -567,7 +606,7 @@ pub async fn patch_entry(
     upsert_metric_entry(&mut tx, &e).await?;
     tx.commit().await?;
     state.bus.publish([Change::metric_entry(&e)]);
-    Ok(Json(e))
+    Ok(Json(crate::merge::Merged::new(e, conflicts)))
 }
 
 #[utoipa::path(delete, path = "/metric-entries/{id}", tag = "tracking", summary = "Delete a logged value", params(("id" = String, Path, description = "ULID")), responses((status = 204, description = "Done"), (status = 401, description = "Not signed in", body = crate::error::Problem)))]

@@ -276,7 +276,12 @@ pub async fn create(
         .fetch_optional(&mut *tx)
         .await?
     {
-        if existing.owner_user_id.as_deref() == Some(user.id()) {
+        // A replayed create (offline outbox, D-79) gets the record, shared ones too.
+        if crate::visibility::can_see(
+            &user,
+            existing.owner_user_id.as_deref(),
+            existing.owner_group_id.as_deref(),
+        ) {
             return Ok(Json(existing));
         }
         return Err(AppError::Conflict("id already in use".into()));
@@ -347,17 +352,23 @@ pub struct PatchProject {
     /// `active` or `idea`, for the whole subtree. Becoming an idea takes its open tasks
     /// off the plan from today on (D-72).
     status: Option<String>,
+    /// An offline edit's base values and time (D-79).
+    #[serde(flatten)]
+    #[allow(dead_code)]
+    merge: crate::merge::MergeBase,
 }
 
-#[utoipa::path(patch, path = "/projects/{id}", tag = "projects", summary = "Rename, describe, recolour, reorder, archive, move or activate a project", params(("id" = String, Path, description = "ULID")), request_body = PatchProject, responses((status = 200, body = Project), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
+#[utoipa::path(patch, path = "/projects/{id}", tag = "projects", summary = "Rename, describe, recolour, reorder, archive, move or activate a project", params(("id" = String, Path, description = "ULID")), request_body = PatchProject, responses((status = 200, body = crate::merge::Merged<Project>), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
 pub async fn patch(
     State(state): State<AppState>,
     user: AuthUser,
     Path(id): Path<String>,
-    Json(c): Json<PatchProject>,
-) -> ApiResult<Json<Project>> {
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<Json<crate::merge::Merged<Project>>> {
     let mut tx = state.db.write.begin().await?;
     let mut p = load_visible(&mut tx, &user, &id).await?;
+    let (c, conflicts): (PatchProject, _) =
+        crate::merge::prepare(body, Some(&p), Some(&p.updated_at))?;
     if let Some(n) = c.name {
         p.name = check_name(&n)?;
     }
@@ -494,7 +505,7 @@ pub async fn patch(
     changes.push(Change::project(&p));
     tx.commit().await?;
     state.bus.publish(changes);
-    Ok(Json(p))
+    Ok(Json(crate::merge::Merged::new(p, conflicts)))
 }
 
 /// Soft-deletes the project and all its subprojects, with their tasks and the

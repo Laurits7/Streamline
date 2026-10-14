@@ -209,6 +209,7 @@ The same underlying tasks can be shown in several interchangeable views. Views a
 - The timer's state lives **on the server** (or is reconstructable from it), so it stays correct across devices and page reloads (start on phone, see it on desktop).
 - Completed focus sessions are logged against the task (feeding actual time spent, 6.6) and show up in the daily summary.
 - From the focus view the user can mark the task done, snooze it, or move on to the next planned task.
+- **Desktop-only options** (added 2026-10-14, D-82), chosen on the start screen and off by default: mute the speakers during focus, and show the running timer on all attached screens (small overlay, full screen, or full screen on breaks only).
 
 ### 6.10 Long-term goals
 - **Goals** with a title, description, optional target date, and a status.
@@ -266,6 +267,16 @@ The app can query other self-hosted apps over their APIs and turn what it finds 
 - Each occasion produces a small set of tasks with **individual lead times and dependencies**, e.g. "buy present" 2 days before → "say happy birthday" on the day (blocked until the present is bought). Lead times differ per task and per kind of occasion.
 - Each kind of occasion (birthday, nameday, …) has a **default task type**, changeable per kind (e.g. "say happy birthday" defaults to *expires*, "buy present" to *deadline*).
 - Built on yearly recurrence (§6.3) plus workflow templates with dependencies (§6.3b), with each step placed at an offset from the occasion date.
+
+### 6.18 Linux desktop app (added 2026-10-14, owner request, D-78, D-79, D-83)
+- A desktop app for Linux, installable from the AUR (binary and from-source packages).
+- It connects to the user's existing Streamline server, keeps a local copy and **works offline**: edits made offline are synced when the server is reachable again. Conflicting edits are merged field by field; the newer edit wins, and the user is told what was overwritten.
+- It keeps syncing in the background (tray) and can start at login.
+
+### 6.19 Checklists on the timeline and in the Agenda (added 2026-10-14, owner request, D-80, D-81)
+- Hovering a routine or task with a checklist on the day timeline (long-press on touch) shows a small window with the checklist, where items can be ticked.
+- In the Agenda, the checklist is shown as an indented, tickable sublist under its item.
+- Ticking the last item completes the task; unticking an item reopens it.
 
 ## 7. Build phases
 

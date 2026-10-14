@@ -124,7 +124,7 @@ function mockApi(handler: Handler) {
 
 function syncResponse(data: Partial<SyncResponse> = {}): SyncResponse {
   return { rev: 10, full: true, me: ME, today: '2026-10-06', task_types: [], projects: [], tasks: [], day_entries: [], day_plans: [],
-    focus_timer: { task_id: null, phase: 'idle', running_since_ms: null, elapsed_ms: 0, length_min: 0, cycle_done: 0, rev: 0 },
+    focus_timer: { task_id: null, phase: 'idle', running_since_ms: null, elapsed_ms: 0, length_min: 0, cycle_done: 0, mute: false, screens: 'off', rev: 0 },
     focus_sessions: [], series: [], places: [], workflows: [], task_templates: [], groups: [], calendar_account: null, calendars: [], events: [], event_projects: [], people: [], occasion_templates: [], day_templates: [], time_blocks: [], day_records: [], metrics: [], metric_entries: [], health_days: [], goals: [], server_now: Date.now(), ...data }
 }
 
@@ -449,18 +449,22 @@ describe('calendar events and work (D-68)', () => {
 })
 
 describe('checklists and waiting (D-70, D-71)', () => {
-  it('offers to complete the task when the last step is ticked', async () => {
+  it('completes the task when the last step is ticked, and reopens it on an untick (D-80)', async () => {
     const items = [
       { id: 'a', text: 'Sort', done: true },
       { id: 'b', text: 'Wash', done: false },
     ]
     await load({ tasks: [task('T1', { checklist: items })] })
-    mockApi((_m, _p, body) => task('T1', { checklist: (body as { checklist: typeof items }).checklist }))
+    mockApi((_m, _p, body) => task('T1', body as Partial<Task>))
     store.tickItem('T1', 'b')
     expect(store.tasks.get('T1')!.checklist.every((i) => i.done)).toBe(true)
-    expect(toasts.at(-1)).toMatchObject({ text: 'All steps done', action: { label: 'Complete task' } })
+    expect(store.tasks.get('T1')!.status).toBe('done')
+    expect(toasts.at(-1)).toMatchObject({ text: 'All steps done: completed “T1”', action: { label: 'Undo' } })
     await tick()
-    expect(calls[0]).toMatchObject({ method: 'PATCH', path: '/tasks/T1', body: { checklist: [{ id: 'a', done: true }, { id: 'b', done: true }] } })
+    expect(calls[0]).toMatchObject({ method: 'PATCH', path: '/tasks/T1', body: { checklist: [{ id: 'a', done: true }, { id: 'b', done: true }], status: 'done' } })
+    toasts.at(-1)!.action!.run()
+    expect(store.tasks.get('T1')!.status).toBe('open')
+    expect(store.tasks.get('T1')!.checklist.find((i) => i.id === 'b')!.done).toBe(false)
   })
 
   it('keeps waiting tasks out of the ready stack and lists them by check-back time', async () => {
@@ -489,20 +493,30 @@ describe('default tasks (D-71)', () => {
   const tpl = (id: string, title: string, extra = {}) => ({
     id, owner_user_id: 'U1', owner_group_id: null, title, notes: '', checklist: [{ id: 'x', text: 'Sort', done: false }],
     estimate_min: 20, difficulty: null, importance: null, urgency: null, task_type_id: null, project_id: null, place_id: null,
-    created_at: TS, updated_at: TS, deleted_at: null, rev: 1, ...extra,
+    created_at: TS, updated_at: TS, deleted_at: null, rev: 1, kinds: [], ...extra,
   })
 
   it('suggests matches and creates tasks with a fresh checklist', async () => {
     await load({ projects: [project('P1')], task_templates: [tpl('D1', 'Do laundry'), tpl('D2', 'Water plants'), tpl('D3', 'Laundry towels')] })
-    expect(store.matchDefaults('laun').map((t) => t.id)).toEqual(['D3', 'D1'])
+    expect(store.matchDefaults('laun').map((m) => m.tpl.id)).toEqual(['D3', 'D1'])
     expect(store.matchDefaults('l')).toEqual([])
     mockApi((_m, _p, body) => task((body as { id: string }).id, body as Partial<Task>))
-    const id = store.createFromDefault('D1', { day: '2026-10-06', project_id: 'P1' })!
+    const [id] = store.createFromDefault('D1', { day: '2026-10-06', project_id: 'P1' })
     const t = store.tasks.get(id)!
     expect(t).toMatchObject({ title: 'Do laundry', estimate_min: 20, project_id: 'P1' })
     expect(t.checklist).toHaveLength(1)
     expect(t.checklist[0].id).not.toBe('x')
     expect(store.entryForTask(id)?.date).toBe('2026-10-06')
+  })
+
+  it('adds one task per chosen kind (D-86)', async () => {
+    const kinds = [{ id: 'lin', name: 'Linen', checklist: [] }, { id: 'col', name: 'Colours', checklist: [] }]
+    await load({ task_templates: [tpl('D1', 'Laundry', { kinds })] })
+    mockApi((_m, _p, body) => task((body as { id: string }).id, body as Partial<Task>))
+    const ids = store.createFromDefault('D1', { day: '2026-10-06' }, ['lin', 'col'])
+    expect(ids.map((id) => store.tasks.get(id)!.title)).toEqual(['Laundry: Linen', 'Laundry: Colours'])
+    expect(store.tasks.get(ids[0])!.checklist.map((i) => i.text)).toEqual(['Sort'])
+    expect(ids.every((id) => store.entryForTask(id)?.date === '2026-10-06')).toBe(true)
   })
 })
 
@@ -520,5 +534,26 @@ describe('health check-in (D-75)', () => {
       ['PUT', '/days/2026-10-06/health'],
       ['PUT', '/days/2026-10-06/health'],
     ])
+  })
+})
+
+describe('focus options (D-82)', () => {
+  it('starts with the last choice and changes a running timer', async () => {
+    await load()
+    expect(store.focusOptions()).toEqual({ mute: false, screens: 'off' })
+    const timer = (extra = {}) => ({ timer: { ...store.focusTimer, ...extra, rev: 20 }, server_now: Date.now() })
+    mockApi((_m, path, body) => (path === '/me/prefs' ? { ...ME, prefs: body } : timer(body as object)))
+    // Idle: only remembered.
+    await store.setFocusOptions({ screens: 'fullscreen_breaks', mute: true })
+    expect(calls.map((c) => c.path)).toEqual(['/me/prefs'])
+    expect(store.focusOptions()).toEqual({ mute: true, screens: 'fullscreen_breaks' })
+    // Starting sends them.
+    await store.focus('start', null)
+    expect(calls.at(-1)!.body).toMatchObject({ action: 'start', mute: true, screens: 'fullscreen_breaks' })
+    expect(store.focusTimer).toMatchObject({ phase: 'work', mute: true, screens: 'fullscreen_breaks' })
+    // While focusing, a change goes to the timer too.
+    await store.setFocusOptions({ screens: 'overlay' })
+    expect(calls.at(-1)!.body).toEqual({ action: 'options', mute: true, screens: 'overlay' })
+    expect(store.focusTimer.screens).toBe('overlay')
   })
 })

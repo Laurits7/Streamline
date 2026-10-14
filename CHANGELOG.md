@@ -1,5 +1,42 @@
 # Changelog
 
+## Unreleased (1.3.0)
+
+- Checklists complete their task: ticking the last step completes it (with Undo), and
+  unticking a step of a completed task reopens it. Works the same for routines and on every
+  device (D-80).
+- Checklists on the timeline and in the Agenda: hover a task on the timeline (long-press on a
+  phone, or its 2/4 chip with the keyboard) to tick its steps in a small popover; the Agenda
+  shows each task's steps under it, tickable (D-81).
+- Checklist steps show in the day log on the day they were done, so a chore spread over two
+  days (wash on Monday, fold on Tuesday) shows up on both (D-84). On the timeline the 2/4
+  chip moved to the second line so the title has the whole first line.
+- Default tasks can have kinds: Laundry → linen, colours; garbage → bio, paper. Picking one
+  asks which kinds this time and adds a task for each, with the kind's own steps or the
+  default task's (D-86).
+- "Add a task…" shows your default tasks as soon as you click into it, narrows them as you
+  type (kind names too), and lets you pick with the arrow keys; Enter without a pick still
+  adds what you typed.
+- Linux desktop app (first part; packages come later in 1.3): Streamline in its own
+  window, connected to your server with a per-computer key kept in the system keyring. It
+  stays in the tray when closed and can start at login (Settings → Desktop app). Build it
+  with `make desktop` (D-78, D-87).
+- The desktop app works offline: it keeps a copy of your data, and changes made offline
+  wait on the computer and are sent when the server is back, merged field by field with
+  changes made elsewhere; a note says if anything clashed or was dropped (D-79, D-89).
+- Focus options: mute the speakers while working, and show the timer on every screen (small
+  in a corner, full screen, or full screen only on breaks). Both off until you turn them on,
+  and your choice is kept for next time. The desktop app applies them on every computer it
+  runs on, whichever device started the timer (D-82, D-90).
+- Desktop app packages: a `.deb` and a tarball with every release, and the AUR packages
+  `streamline-desktop-bin` and `streamline-desktop` (D-83, D-91).
+- The desktop app can also run on its own, without a server ("This computer only" on first
+  start), for a single laptop. Your data stays in a folder that can later be used to start
+  a real Streamline server (D-88).
+- API: updates can carry `base` (the values they were based on) and `edited_at`; the server
+  merges them field by field with newer changes (checklists per item) and lists any
+  `conflicts` in the response. Groundwork for the offline desktop app (D-79, D-85).
+
 ## 1.2.0 (2026-10-08)
 
 Upgrading: back up first (Settings → Backups, or copy `data/`). This version migrates the

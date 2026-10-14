@@ -12,4 +12,12 @@ running_since_ms: number | null, elapsed_ms: number, length_min: number,
 /**
  * Completed work intervals since the last long break.
  */
-cycle_done: number, rev: number, };
+cycle_done: number, 
+/**
+ * Mute the speakers while working (desktop app, D-82).
+ */
+mute: boolean, 
+/**
+ * Timer on every monitor (desktop app, D-82).
+ */
+screens: 'off' | 'overlay' | 'fullscreen' | 'fullscreen_breaks', rev: number, };

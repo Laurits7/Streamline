@@ -6,7 +6,8 @@ export const toasts = $state<Toast[]>([])
 export function toast(text: string, kind: Toast['kind'] = 'info', action?: Toast['action']) {
   const t = { id: next++, text, kind, action }
   toasts.push(t)
-  setTimeout(() => dismiss(t.id), action ? 6000 : 3500)
+  // Long messages stay long enough to read.
+  setTimeout(() => dismiss(t.id), Math.max(action ? 6000 : 3500, text.length * 60))
 }
 
 export function dismiss(id: number) {

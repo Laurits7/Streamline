@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Streamline
+GenericName=Todo and day planner
+Comment=Household todo list and day planner, online or offline
+Exec=streamline-desktop
+Icon=streamline-desktop
+Terminal=false
+Categories=Office;ProjectManagement;
+Keywords=todo;tasks;planner;pomodoro;focus;
+StartupWMClass=streamline-desktop

@@ -1,18 +1,20 @@
 <script lang="ts">
   // Day timeline: drop tasks on it to give them a time, drag blocks to move them,
   // drag a block's bottom edge to change its duration (15-minute steps). Calendar events
-  // are shown alongside, read-only.
+  // are shown alongside, read-only. Items with a checklist open it in a popover on hover,
+  // long-press (touch) or their "2/4" chip (D-81).
   import { tick, untrack } from 'svelte'
   import type { DayEntry } from '../api/types/DayEntry'
   import type { Task } from '../api/types/Task'
   import { fmtMinutes } from '../dates'
   import { announce } from '../announce.svelte'
   import { timeRange, type DayEvent } from '../calendar'
-  import { draggable, droppable, type DragItem } from '../dnd.svelte'
+  import { dnd, draggable, droppable, type DragItem } from '../dnd.svelte'
   import { store } from '../store.svelte'
   import { ui } from '../ui.svelte'
   import BlockSheet from './BlockSheet.svelte'
   import Check from './Check.svelte'
+  import ChecklistPopover from './ChecklistPopover.svelte'
   import Icon from './Icon.svelte'
 
   type Item = { entry: DayEntry; task: Task }
@@ -38,6 +40,34 @@
   const blockClashes = $derived(new Set(dayConflicts.flatMap((c) => [c.a, c.b])))
   let editingBlock = $state<string | null>(null)
   let moving = $state<{ id: string; start: number; end: number } | null>(null)
+
+  // Checklist popover (D-81). Hover opens it after a short pause and it stays while the
+  // pointer moves between the item and the popover.
+  let pop = $state<{ taskId: string; anchor: HTMLElement; focus: boolean } | null>(null)
+  let hoverTimer: ReturnType<typeof setTimeout> | undefined
+  let heldAt = 0 // a long-press opened the popover: swallow the tap that ends it
+  const openPop = (taskId: string, anchor: HTMLElement, focus = false) => {
+    clearTimeout(hoverTimer)
+    pop = { taskId, anchor, focus }
+  }
+  const closePop = () => {
+    clearTimeout(hoverTimer)
+    pop = null
+  }
+  const hoverIn = (e: PointerEvent, taskId: string) => {
+    if (e.pointerType !== 'mouse' || dnd.item) return
+    const anchor = e.currentTarget as HTMLElement
+    clearTimeout(hoverTimer)
+    if (pop?.taskId !== taskId) hoverTimer = setTimeout(() => openPop(taskId, anchor), 300)
+  }
+  const hoverOut = (e: PointerEvent) => {
+    if (e.pointerType !== 'mouse') return
+    clearTimeout(hoverTimer)
+    if (pop && !pop.focus) hoverTimer = setTimeout(closePop, 250)
+  }
+  $effect(() => {
+    if (dnd.item) untrack(closePop)
+  })
 
   const PX = 0.9 // pixels per minute (54 px per hour)
   const SNAP = 15
@@ -266,13 +296,25 @@
             class:done={b.task.status !== 'open'}
             class:clash={clashes.has(b.entry.id)}
             class:short={b.dur < 40}
+            class:has-steps={b.task.checklist.length > 0}
             style:top="{b.start * PX}px"
             style:height="{Math.max(b.dur, SNAP) * PX - 2}px"
             style:left="{(b.lane / b.lanes) * 100}%"
             style:width="calc({100 / b.lanes}% - 3px)"
             data-id={b.entry.id}
+            role="group"
+            aria-label={b.task.title}
+            onpointerenter={(e) => b.task.checklist.length && hoverIn(e, b.task.id)}
+            onpointerleave={hoverOut}
             use:draggable={{
               disabled: b.task.status !== 'open',
+              hold: () => {
+                const anchor = grid.querySelector<HTMLElement>(`.block[data-id="${b.entry.id}"]`)
+                if (!b.task.checklist.length || !anchor) return false
+                heldAt = Date.now()
+                openPop(b.task.id, anchor)
+                return true
+              },
               item: (down, node) => ({
                 kind: 'task',
                 taskId: b.task.id,
@@ -287,10 +329,24 @@
             <button
               class="body"
               title="{b.task.title} · {b.entry.start_time}–{hhmm(Math.min(b.start + b.dur, 1440))}"
-              onclick={() => (ui.editing = b.task.id)}>
+              onclick={() => Date.now() - heldAt > 800 && (ui.editing = b.task.id)}>
               <span class="title">{#if clashes.has(b.entry.id)}<span class="warn" aria-label="Overlaps">⚠</span> {/if}{b.task.title}</span>
-              <span class="time">{b.entry.start_time}–{hhmm(Math.min(b.start + b.dur, 1440))} · {fmtMinutes(b.dur)}{b.task.checklist.length ? ` · ${b.task.checklist.filter((i) => i.done).length}/${b.task.checklist.length}` : ''}</span>
+              <span class="time">{b.entry.start_time}–{hhmm(Math.min(b.start + b.dur, 1440))} · {fmtMinutes(b.dur)}</span>
             </button>
+            {#if b.task.checklist.length}
+              {@const n = b.task.checklist.filter((i) => i.done).length}
+              <button
+                class="steps"
+                class:all={n === b.task.checklist.length}
+                data-nodrag
+                aria-haspopup="dialog"
+                aria-expanded={pop?.taskId === b.task.id}
+                aria-label="Checklist of {b.task.title}: {n} of {b.task.checklist.length} done"
+                onclick={(e) => {
+                  if (pop?.taskId === b.task.id && pop.focus) closePop()
+                  else openPop(b.task.id, (e.currentTarget as HTMLElement).closest('.block') as HTMLElement, true)
+                }}><Icon name="checklist" size={11} />{n}/{b.task.checklist.length}</button>
+            {/if}
             {#if b.task.status === 'open'}
               <div
                 class="resize"
@@ -321,6 +377,15 @@
   </div>
 </div>
 
+{#if pop}
+  <ChecklistPopover
+    taskId={pop.taskId}
+    anchor={pop.anchor}
+    focus={pop.focus}
+    onclose={closePop}
+    onpointerenter={() => clearTimeout(hoverTimer)}
+    onpointerleave={hoverOut} />
+{/if}
 {#if editingBlock}<BlockSheet id={editingBlock} onclose={() => (editingBlock = null)} />{/if}
 
 <style>
@@ -518,6 +583,33 @@
     color: var(--muted);
     white-space: nowrap;
     font-variant-numeric: tabular-nums;
+  }
+  .steps {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 0 5px;
+    border-radius: 8px;
+    font-size: 11px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    background: var(--surface);
+    color: var(--muted);
+  }
+  .steps.all {
+    color: var(--ok, #15803d);
+  }
+  /* On the second line, so the title keeps the whole first line; short blocks have one. */
+  .block:not(.short) .steps {
+    position: absolute;
+    right: 6px;
+    top: 21px;
+  }
+  .block.has-steps:not(.short) .time {
+    padding-right: 40px;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .resize {
     position: absolute;

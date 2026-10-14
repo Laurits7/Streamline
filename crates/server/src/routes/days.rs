@@ -456,17 +456,23 @@ pub struct PatchEntry {
     start_time: Option<Option<String>>,
     #[serde(default, deserialize_with = "double_option")]
     duration_min: Option<Option<i32>>,
+    /// An offline edit's base values and time (D-79).
+    #[serde(flatten)]
+    #[allow(dead_code)]
+    merge: crate::merge::MergeBase,
 }
 
-#[utoipa::path(patch, path = "/day-entries/{id}", tag = "days", summary = "Move, reorder or (un)schedule a planned task", params(("id" = String, Path, description = "ULID")), request_body = PatchEntry, responses((status = 200, body = DayEntry), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
+#[utoipa::path(patch, path = "/day-entries/{id}", tag = "days", summary = "Move, reorder or (un)schedule a planned task", params(("id" = String, Path, description = "ULID")), request_body = PatchEntry, responses((status = 200, body = crate::merge::Merged<DayEntry>), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
 pub async fn patch_entry(
     State(state): State<AppState>,
     user: AuthUser,
     Path(id): Path<String>,
-    Json(c): Json<PatchEntry>,
-) -> ApiResult<Json<DayEntry>> {
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<Json<crate::merge::Merged<DayEntry>>> {
     let mut tx = state.db.write.begin().await?;
     let mut e = load_entry(&mut tx, &user, &id).await?;
+    let (c, conflicts): (PatchEntry, _) =
+        crate::merge::prepare(body, Some(&e), Some(&e.updated_at))?;
     if let Some(d) = c.date
         && d != e.date
     {
@@ -501,7 +507,7 @@ pub async fn patch_entry(
     upsert_entry(&mut tx, &e).await?;
     tx.commit().await?;
     state.bus.publish([Change::entry(&e)]);
-    Ok(Json(e))
+    Ok(Json(crate::merge::Merged::new(e, conflicts)))
 }
 
 /// Remove a task from the day plan (the task itself stays in its project).

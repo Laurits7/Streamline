@@ -6,7 +6,7 @@ use axum::{Json, extract::State};
 use chrono::{DateTime, SecondsFormat, TimeZone, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::SqliteConnection;
-use streamline_domain::focus::{Action, Phase, Session, SessionKind, Timer};
+use streamline_domain::focus::{Action, Options, Phase, Screens, Session, SessionKind, Timer};
 use ts_rs::TS;
 
 use crate::{
@@ -38,6 +38,8 @@ struct TimerRow {
     length_min: i32,
     cycle_done: i32,
     rev: i64,
+    mute: bool,
+    screens: String,
 }
 
 fn ms(ts: &str) -> Option<i64> {
@@ -61,6 +63,8 @@ pub fn to_api(t: &Timer, rev: i64) -> FocusTimer {
         elapsed_ms: t.elapsed_ms,
         length_min: t.length_min as i32,
         cycle_done: t.cycle_done as i32,
+        mute: t.options.mute,
+        screens: t.options.screens.as_str().into(),
         rev,
     }
 }
@@ -80,6 +84,10 @@ async fn load(conn: &mut SqliteConnection, user_id: &str) -> sqlx::Result<(Timer
                 elapsed_ms: r.elapsed_ms,
                 length_min: r.length_min.max(0) as u32,
                 cycle_done: r.cycle_done.max(0) as u32,
+                options: Options {
+                    mute: r.mute,
+                    screens: Screens::parse(&r.screens).unwrap_or_default(),
+                },
             },
             r.rev,
         ),
@@ -109,11 +117,11 @@ async fn transition(
     let rev = next_rev(&mut tx).await?;
     let ts = now();
     sqlx::query(
-        "INSERT INTO focus_timers (user_id, task_id, phase, running_since, elapsed_ms, length_min, cycle_done, updated_at, rev)
-         VALUES (?,?,?,?,?,?,?,?,?)
+        "INSERT INTO focus_timers (user_id, task_id, phase, running_since, elapsed_ms, length_min, cycle_done, updated_at, rev, mute, screens)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?)
          ON CONFLICT(user_id) DO UPDATE SET task_id=excluded.task_id, phase=excluded.phase, running_since=excluded.running_since,
            elapsed_ms=excluded.elapsed_ms, length_min=excluded.length_min, cycle_done=excluded.cycle_done,
-           updated_at=excluded.updated_at, rev=excluded.rev",
+           updated_at=excluded.updated_at, rev=excluded.rev, mute=excluded.mute, screens=excluded.screens",
     )
     .bind(&user.id)
     .bind(&after.task_id)
@@ -124,6 +132,8 @@ async fn transition(
     .bind(after.cycle_done as i32)
     .bind(&ts)
     .bind(rev)
+    .bind(after.options.mute)
+    .bind(after.options.screens.as_str())
     .execute(&mut *tx)
     .await?;
 
@@ -223,10 +233,15 @@ pub async fn get_focus(
 
 #[derive(Deserialize, utoipa::ToSchema)]
 pub struct FocusAction {
-    /// `start` (with optional `task_id`), `pause`, `resume`, `skip`, `stop`, or `sync`
-    /// (just complete whatever is due, e.g. when a client's countdown reaches zero).
+    /// `start` (with optional `task_id`, `mute`, `screens`), `pause`, `resume`, `skip`,
+    /// `stop`, `options` (change `mute` and/or `screens` while focusing), or `sync` (just
+    /// complete whatever is due, e.g. when a client's countdown reaches zero).
     action: String,
     task_id: Option<String>,
+    /// Mute the speakers while working (desktop app, D-82). Default off.
+    mute: Option<bool>,
+    /// `off` (default), `overlay`, `fullscreen` or `fullscreen_breaks` (desktop app, D-82).
+    screens: Option<String>,
 }
 
 #[utoipa::path(post, path = "/focus", tag = "focus", summary = "Control the focus timer", request_body = FocusAction, responses((status = 200, body = FocusState), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
@@ -235,6 +250,13 @@ pub async fn post_focus(
     user: AuthUser,
     Json(a): Json<FocusAction>,
 ) -> ApiResult<Json<FocusState>> {
+    let screens =
+        match a.screens.as_deref() {
+            None => None,
+            Some(s) => Some(Screens::parse(s).ok_or_else(|| {
+                bad("screens must be off, overlay, fullscreen or fullscreen_breaks")
+            })?),
+        };
     let action = match a.action.as_str() {
         "start" => {
             if let Some(id) = &a.task_id {
@@ -242,8 +264,16 @@ pub async fn post_focus(
                     .await
                     .map_err(|_| bad("unknown task"))?;
             }
-            Some(Action::Start { task_id: a.task_id })
+            Some(Action::Start {
+                task_id: a.task_id,
+                options: Options {
+                    mute: a.mute.unwrap_or(false),
+                    screens: screens.unwrap_or_default(),
+                },
+            })
         }
+        // Filled in from the current options below.
+        "options" => Some(Action::SetOptions(Options::default())),
         "pause" => Some(Action::Pause),
         "resume" => Some(Action::Resume),
         "skip" => Some(Action::Skip),
@@ -253,6 +283,13 @@ pub async fn post_focus(
     };
     let settings = user.user.focus_settings();
     let (timer, _, _) = transition(&state, &user.user, |t, now| match action {
+        Some(Action::SetOptions(_)) => {
+            let options = Options {
+                mute: a.mute.unwrap_or(t.options.mute),
+                screens: screens.unwrap_or(t.options.screens),
+            };
+            t.apply(Action::SetOptions(options), now, &settings)
+        }
         Some(action) => t.apply(action, now, &settings),
         None => t.advance(now, &settings),
     })

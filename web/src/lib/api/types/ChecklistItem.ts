@@ -7,4 +7,12 @@ export type ChecklistItem = {
 /**
  * Stable within the list (client-chosen).
  */
-id: string, text: string, done: boolean, };
+id: string, text: string, done: boolean, 
+/**
+ * When it was ticked (UTC); set by the server, or the time of an offline tick (D-84).
+ */
+done_at?: string, 
+/**
+ * Who ticked it (user id).
+ */
+done_by?: string, };

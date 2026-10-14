@@ -208,6 +208,27 @@ Two options:
 - **Build on the Pi**: works as-is. On a model with 1–2 GB of RAM, uncomment the `args:` in
   `docker-compose.yml` (`LTO: thin`, `CODEGEN_UNITS: "16"`) so compiling fits in memory.
 
+## Desktop app (Linux)
+
+Streamline in its own window, for Linux desktops (x86_64). It either **connects to your
+Streamline server** (the address you open in the browser; it signs in once and keeps a
+per-computer key in the system keyring) and keeps working offline, sending changes when the
+server is back, or runs **on this computer only**, with the server inside the app and your
+data in `~/.local/share/io.github.laurits7.streamline/server`. It stays in the tray when
+closed, can start at login, and can mute the speakers and show the focus timer on every
+screen. See *Help → Desktop app* for details, including moving local data to a server later.
+
+- **Arch Linux** (AUR): `streamline-desktop-bin` (the release build) or `streamline-desktop`
+  (built from source), e.g. `yay -S streamline-desktop-bin`.
+- **Debian, Ubuntu**: download `streamline-desktop_<version>_amd64.deb` from the
+  [release](https://github.com/Laurits7/Streamline/releases) and `sudo apt install ./streamline-desktop_<version>_amd64.deb`.
+- **Other distributions**: the release's `streamline-desktop-<version>-x86_64-linux.tar.gz`
+  holds `usr/` to unpack into `/` or `~/.local`. It needs WebKitGTK 4.1, GTK 3 and
+  libayatana-appindicator; muting needs `pactl` (PipeWire or PulseAudio).
+
+The corner timer is see-through only with a compositing window manager; window placement and
+always-on-top are reliable on X11 and may be ignored by Wayland compositors.
+
 ## Security
 
 - **First run:** the first person to open a fresh install creates the admin account. If the server
@@ -272,10 +293,36 @@ Layout:
 ```
 crates/domain   pure logic (day boundaries, ordering keys, end-of-day rules), unit-tested
 crates/server   Axum HTTP API, auth, SSE, background jobs, embedded web app
+crates/desktop  Linux desktop app (Tauri 2; its own Cargo workspace)
 migrations      SQLite schema
 web             Svelte 5 + Vite single-page app
+packaging       .desktop file, .deb and tarball scripts, AUR PKGBUILDs
 docs            spec, work plan, decisions
 ```
+
+The desktop app needs `webkit2gtk-4.1` and `libayatana-appindicator` (Debian/Ubuntu:
+`libwebkit2gtk-4.1-dev libayatana-appindicator3-dev`). `make desktop` builds it into
+`crates/desktop/target/release/streamline-desktop`; `cargo test --manifest-path
+crates/desktop/Cargo.toml` runs its tests (offline sync against a real in-process server).
+
+### Releasing
+
+1. `scripts/bump-version.sh 1.3.0` (server, desktop app, web app and lock files), move the
+   changelog's *Unreleased* heading to the version, commit, tag `v1.3.0` and push the tag.
+2. CI publishes the image; the Release workflow then creates the GitHub release with the
+   compose file and adds the desktop tarball and `.deb`.
+3. **AUR** (needs your AUR account and its SSH key): `packaging/aur/update.sh 1.3.0` sets
+   `pkgver`, the checksums of the released files and `.SRCINFO` for both packages. Commit
+   that, then for each package:
+
+   ```sh
+   git clone ssh://aur@aur.archlinux.org/streamline-desktop-bin.git /tmp/aur-bin   # first time
+   cp packaging/aur/streamline-desktop-bin/{PKGBUILD,.SRCINFO} /tmp/aur-bin/
+   cd /tmp/aur-bin && git add PKGBUILD .SRCINFO && git commit -m "1.3.0" && git push
+   ```
+
+   and the same with `streamline-desktop`. The first push creates the package on the AUR.
+   Check a package locally first with `makepkg -si` in its folder and `namcap` on the result.
 
 ## License
 

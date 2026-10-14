@@ -9,6 +9,7 @@ pub mod focus;
 pub mod goals;
 pub mod health;
 pub mod marks;
+pub mod merge;
 pub mod occasions;
 pub mod order;
 pub mod planner;

@@ -256,7 +256,12 @@ pub async fn create(
         .fetch_optional(&mut *tx)
         .await?
     {
-        if existing.owner_user_id.as_deref() == Some(user.id()) {
+        // A replayed create (offline outbox, D-79) gets the record, shared ones too.
+        if crate::visibility::can_see(
+            &user,
+            existing.owner_user_id.as_deref(),
+            existing.owner_group_id.as_deref(),
+        ) {
             return Ok(Json(existing));
         }
         return Err(AppError::Conflict("id already in use".into()));
@@ -308,6 +313,10 @@ pub struct PatchSeries {
     /// End date (inclusive); `null` = no end.
     #[serde(default, deserialize_with = "double_option")]
     until: Option<Option<String>>,
+    /// An offline edit's base values and time (D-79).
+    #[serde(flatten)]
+    #[allow(dead_code)]
+    merge: crate::merge::MergeBase,
 }
 
 /// Soft-delete a routine's open occurrences from `from` on (for flexible routines also
@@ -351,21 +360,23 @@ async fn drop_open_occurrences(
     Ok(())
 }
 
-#[utoipa::path(patch, path = "/series/{id}", tag = "routines", summary = "Change a routine from a date on (\"all future\")", params(("id" = String, Path, description = "ULID")), request_body = PatchSeries, responses((status = 200, description = "The routine as it applies from `from` on (a new id if the schedule changed)", body = Series), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
+#[utoipa::path(patch, path = "/series/{id}", tag = "routines", summary = "Change a routine from a date on (\"all future\")", params(("id" = String, Path, description = "ULID")), request_body = PatchSeries, responses((status = 200, description = "The routine as it applies from `from` on (a new id if the schedule changed)", body = crate::merge::Merged<Series>), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
 pub async fn patch(
     State(state): State<AppState>,
     user: AuthUser,
     Path(id): Path<String>,
-    Json(c): Json<PatchSeries>,
-) -> ApiResult<Json<Series>> {
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<Json<crate::merge::Merged<Series>>> {
     let today = today_for(&user.user);
+    let mut tx = state.db.write.begin().await?;
+    let old = load_visible(&mut tx, &user, &id).await?;
+    let (c, conflicts): (PatchSeries, _) =
+        crate::merge::prepare(body, Some(&old), Some(&old.updated_at))?;
     let from = match &c.from {
         Some(f) => parse_date(f)?.max(today),
         None => today,
     };
     let from_s = from.format("%Y-%m-%d").to_string();
-    let mut tx = state.db.write.begin().await?;
-    let old = load_visible(&mut tx, &user, &id).await?;
     let mut next = old.clone();
     if let Some(v) = c.title {
         next.title = v.trim().to_string();
@@ -559,7 +570,7 @@ pub async fn patch(
     tx.commit().await?;
     state.bus.publish(changes);
     routines::materialize_user(&state, &user.user).await?;
-    Ok(Json(result))
+    Ok(Json(crate::merge::Merged::new(result, conflicts)))
 }
 
 /// End a routine: it stops, open occurrences from today on disappear, and the history

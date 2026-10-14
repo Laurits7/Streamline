@@ -4622,6 +4622,8 @@ async fn security_review_regressions() {
     assert_eq!(s, StatusCode::BAD_REQUEST);
 
     // A known id can't overwrite another user's day entry.
+    let d1 = ymd(today_of(&t, &ben).await + chrono::Duration::days(2));
+    let d2 = ymd(today_of(&t, &anna).await + chrono::Duration::days(3));
     let (_, bt, _) = t
         .req(
             "POST",
@@ -4633,7 +4635,7 @@ async fn security_review_regressions() {
     let (_, be, _) = t
         .req(
             "POST",
-            "/api/v1/days/2026-10-10/entries",
+            &format!("/api/v1/days/{d1}/entries"),
             Some(&ben),
             Some(json!({"task_id": bt["id"], "start_time": "09:00"})),
         )
@@ -4648,13 +4650,13 @@ async fn security_review_regressions() {
         .await;
     t.req(
         "POST",
-        "/api/v1/days/2026-10-11/entries",
+        &format!("/api/v1/days/{d2}/entries"),
         Some(&anna),
         Some(json!({"id": be["id"], "task_id": at["id"], "start_time": "18:00"})),
     )
     .await;
     let (_, day, _) = t
-        .req("GET", "/api/v1/days/2026-10-10", Some(&ben), None)
+        .req("GET", &format!("/api/v1/days/{d1}"), Some(&ben), None)
         .await;
     let e = day["entries"]
         .as_array()
@@ -5466,10 +5468,153 @@ async fn checklists_on_tasks_and_routines() {
     let (_, o, _) = t
         .req("GET", &format!("/api/v1/tasks/{oid}"), Some(&admin), None)
         .await;
+    let kept: Vec<(Value, Value)> = o["checklist"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|i| (i["id"].clone(), i["done"].clone()))
+        .collect();
     assert_eq!(
-        o["checklist"],
-        json!([item("s", "Sort", true), item("h", "Hang", false)])
+        kept,
+        vec![(json!("s"), json!(true)), (json!("h"), json!(false))]
     );
+    // The tick keeps its record (D-84).
+    assert!(o["checklist"][0]["done_at"].is_string());
+}
+
+#[tokio::test]
+async fn checklist_steps_show_in_the_day_log_on_the_day_they_were_done() {
+    // D-84: wash on one day, fold on the next; each day's log shows its step.
+    let t = setup().await;
+    let admin = t.admin().await;
+    let today = today_of(&t, &admin).await;
+    let yesterday = ymd(today - chrono::Duration::days(1));
+    let item = |id: &str, done: bool| json!({"id": id, "text": id, "done": done});
+    let (_, task, _) = t
+        .req(
+            "POST",
+            "/api/v1/tasks",
+            Some(&admin),
+            Some(json!({"title": "Do laundry", "checklist": [item("Wash", false), item("Fold", false)]})),
+        )
+        .await;
+    let path = format!("/api/v1/tasks/{}", task["id"].as_str().unwrap());
+    // Washed yesterday (an offline tick replayed now carries its own time).
+    let washed = format!("{yesterday}T12:00:00.000Z");
+    let mut wash = item("Wash", true);
+    wash["done_at"] = json!(washed);
+    let (_, v, _) = t
+        .req(
+            "PATCH",
+            &path,
+            Some(&admin),
+            Some(json!({"checklist": [wash, item("Fold", false)]})),
+        )
+        .await;
+    assert_eq!(v["checklist"][0]["done_at"], washed.as_str());
+    assert!(v["checklist"][1].get("done_at").is_none());
+    // Folded today: the server stamps it, and keeps the earlier tick as it was.
+    let (_, v, _) = t
+        .req(
+            "PATCH",
+            &path,
+            Some(&admin),
+            Some(json!({"checklist": [item("Wash", true), item("Fold", true)]})),
+        )
+        .await;
+    assert_eq!(v["status"], "done");
+    assert_eq!(v["checklist"][0]["done_at"], washed.as_str());
+    assert!(v["checklist"][1]["done_at"].is_string());
+    assert_eq!(v["checklist"][1]["done_by"], v["completed_by"]);
+
+    let log = |date: String| {
+        let t = &t;
+        let admin = admin.clone();
+        async move {
+            let (_, v, _) = t
+                .req(
+                    "GET",
+                    &format!("/api/v1/days/{date}/log"),
+                    Some(&admin),
+                    None,
+                )
+                .await;
+            v.as_array()
+                .unwrap()
+                .iter()
+                .map(|i| {
+                    (
+                        i["kind"].as_str().unwrap().to_string(),
+                        i["text"].as_str().unwrap().to_string(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        }
+    };
+    let y = log(yesterday.clone()).await;
+    assert!(
+        y.contains(&("step".into(), "Did “Wash” of “Do laundry”".into())),
+        "{y:?}"
+    );
+    assert!(!y.iter().any(|(k, x)| k == "step" && x.contains("Fold")));
+    let d = log(ymd(today)).await;
+    assert!(
+        d.contains(&("step".into(), "Did “Fold” of “Do laundry”".into())),
+        "{d:?}"
+    );
+    assert!(d.iter().any(|(k, _)| k == "completed"));
+    // Unticking takes the step out of the log again.
+    t.req(
+        "PATCH",
+        &path,
+        Some(&admin),
+        Some(json!({"checklist": [item("Wash", true), item("Fold", false)]})),
+    )
+    .await;
+    let d = log(ymd(today)).await;
+    assert!(!d.iter().any(|(k, _)| k == "step"), "{d:?}");
+}
+
+#[tokio::test]
+async fn checklist_completes_and_reopens_its_task() {
+    let t = setup().await;
+    let admin = t.admin().await;
+    let item = |id: &str, done: bool| json!({"id": id, "text": id, "done": done});
+    let (_, task, _) = t
+        .req(
+            "POST",
+            "/api/v1/tasks",
+            Some(&admin),
+            Some(json!({"title": "Do laundry", "checklist": [item("a", false), item("b", false)]})),
+        )
+        .await;
+    let path = format!("/api/v1/tasks/{}", task["id"].as_str().unwrap());
+    let patch = |body: Value| t.req("PATCH", &path, Some(&admin), Some(body));
+
+    let (_, v, _) = patch(json!({"checklist": [item("a", true), item("b", false)]})).await;
+    assert_eq!(v["status"], "open");
+    // Ticking the last item completes the task (D-80).
+    let (_, v, _) = patch(json!({"checklist": [item("a", true), item("b", true)]})).await;
+    assert_eq!(v["status"], "done");
+    assert!(v["completed_by"].is_string());
+    // Unticking one reopens it.
+    let (_, v, _) = patch(json!({"checklist": [item("a", true), item("b", false)]})).await;
+    assert_eq!(v["status"], "open");
+    assert!(v["completed_at"].is_null());
+    // A status in the same request wins.
+    let (_, v, _) =
+        patch(json!({"checklist": [item("a", true), item("b", true)], "status": "open"})).await;
+    assert_eq!(v["status"], "open");
+    // Reopened by hand with everything ticked: editing a text doesn't complete it again.
+    let (_, v, _) = patch(
+        json!({"checklist": [item("a", true), json!({"id": "b", "text": "Wash", "done": true})]}),
+    )
+    .await;
+    assert_eq!(v["status"], "open");
+    // Skipped tasks aren't touched.
+    patch(json!({"status": "skipped", "checklist": [item("a", false), item("b", false)]})).await;
+    let (_, v, _) = patch(json!({"checklist": [item("a", true), item("b", true)]})).await;
+    assert_eq!(v["status"], "skipped");
 }
 
 #[tokio::test]
@@ -5651,4 +5796,466 @@ async fn health_check_in() {
     assert_eq!(s, StatusCode::NO_CONTENT);
     let (_, mine, _) = t.req("GET", "/api/v1/sync", Some(&admin), None).await;
     assert_eq!(mine["health_days"].as_array().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn offline_edits_merge_by_field() {
+    // D-79: an edit carries the values it was based on and when it was made.
+    let t = setup().await;
+    let admin = t.admin().await;
+    let item = |id: &str, done: bool| json!({"id": id, "text": id, "done": done});
+    let old = "2020-01-01T00:00:00Z";
+    let (_, task, _) = t
+        .req("POST", "/api/v1/tasks", Some(&admin), Some(json!({"title": "Laundry", "notes": "", "checklist": [item("a", false), item("b", false)]})))
+        .await;
+    let path = format!("/api/v1/tasks/{}", task["id"].as_str().unwrap());
+    // Online: renamed, and step a ticked.
+    let (_, v, _) = t
+        .req("PATCH", &path, Some(&admin), Some(json!({"title": "Laundry (online)", "checklist": [item("a", true), item("b", false)]})))
+        .await;
+    assert!(v.get("conflicts").is_none(), "{v}");
+
+    // An older offline edit: rename, notes, tick b, add c.
+    let base =
+        json!({"title": "Laundry", "notes": "", "checklist": [item("a", false), item("b", false)]});
+    let (s, v, _) = t
+        .req(
+            "PATCH",
+            &path,
+            Some(&admin),
+            Some(json!({
+                "title": "Laundry (offline)", "notes": "40°",
+                "checklist": [item("a", false), item("b", true), item("c", false)],
+                "base": base, "edited_at": old,
+            })),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["title"], "Laundry (online)", "the newer change stays");
+    assert_eq!(v["notes"], "40°", "a field only one side changed applies");
+    let ticks: Vec<(&str, bool)> = v["checklist"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|i| (i["id"].as_str().unwrap(), i["done"].as_bool().unwrap()))
+        .collect();
+    assert_eq!(ticks, vec![("a", true), ("b", true), ("c", false)]);
+    assert_eq!(v["status"], "open");
+    assert_eq!(
+        v["conflicts"],
+        json!([{"field": "title", "item": null, "kept": "server", "server": "Laundry (online)", "client": "Laundry (offline)"}])
+    );
+
+    // A newer offline edit wins, and says what it overwrote.
+    let (_, v, _) = t
+        .req(
+            "PATCH",
+            &path,
+            Some(&admin),
+            Some(json!({"title": "Laundry (newest)", "base": {"title": "Laundry"}})),
+        )
+        .await;
+    assert_eq!(v["title"], "Laundry (newest)");
+    assert_eq!(v["conflicts"][0]["kept"], "client");
+    assert_eq!(v["conflicts"][0]["server"], "Laundry (online)");
+    // Bad merge info is refused.
+    for bad in [
+        json!({"title": "x", "base": 3}),
+        json!({"title": "x", "base": {}, "edited_at": "soon"}),
+    ] {
+        let (s, _, _) = t.req("PATCH", &path, Some(&admin), Some(bad)).await;
+        assert_eq!(s, StatusCode::BAD_REQUEST);
+    }
+    // Oversized checklists are refused before the (pairwise) checklist merge runs.
+    let many: Vec<Value> = (0..51).map(|i| item(&format!("x{i}"), false)).collect();
+    for body in [
+        json!({"checklist": many.clone(), "base": {"checklist": []}}),
+        json!({"checklist": [], "base": {"checklist": many}}),
+    ] {
+        let (s, _, _) = t.req("PATCH", &path, Some(&admin), Some(body)).await;
+        assert_eq!(s, StatusCode::BAD_REQUEST);
+    }
+    // A deletion beats an edit.
+    t.req("DELETE", &path, Some(&admin), None).await;
+    let (s, _, _) = t
+        .req(
+            "PATCH",
+            &path,
+            Some(&admin),
+            Some(json!({"title": "Too late", "base": {"title": "Laundry"}, "edited_at": old})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+
+    // Projects, routines, day entries and metric entries take the same merge.
+    let (_, p, _) = t
+        .req(
+            "POST",
+            "/api/v1/projects",
+            Some(&admin),
+            Some(json!({"name": "House"})),
+        )
+        .await;
+    let ppath = format!("/api/v1/projects/{}", p["id"].as_str().unwrap());
+    t.req("PATCH", &ppath, Some(&admin), Some(json!({"name": "Home"})))
+        .await;
+    let (_, v, _) = t
+        .req("PATCH", &ppath, Some(&admin), Some(json!({"name": "Flat", "description": "Rent", "base": {"name": "House", "description": ""}, "edited_at": old})))
+        .await;
+    assert_eq!(
+        (v["name"].as_str(), v["description"].as_str()),
+        (Some("Home"), Some("Rent")),
+        "{v}"
+    );
+    assert_eq!(v["conflicts"][0]["field"], "name");
+
+    let (_, r, _) = t
+        .req(
+            "POST",
+            "/api/v1/series",
+            Some(&admin),
+            Some(json!({"title": "Vitamins", "mode": "repeat", "rrule": "FREQ=DAILY"})),
+        )
+        .await;
+    let rpath = format!("/api/v1/series/{}", r["id"].as_str().unwrap());
+    t.req(
+        "PATCH",
+        &rpath,
+        Some(&admin),
+        Some(json!({"title": "Vitamin D"})),
+    )
+    .await;
+    let (_, v, _) = t
+        .req(
+            "PATCH",
+            &rpath,
+            Some(&admin),
+            Some(json!({"title": "Vitamin C", "base": {"title": "Vitamins"}, "edited_at": old})),
+        )
+        .await;
+    assert_eq!(v["title"], "Vitamin D", "{v}");
+
+    let (_, task2, _) = t
+        .req(
+            "POST",
+            "/api/v1/tasks",
+            Some(&admin),
+            Some(json!({"title": "Call plumber"})),
+        )
+        .await;
+    let today = today_of(&t, &admin).await;
+    let (_, e, _) = t
+        .req(
+            "POST",
+            &format!("/api/v1/days/{}/entries", ymd(today)),
+            Some(&admin),
+            Some(json!({"task_id": task2["id"], "start_time": "09:00"})),
+        )
+        .await;
+    let epath = format!("/api/v1/day-entries/{}", e["id"].as_str().unwrap());
+    t.req(
+        "PATCH",
+        &epath,
+        Some(&admin),
+        Some(json!({"start_time": "10:00"})),
+    )
+    .await;
+    let (_, v, _) = t
+        .req("PATCH", &epath, Some(&admin), Some(json!({"start_time": "11:00", "duration_min": 45, "base": {"start_time": "09:00", "duration_min": null}, "edited_at": old})))
+        .await;
+    assert_eq!(
+        (v["start_time"].as_str(), v["duration_min"].as_i64()),
+        (Some("10:00"), Some(45)),
+        "{v}"
+    );
+
+    let (_, m, _) = t
+        .req(
+            "POST",
+            "/api/v1/metrics",
+            Some(&admin),
+            Some(json!({"name": "Steps", "kind": "number"})),
+        )
+        .await;
+    let (_, me, _) = t
+        .req(
+            "POST",
+            &format!("/api/v1/metrics/{}/entries", m["id"].as_str().unwrap()),
+            Some(&admin),
+            Some(json!({"value": 1000})),
+        )
+        .await;
+    let mpath = format!("/api/v1/metric-entries/{}", me["id"].as_str().unwrap());
+    t.req("PATCH", &mpath, Some(&admin), Some(json!({"value": 2000})))
+        .await;
+    let (_, v, _) = t
+        .req(
+            "PATCH",
+            &mpath,
+            Some(&admin),
+            Some(json!({"value": 1500, "base": {"value": 1000}, "edited_at": old})),
+        )
+        .await;
+    assert_eq!(v["value"], 2000.0, "{v}");
+}
+
+#[tokio::test]
+async fn offline_edits_of_day_records() {
+    let t = setup().await;
+    let admin = t.admin().await;
+    let today = ymd(today_of(&t, &admin).await);
+    let old = "2020-01-01T00:00:00Z";
+    // Reflection: fields merge one by one; a record that didn't exist takes the edit.
+    let rec = format!("/api/v1/days/{today}/record");
+    let (_, v, _) = t
+        .req(
+            "PUT",
+            &rec,
+            Some(&admin),
+            Some(json!({"journal": "offline", "base": {"journal": ""}, "edited_at": old})),
+        )
+        .await;
+    assert_eq!(v["journal"], "offline");
+    t.req(
+        "PUT",
+        &rec,
+        Some(&admin),
+        Some(json!({"journal": "online"})),
+    )
+    .await;
+    let (_, v, _) = t
+        .req("PUT", &rec, Some(&admin), Some(json!({"journal": "offline 2", "went_well": "sun", "base": {"journal": "offline", "went_well": ""}, "edited_at": old})))
+        .await;
+    assert_eq!(
+        (v["journal"].as_str(), v["went_well"].as_str()),
+        (Some("online"), Some("sun")),
+        "{v}"
+    );
+
+    // Health: the kind goes with whichever status was kept, so the pair stays valid.
+    let health = format!("/api/v1/days/{today}/health");
+    t.req("PUT", &health, Some(&admin), Some(json!({"status": "ok"})))
+        .await;
+    t.req(
+        "PUT",
+        &health,
+        Some(&admin),
+        Some(json!({"status": "sick", "kind": "cold"})),
+    )
+    .await;
+    let (s, v, _) = t
+        .req("PUT", &health, Some(&admin), Some(json!({"status": "injured", "kind": "back", "note": "lifting", "base": {"status": "ok", "kind": null, "note": ""}, "edited_at": old})))
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(
+        (v["status"].as_str(), v["kind"].as_str(), v["note"].as_str()),
+        (Some("sick"), Some("cold"), Some("lifting"))
+    );
+    let (_, v, _) = t
+        .req("PUT", &health, Some(&admin), Some(json!({"status": "injured", "kind": "back", "base": {"status": "ok", "kind": null}})))
+        .await;
+    assert_eq!(
+        (v["status"].as_str(), v["kind"].as_str()),
+        (Some("injured"), Some("back"))
+    );
+    // A cleared check-in stays cleared.
+    t.req("DELETE", &health, Some(&admin), None).await;
+    let (s, _, _) = t
+        .req(
+            "PUT",
+            &health,
+            Some(&admin),
+            Some(json!({"status": "great", "base": {"status": "injured"}, "edited_at": old})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn replayed_creates_return_the_record() {
+    // An outbox may send a create twice; shared records too (D-79).
+    let t = setup().await;
+    let admin = t.admin().await;
+    let (_, g, _) = t
+        .req(
+            "POST",
+            "/api/v1/groups",
+            Some(&admin),
+            Some(json!({"name": "Family"})),
+        )
+        .await;
+    let body = json!({"id": "01JC00000000000000000000AA", "title": "Shared chore", "owner_group_id": g["id"]});
+    let (s1, a, _) = t
+        .req("POST", "/api/v1/tasks", Some(&admin), Some(body.clone()))
+        .await;
+    let (s2, b, _) = t
+        .req("POST", "/api/v1/tasks", Some(&admin), Some(body))
+        .await;
+    assert_eq!((s1, s2), (StatusCode::OK, StatusCode::OK), "{a} {b}");
+    assert_eq!(a["id"], b["id"]);
+    let body =
+        json!({"id": "01JC00000000000000000000AB", "name": "Garden", "owner_group_id": g["id"]});
+    let (_, a, _) = t
+        .req("POST", "/api/v1/projects", Some(&admin), Some(body.clone()))
+        .await;
+    let (s, b, _) = t
+        .req("POST", "/api/v1/projects", Some(&admin), Some(body))
+        .await;
+    assert_eq!((s, &a["id"]), (StatusCode::OK, &b["id"]));
+}
+
+#[tokio::test]
+async fn default_tasks_have_kinds() {
+    // D-86: Laundry → linen, colours; each kind with its own steps (stored unticked).
+    let t = setup().await;
+    let admin = t.admin().await;
+    let item = |text: &str, done: bool| json!({"id": text.split(' ').next().unwrap(), "text": text, "done": done});
+    let (s, v, _) = t
+        .req("POST", "/api/v1/task-templates", Some(&admin), Some(json!({
+            "title": "Laundry", "checklist": [item("Wash", false), item("Fold", false)],
+            "kinds": [
+                {"id": "linen", "name": " Linen ", "checklist": [item("Wash at 60°", true), item("Iron", false)]},
+                {"id": "colours", "name": "Colours"},
+                {"id": "x", "name": " "},
+            ],
+        })))
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(
+        v["kinds"],
+        json!([
+            {"id": "linen", "name": "Linen", "checklist": [item("Wash at 60°", false), item("Iron", false)]},
+            {"id": "colours", "name": "Colours", "checklist": []},
+        ])
+    );
+    let path = format!("/api/v1/task-templates/{}", v["id"].as_str().unwrap());
+    let (_, v, _) = t
+        .req(
+            "PATCH",
+            &path,
+            Some(&admin),
+            Some(json!({"kinds": [{"id": "whites", "name": "Whites"}]})),
+        )
+        .await;
+    assert_eq!(v["kinds"][0]["name"], "Whites");
+    let (s, _, _) = t
+        .req(
+            "PATCH",
+            &path,
+            Some(&admin),
+            Some(json!({"kinds": [{"id": "a", "name": "A"}, {"id": "a", "name": "B"}]})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    let (_, sync, _) = t
+        .req("GET", "/api/v1/sync?since=0", Some(&admin), None)
+        .await;
+    assert_eq!(sync["task_templates"][0]["kinds"][0]["id"], "whites");
+}
+
+#[tokio::test]
+async fn focus_options_are_kept_with_the_timer() {
+    // D-82: chosen at start, changed while focusing, reset when stopped; synced to every device.
+    let t = setup().await;
+    let admin = t.admin().await;
+    let focus = |body: Value| t.req("POST", "/api/v1/focus", Some(&admin), Some(body));
+    let (_, v, _) = focus(json!({"action": "start"})).await;
+    assert_eq!(
+        (v["timer"]["mute"].as_bool(), v["timer"]["screens"].as_str()),
+        (Some(false), Some("off")),
+        "off by default"
+    );
+    let (_, v, _) =
+        focus(json!({"action": "start", "mute": true, "screens": "fullscreen_breaks"})).await;
+    assert_eq!(
+        (v["timer"]["mute"].as_bool(), v["timer"]["screens"].as_str()),
+        (Some(true), Some("fullscreen_breaks"))
+    );
+    let (_, v, _) = focus(json!({"action": "options", "screens": "overlay"})).await;
+    assert_eq!(
+        (v["timer"]["mute"].as_bool(), v["timer"]["screens"].as_str()),
+        (Some(true), Some("overlay")),
+        "mute kept"
+    );
+    let (_, sync, _) = t
+        .req("GET", "/api/v1/sync?since=0", Some(&admin), None)
+        .await;
+    assert_eq!(sync["focus_timer"]["screens"], "overlay");
+    let (s, _, _) = focus(json!({"action": "options", "screens": "huge"})).await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    let (_, v, _) = focus(json!({"action": "stop"})).await;
+    assert_eq!(
+        (v["timer"]["mute"].as_bool(), v["timer"]["screens"].as_str()),
+        (Some(false), Some("off"))
+    );
+    // Nothing to change while idle.
+    let (_, v, _) = focus(json!({"action": "options", "mute": true})).await;
+    assert_eq!(v["timer"]["mute"], false);
+}
+
+#[tokio::test]
+async fn step_log_only_shows_tasks_still_visible() {
+    // Security review: after leaving a group, its tasks' steps leave your day log too.
+    let t = setup().await;
+    let admin = t.admin().await;
+    let ben = t.user(&admin, "ben").await;
+    let (_, me_ben, _) = t.req("GET", "/api/v1/me", Some(&ben), None).await;
+    let ben_id = me_ben["id"].as_str().unwrap().to_string();
+    let (_, g, _) = t
+        .req(
+            "POST",
+            "/api/v1/groups",
+            Some(&admin),
+            Some(json!({"name": "Home"})),
+        )
+        .await;
+    let gid = g["id"].as_str().unwrap().to_string();
+    t.req(
+        "POST",
+        &format!("/api/v1/groups/{gid}/members"),
+        Some(&admin),
+        Some(json!({"user_id": ben_id})),
+    )
+    .await;
+    let (_, task, _) = t
+        .req("POST", "/api/v1/tasks", Some(&admin), Some(json!({"title": "Laundry", "owner_group_id": gid, "checklist": [{"id": "w", "text": "Wash", "done": false}, {"id": "f", "text": "Fold", "done": false}]})))
+        .await;
+    let path = format!("/api/v1/tasks/{}", task["id"].as_str().unwrap());
+    let (s, _, _) = t
+        .req("PATCH", &path, Some(&ben), Some(json!({"checklist": [{"id": "w", "text": "Wash", "done": true}, {"id": "f", "text": "Fold", "done": false}]})))
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    let today = ymd(today_of(&t, &ben).await);
+    let steps = |log: Value| {
+        log.as_array()
+            .unwrap()
+            .iter()
+            .filter(|i| i["kind"] == "step")
+            .count()
+    };
+    let (_, log, _) = t
+        .req(
+            "GET",
+            &format!("/api/v1/days/{today}/log"),
+            Some(&ben),
+            None,
+        )
+        .await;
+    assert_eq!(steps(log), 1);
+    t.req(
+        "DELETE",
+        &format!("/api/v1/groups/{gid}/members/{ben_id}"),
+        Some(&admin),
+        None,
+    )
+    .await;
+    let (_, log, _) = t
+        .req(
+            "GET",
+            &format!("/api/v1/days/{today}/log"),
+            Some(&ben),
+            None,
+        )
+        .await;
+    assert_eq!(steps(log), 0);
 }

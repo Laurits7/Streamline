@@ -163,6 +163,34 @@ pub async fn bootstrap_admin(state: &AppState) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// A new API token for `user_id`; the plaintext is returned once, only its hash is kept.
+pub async fn issue_token(
+    state: &AppState,
+    user_id: &str,
+    name: &str,
+) -> Result<(String, crate::models::ApiToken), AppError> {
+    let token = format!("{TOKEN_PREFIX}{}", crate::util::random_token());
+    let id = crate::util::new_id();
+    let ts = crate::util::now();
+    sqlx::query(
+        "INSERT INTO api_tokens (id, user_id, name, token_hash, created_at) VALUES (?,?,?,?,?)",
+    )
+    .bind(&id)
+    .bind(user_id)
+    .bind(name)
+    .bind(crate::util::sha256_hex(&token))
+    .bind(&ts)
+    .execute(&state.db.write)
+    .await?;
+    let info = crate::models::ApiToken {
+        id,
+        name: name.into(),
+        created_at: ts,
+        last_used_at: None,
+    };
+    Ok((token, info))
+}
+
 // ---- sessions ---------------------------------------------------------------
 
 pub async fn create_session(

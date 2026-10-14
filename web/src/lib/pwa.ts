@@ -2,8 +2,10 @@
 // works in a secure context (HTTPS or localhost); over plain HTTP the app runs as before.
 import { api } from './api/client'
 import { router } from './router.svelte'
+import { desktop } from './desktop'
 
-export const secure = typeof window !== 'undefined' && window.isSecureContext && 'serviceWorker' in navigator
+// The desktop app keeps no service worker: it has its own connection to the server (D-78).
+export const secure = typeof window !== 'undefined' && window.isSecureContext && 'serviceWorker' in navigator && !desktop
 
 export function registerServiceWorker() {
   if (!secure) return
@@ -27,6 +29,7 @@ export const isIOS = () => /iPad|iPhone|iPod/.test(navigator.userAgent) || (navi
 
 /** Why push can't be used on this device, or null if it can. */
 export function pushBlocker(): string | null {
+  if (desktop) return 'The desktop app doesn’t use push notifications; reminders show in the app while it runs.'
   if (!window.isSecureContext) return 'Notifications need Streamline to be opened over HTTPS (see the README).'
   if (isIOS() && !standalone()) return 'On iPhone and iPad, first add Streamline to the Home Screen (Share → Add to Home Screen) and open it from there.'
   if (!('serviceWorker' in navigator) || !('PushManager' in window)) return "This browser doesn't support push notifications."

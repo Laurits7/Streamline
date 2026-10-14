@@ -3,7 +3,7 @@
 // arrive over SSE and are merged by `rev`.
 
 import { SvelteMap } from 'svelte/reactivity'
-import { api, ApiError } from './api/client'
+import { api, ApiError, withTouched } from './api/client'
 import type { Calendar } from './api/types/Calendar'
 import type { CalendarAccountView } from './api/types/CalendarAccountView'
 import type { CalendarEvent } from './api/types/CalendarEvent'
@@ -50,6 +50,9 @@ import { toast } from './toast.svelte'
 import { ulid } from './ulid'
 import { pickSub, pickTop, type Shape } from './marks'
 import { checkBackDue, isWaiting } from './waiting'
+import { statusAfter } from './checklist'
+import { DesktopEvents, desktop } from './desktop'
+import { allDefaults, matchDefaults, tasksFor, type DefaultMatch } from './defaults'
 
 type Kind =
   | 'task'
@@ -142,8 +145,13 @@ const IDLE_TIMER: FocusTimer = {
   elapsed_ms: 0,
   length_min: 0,
   cycle_done: 0,
+  mute: false,
+  screens: 'off',
   rev: 0,
 }
+/** Focus options (D-82): off by default, the last choice is the next default. */
+export type FocusOptions = Pick<FocusTimer, 'mute' | 'screens'>
+const FOCUS_OPTIONS_PREF = 'focusOptions'
 const byPosition = (a: { position: string }, b: { position: string }) =>
   a.position < b.position ? -1 : a.position > b.position ? 1 : 0
 
@@ -203,7 +211,7 @@ class Store {
   onNotification: ((n: Notification) => void) | null = null
 
   private pending = new Map<string, number>()
-  private es: EventSource | null = null
+  private es: EventSource | DesktopEvents | null = null
   private syncChain: Promise<void> = Promise.resolve()
   private deltaQueued: Promise<void> | null = null
   /** Bumped on sign-out so late responses for the previous session are ignored. */
@@ -372,7 +380,7 @@ class Store {
 
   private connect() {
     this.es?.close()
-    const es = new EventSource('/api/v1/events')
+    const es = desktop ? new DesktopEvents() : new EventSource('/api/v1/events')
     this.es = es
     // `hello` arrives on every (re)connect: catch up on anything we missed.
     es.addEventListener('hello', () => {
@@ -428,7 +436,7 @@ class Store {
     es.onerror = () => {
       this.live = false
       // Closed for good (e.g. session expired): verify auth, retry later.
-      if (es.readyState === EventSource.CLOSED) {
+      if (es.readyState === 2) {
         setTimeout(() => {
           if (this.es === es && this.me) {
             this.sync()
@@ -492,7 +500,11 @@ class Store {
     let results: [Kind, Entity][] | void = undefined
     let failed: unknown = null
     try {
-      results = await send()
+      // The records as they are now, so the desktop app can keep the change offline.
+      results = await withTouched(
+        touched.map(([k, id]) => [k, id, this.map(k).get(id) ? $state.snapshot(this.map(k).get(id)) : null]),
+        send,
+      )
     } catch (e) {
       failed = e
     }
@@ -513,6 +525,12 @@ class Store {
       return
     }
     for (const [k, e] of results ?? []) this.applyRemote(k, e)
+  }
+
+  /** A record's name for messages: its title, name or date. */
+  titleOf(kind: string, id: string): string | null {
+    const e = this.map(kind as Kind)?.get(id) as { title?: string; name?: string; date?: string } | undefined
+    return e?.title ?? e?.name ?? e?.date ?? null
   }
 
   // ---- queries --------------------------------------------------------------
@@ -770,6 +788,12 @@ class Store {
   updateTask(id: string, patch: TaskPatch) {
     const cur = this.tasks.get(id)
     if (!cur) return
+    // Ticking the last step completes the task, unticking one reopens it (D-80); the
+    // server does the same, this only shows it right away.
+    if (patch.checklist && !patch.status) {
+      const status = statusAfter(cur.checklist, patch.checklist, cur.status)
+      if (status) patch = { ...patch, status }
+    }
     const local: Task = { ...cur, ...patch, updated_at: now() }
     if (patch.status && patch.status !== cur.status) {
       local.completed_at = patch.status === 'done' ? now() : null
@@ -787,15 +811,21 @@ class Store {
     )
   }
 
-  /** Tick or untick a checklist item; ticking the last one offers to complete the task (D-71). */
+  /** Tick or untick a checklist item; the last tick completes the task (D-80). The tick
+   * carries its time, so one made offline is logged on the day it was made (D-84). */
   tickItem(id: string, itemId: string) {
     const t = this.tasks.get(id)
     if (!t) return
-    const checklist = t.checklist.map((i) => (i.id === itemId ? { ...i, done: !i.done } : i))
+    const checklist = t.checklist.map((i) =>
+      i.id !== itemId
+        ? i
+        : i.done
+          ? { id: i.id, text: i.text, done: false }
+          : { ...i, done: true, done_at: new Date().toISOString(), done_by: this.me?.id },
+    )
     this.updateTask(id, { checklist })
-    const ticked = checklist.find((i) => i.id === itemId)?.done
-    if (ticked && t.status === 'open' && checklist.every((i) => i.done))
-      toast('All steps done', 'info', { label: 'Complete task', run: () => this.toggleDone(id) })
+    if (t.status === 'open' && this.tasks.get(id)?.status === 'done')
+      toast(`All steps done: completed “${t.title}”`, 'info', { label: 'Undo', run: () => this.tickItem(id, itemId) })
   }
 
   toggleDone(id: string) {
@@ -1149,6 +1179,7 @@ class Store {
         elapsed_ms: 0,
         length_min: this.me?.focus_work_min ?? 25,
         cycle_done: prev.phase === 'long_break' ? 0 : prev.cycle_done,
+        ...this.focusOptions(),
       })
     else if (action === 'pause' && t.running_since_ms !== null)
       Object.assign(t, { elapsed_ms: t.elapsed_ms + (at - t.running_since_ms), running_since_ms: null })
@@ -1160,8 +1191,34 @@ class Store {
       if (task && task.status === 'open' && !task.started_at) this.tasks.set(taskId, { ...task, started_at: now() })
     }
     try {
-      const r = await api.post<FocusState>('/focus', { action, task_id: taskId ?? null })
+      const r = await api.post<FocusState>('/focus', {
+        action,
+        task_id: taskId ?? null,
+        ...(action === 'start' ? this.focusOptions() : {}),
+      })
       this.clockOffset = r.server_now - Date.now()
+      if (r.timer.rev >= this.focusTimer.rev) this.focusTimer = r.timer
+    } catch (e) {
+      this.focusTimer = prev
+      toast(e instanceof ApiError ? e.message : 'Could not reach the server', 'error')
+    }
+  }
+
+  /** The focus options to start with: the last ones chosen, both off at first (D-82). */
+  focusOptions(): FocusOptions {
+    const o = this.pref<Partial<FocusOptions>>(FOCUS_OPTIONS_PREF, {})
+    return { mute: o.mute ?? false, screens: o.screens ?? 'off' }
+  }
+
+  /** Change the focus options: remembered for next time, and applied now if focusing. */
+  async setFocusOptions(patch: Partial<FocusOptions>) {
+    const next = { ...this.focusOptions(), ...patch }
+    this.setPref(FOCUS_OPTIONS_PREF, next)
+    if (this.focusTimer.phase === 'idle') return
+    const prev = this.focusTimer
+    this.focusTimer = { ...prev, ...next }
+    try {
+      const r = await api.post<FocusState>('/focus', { action: 'options', ...next })
       if (r.timer.rev >= this.focusTimer.rev) this.focusTimer = r.timer
     } catch (e) {
       this.focusTimer = prev
@@ -1342,18 +1399,12 @@ class Store {
   // ---- default tasks (D-71) -----------------------------------------------------
 
   defaultTasks(): TaskTemplate[] {
-    return [...this.taskTemplates.values()].sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }))
+    return allDefaults(this.taskTemplates.values()).map((m) => m.tpl)
   }
 
-  /** Default tasks whose title starts with (or has a word starting with) what's typed. */
-  matchDefaults(q: string, limit = 5): TaskTemplate[] {
-    const s = q.trim().toLowerCase()
-    if (s.length < 2) return []
-    const starts = (t: TaskTemplate) => t.title.toLowerCase().startsWith(s)
-    return this.defaultTasks()
-      .filter((t) => starts(t) || t.title.toLowerCase().split(/\s+/).some((w) => w.startsWith(s)))
-      .sort((a, b) => Number(starts(b)) - Number(starts(a)))
-      .slice(0, limit)
+  /** Default tasks (and their kinds) matching what's typed (D-86). */
+  matchDefaults(q: string, limit = 6): DefaultMatch[] {
+    return matchDefaults(this.taskTemplates.values(), q, limit)
   }
 
   async saveDefaultTask(id: string | null, body: Partial<Omit<TaskTemplate, 'id' | 'rev'>>): Promise<TaskTemplate | null> {
@@ -1396,16 +1447,19 @@ class Store {
     })
   }
 
-  /** A new task from a default task; where it's added decides the project if the default has none. */
-  createFromDefault(templateId: string, ctx: { day?: string; project_id?: string | null } = {}): string | null {
+  /**
+   * New tasks from a default task: one per chosen kind, or one without kinds (D-86). Where
+   * they're added decides the project if the default has none.
+   */
+  createFromDefault(templateId: string, ctx: { day?: string; project_id?: string | null } = {}, kindIds: string[] = []): string[] {
     const tpl = this.taskTemplates.get(templateId)
-    if (!tpl) return null
+    if (!tpl) return []
     const projectId = tpl.project_id && this.projects.has(tpl.project_id) ? tpl.project_id : (ctx.project_id ?? null)
     const idea = !!projectId && this.projects.get(projectId)?.status === 'idea'
-    return this.createTask({
-      title: tpl.title,
+    return tasksFor(tpl, kindIds).map(({ title, checklist }) => this.createTask({
+      title,
       notes: tpl.notes,
-      checklist: tpl.checklist.map((i) => ({ ...i, id: ulid(), done: false })),
+      checklist: checklist.map((i) => ({ id: ulid(), text: i.text, done: false })),
       estimate_min: tpl.estimate_min,
       difficulty: tpl.difficulty,
       importance: tpl.importance,
@@ -1414,7 +1468,7 @@ class Store {
       ...(tpl.place_id && this.places.has(tpl.place_id) ? { place_id: tpl.place_id } : {}),
       project_id: projectId,
       ...(ctx.day && !idea ? { day: ctx.day } : {}),
-    })
+    }))
   }
 
   // ---- workflows -------------------------------------------------------------

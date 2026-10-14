@@ -14,7 +14,7 @@ use crate::{
     db::next_rev,
     error::{ApiResult, AppError, bad},
     events::Change,
-    models::{ChecklistItem, TaskTemplate, upsert_task_template, with_checklist},
+    models::{ChecklistItem, TaskTemplate, TemplateKind, upsert_task_template, with_checklist},
     routes::tasks::{check_attrs, check_notes, check_task_type, check_title},
     util::{double_option, id_or_new, now},
     visibility,
@@ -52,6 +52,11 @@ async fn check(
     check_attrs(t.estimate_min, t.difficulty, t.importance, t.urgency)?;
     let items = crate::models::checklist(t.checklist.0.clone()).map_err(bad)?;
     t.checklist = sqlx::types::Json(with_checklist(&items, streamline_domain::checklist::fresh));
+    let kinds = streamline_domain::checklist::normalize_kinds(
+        t.kinds.0.iter().cloned().map(Into::into).collect(),
+    )
+    .map_err(bad)?;
+    t.kinds = sqlx::types::Json(kinds.into_iter().map(Into::into).collect());
     if let Some(tt) = &t.task_type_id {
         check_task_type(conn, user, tt).await?;
     }
@@ -87,6 +92,9 @@ pub struct CreateTemplate {
     notes: String,
     #[serde(default)]
     checklist: Vec<ChecklistItem>,
+    /// Kinds to choose from when adding it (D-86).
+    #[serde(default)]
+    kinds: Vec<TemplateKind>,
     estimate_min: Option<i32>,
     difficulty: Option<i32>,
     importance: Option<i32>,
@@ -140,6 +148,7 @@ pub async fn create(
         title: c.title,
         notes: c.notes,
         checklist: sqlx::types::Json(c.checklist),
+        kinds: sqlx::types::Json(c.kinds),
         estimate_min: c.estimate_min,
         difficulty: c.difficulty,
         importance: c.importance,
@@ -165,6 +174,7 @@ pub struct PatchTemplate {
     title: Option<String>,
     notes: Option<String>,
     checklist: Option<Vec<ChecklistItem>>,
+    kinds: Option<Vec<TemplateKind>>,
     #[serde(default, deserialize_with = "double_option")]
     estimate_min: Option<Option<i32>>,
     #[serde(default, deserialize_with = "double_option")]
@@ -204,6 +214,9 @@ pub async fn patch(
     }
     if let Some(v) = c.checklist {
         t.checklist = sqlx::types::Json(v);
+    }
+    if let Some(v) = c.kinds {
+        t.kinds = sqlx::types::Json(v);
     }
     if let Some(v) = c.estimate_min {
         t.estimate_min = v;

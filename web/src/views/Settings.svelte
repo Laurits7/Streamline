@@ -9,12 +9,30 @@
   import type { UserSummary } from '../lib/api/types/UserSummary'
   import Icon from '../lib/components/Icon.svelte'
   import PlaceSwitcher from '../lib/components/PlaceSwitcher.svelte'
+  import { desktop, invoke, type DesktopStatus } from '../lib/desktop'
   import { disablePush, enablePush, pushBlocker, pushEnabled } from '../lib/pwa'
   import { store } from '../lib/store.svelte'
   import { toast } from '../lib/toast.svelte'
   import { ui } from '../lib/ui.svelte'
 
   let { onlogout }: { onlogout: () => void } = $props()
+
+  // Desktop app (D-78): start at login.
+  let autostart = $state(false)
+  let localOnly = $state(false)
+  let localPw = $state('')
+  if (desktop) {
+    invoke<boolean>('plugin:autostart|is_enabled').then((v) => (autostart = v)).catch(() => {})
+    invoke<DesktopStatus>('status').then((s) => (localOnly = s.mode === 'local')).catch(() => {})
+  }
+  async function setAutostart(on: boolean) {
+    try {
+      await invoke(on ? 'plugin:autostart|enable' : 'plugin:autostart|disable')
+      autostart = on
+    } catch (e) {
+      toast(`Couldn't change it: ${e}`, 'error')
+    }
+  }
 
   const me = $derived(store.me!)
   const zones: string[] = (Intl as unknown as { supportedValuesOf?: (k: string) => string[] }).supportedValuesOf?.('timeZone') ?? []
@@ -432,7 +450,7 @@
           <option value="max">highest</option>
         </select>
         <input class="small-time" type="time" value={m.reminder_time ?? ''} aria-label="Reminder" title="Remind me if not logged by" onchange={(e) => store.updateMetric(m.id, { reminder_time: (e.currentTarget as HTMLInputElement).value || null })} />
-        <a class="btn small" href="/api/v1/metrics/{m.id}/csv" download>CSV</a>
+        <a class="btn small" href="/api/v1/metrics/{m.id}/csv" download="{m.name}.csv">CSV</a>
         <label class="btn small file">Import<input type="file" accept=".csv,text/csv,text/plain" onchange={(e) => importCsv(m.id, (e.currentTarget as HTMLInputElement).files?.[0])} /></label>
         <button class="btn small" onclick={() => store.updateMetric(m.id, { archived: !m.archived })}>{m.archived ? 'Show' : 'Hide'}</button>
         {#if !m.key}<button class="btn small danger" onclick={() => confirm(`Delete “${m.name}” and everything logged for it?`) && store.deleteMetric(m.id)}>Delete</button>{/if}
@@ -450,7 +468,7 @@
     <button class="btn" type="submit">Add</button>
   </form>
   <p class="help muted export">
-    Import takes CSV rows of <code>date,value</code> (weight in kg). <a href="/api/v1/export" download>Download all your data (JSON)</a>
+    Import takes CSV rows of <code>date,value</code> (weight in kg). <a href="/api/v1/export" download="streamline-export.json">Download all your data (JSON)</a>
   </p>
 </section>
 
@@ -750,15 +768,54 @@
     {#each backups as b (b.name)}
       <div class="line">
         <span>{new Date(b.created_at).toLocaleString(me.locale || undefined, { dateStyle: 'medium', timeStyle: 'short' })} <span class="muted small">· {mb(b.bytes)}</span></span>
-        <a class="btn small" href="/api/v1/admin/backups/{b.name}" download>Download</a>
+        <a class="btn small" href="/api/v1/admin/backups/{b.name}" download={b.name}>Download</a>
       </div>
     {:else}<p class="muted small">No backups yet.</p>{/each}
     <button class="btn" onclick={backupNow} disabled={backingUp}>{backingUp ? 'Backing up…' : 'Back up now'}</button>
   </section>
 {/if}
 
+{#if desktop}
+  <section class="card" id="desktop">
+    <h2>Desktop app</h2>
+    {#await invoke<DesktopStatus>('status') then s}
+      {#if s.mode === 'local'}
+        <p class="help muted">
+          Streamline runs on this computer only; your data stays here (backed up daily into the same folder). To move to a
+          server later, start a Streamline server with a copy of this folder as its <code>data</code> folder (see
+          <a href="/help#desktop">Help</a>).
+        </p>
+        <button class="btn small" onclick={() => invoke<string>('open_data_folder').catch((e) => toast(String(e), 'error'))}>Open the data folder</button>
+        <form
+          class="row local-pw"
+          onsubmit={async (e) => {
+            e.preventDefault()
+            try {
+              await invoke('set_local_password', { password: localPw })
+              localPw = ''
+              toast('Password set: sign in as “me” on a server that uses this data')
+            } catch (err) {
+              toast(String(err), 'error')
+            }
+          }}>
+          <input type="password" bind:value={localPw} minlength="8" autocomplete="new-password" placeholder="Password for a server later (user “me”)" aria-label="Password for a server later" />
+          <button class="btn small" type="submit" disabled={localPw.length < 8}>Set</button>
+        </form>
+      {:else}
+        <p class="help muted">Connected to <strong>{s.server}</strong> as {s.username}. This computer has its own key, listed under API tokens; signing out removes it.</p>
+      {/if}
+    {/await}
+    <label class="check plain">
+      <input type="checkbox" checked={autostart} onchange={(e) => setAutostart((e.currentTarget as HTMLInputElement).checked)} />
+      Start Streamline when I log in (in the tray, without opening the window)
+    </label>
+    <p class="help muted">Closing the window keeps Streamline in the tray, so it stays up to date. Quit it from the tray menu.</p>
+  </section>
+{/if}
+
 <section class="card">
-  <button class="btn" onclick={onlogout}><Icon name="logout" size={16} /> Sign out</button>
+  <button class="btn" onclick={onlogout}><Icon name="logout" size={16} /> {localOnly ? 'Use a server instead' : desktop ? 'Sign out of this computer' : 'Sign out'}</button>
+  {#if localOnly}<p class="help muted">Your data stays in its folder on this computer; choosing “This computer only” again brings it back.</p>{/if}
 </section>
 </div>
 
@@ -892,6 +949,9 @@
   }
   .token-box p {
     margin: 0 0 8px;
+  }
+  .local-pw {
+    margin: 10px 0 12px;
   }
   .row {
     display: flex;
