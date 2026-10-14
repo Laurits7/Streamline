@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased (1.3.0)
+
+- Checklists complete their task: ticking the last step completes it (with Undo), and
+  unticking a step of a completed task reopens it. Works the same for routines and on every
+  device (D-80).
+
 ## 1.2.0 (2026-10-08)
 
 Upgrading: back up first (Settings → Backups, or copy `data/`). This version migrates the

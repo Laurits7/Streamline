@@ -449,18 +449,22 @@ describe('calendar events and work (D-68)', () => {
 })
 
 describe('checklists and waiting (D-70, D-71)', () => {
-  it('offers to complete the task when the last step is ticked', async () => {
+  it('completes the task when the last step is ticked, and reopens it on an untick (D-80)', async () => {
     const items = [
       { id: 'a', text: 'Sort', done: true },
       { id: 'b', text: 'Wash', done: false },
     ]
     await load({ tasks: [task('T1', { checklist: items })] })
-    mockApi((_m, _p, body) => task('T1', { checklist: (body as { checklist: typeof items }).checklist }))
+    mockApi((_m, _p, body) => task('T1', body as Partial<Task>))
     store.tickItem('T1', 'b')
     expect(store.tasks.get('T1')!.checklist.every((i) => i.done)).toBe(true)
-    expect(toasts.at(-1)).toMatchObject({ text: 'All steps done', action: { label: 'Complete task' } })
+    expect(store.tasks.get('T1')!.status).toBe('done')
+    expect(toasts.at(-1)).toMatchObject({ text: 'All steps done: completed “T1”', action: { label: 'Undo' } })
     await tick()
-    expect(calls[0]).toMatchObject({ method: 'PATCH', path: '/tasks/T1', body: { checklist: [{ id: 'a', done: true }, { id: 'b', done: true }] } })
+    expect(calls[0]).toMatchObject({ method: 'PATCH', path: '/tasks/T1', body: { checklist: [{ id: 'a', done: true }, { id: 'b', done: true }], status: 'done' } })
+    toasts.at(-1)!.action!.run()
+    expect(store.tasks.get('T1')!.status).toBe('open')
+    expect(store.tasks.get('T1')!.checklist.find((i) => i.id === 'b')!.done).toBe(false)
   })
 
   it('keeps waiting tasks out of the ready stack and lists them by check-back time', async () => {

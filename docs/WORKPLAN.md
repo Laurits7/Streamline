@@ -628,7 +628,7 @@ the sharer's server is authoritative; members' servers hold a replica and forwar
 Developed on the `v1.3` branch. Order: the small web features first (each releasable on its
 own), then the server's merge support, then the desktop app on top of it.
 
-- [ ] **9.1 Checklists complete their task** (D-80): on the server, ticking the last item
+- [x] **9.1 Checklists complete their task** (D-80): on the server, ticking the last item
       completes the task and unticking one on a done task reopens it (routine occurrences too,
       with their usual completion side effects); drop the "complete it?" prompt in the client;
       tests; help and CHANGELOG.

@@ -534,8 +534,18 @@ pub async fn patch(
     if let Some(v) = c.also_project_ids {
         t.also_project_ids = sqlx::types::Json(check_also(&mut tx, &user, &t.project_id, v).await?);
     }
+    // Ticking the last item completes the task, unticking one reopens it (D-80), unless
+    // the request sets the status itself.
+    let mut checklist_status = None;
     if let Some(v) = c.checklist {
-        t.checklist = sqlx::types::Json(crate::models::checklist(v).map_err(bad)?);
+        let new = crate::models::checklist(v).map_err(bad)?;
+        let dom = |l: &[ChecklistItem]| -> Vec<streamline_domain::checklist::Item> {
+            l.iter().cloned().map(Into::into).collect()
+        };
+        checklist_status =
+            streamline_domain::checklist::status_after(&dom(&t.checklist), &dom(&new), &t.status)
+                .map(String::from);
+        t.checklist = sqlx::types::Json(new);
     }
     if let Some(v) = c.position {
         check_position(&v)?;
@@ -564,7 +574,7 @@ pub async fn patch(
         check_task_type(&mut tx, &user, &v).await?;
         t.task_type_id = v;
     }
-    if let Some(status) = c.status
+    if let Some(status) = c.status.or(checklist_status)
         && status != t.status
     {
         if !TASK_STATUSES.contains(&status.as_str()) {

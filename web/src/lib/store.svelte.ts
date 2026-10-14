@@ -50,6 +50,7 @@ import { toast } from './toast.svelte'
 import { ulid } from './ulid'
 import { pickSub, pickTop, type Shape } from './marks'
 import { checkBackDue, isWaiting } from './waiting'
+import { statusAfter } from './checklist'
 
 type Kind =
   | 'task'
@@ -770,6 +771,12 @@ class Store {
   updateTask(id: string, patch: TaskPatch) {
     const cur = this.tasks.get(id)
     if (!cur) return
+    // Ticking the last step completes the task, unticking one reopens it (D-80); the
+    // server does the same, this only shows it right away.
+    if (patch.checklist && !patch.status) {
+      const status = statusAfter(cur.checklist, patch.checklist, cur.status)
+      if (status) patch = { ...patch, status }
+    }
     const local: Task = { ...cur, ...patch, updated_at: now() }
     if (patch.status && patch.status !== cur.status) {
       local.completed_at = patch.status === 'done' ? now() : null
@@ -787,15 +794,14 @@ class Store {
     )
   }
 
-  /** Tick or untick a checklist item; ticking the last one offers to complete the task (D-71). */
+  /** Tick or untick a checklist item; the last tick completes the task (D-80). */
   tickItem(id: string, itemId: string) {
     const t = this.tasks.get(id)
     if (!t) return
     const checklist = t.checklist.map((i) => (i.id === itemId ? { ...i, done: !i.done } : i))
     this.updateTask(id, { checklist })
-    const ticked = checklist.find((i) => i.id === itemId)?.done
-    if (ticked && t.status === 'open' && checklist.every((i) => i.done))
-      toast('All steps done', 'info', { label: 'Complete task', run: () => this.toggleDone(id) })
+    if (t.status === 'open' && this.tasks.get(id)?.status === 'done')
+      toast(`All steps done: completed “${t.title}”`, 'info', { label: 'Undo', run: () => this.tickItem(id, itemId) })
   }
 
   toggleDone(id: string) {

@@ -4622,6 +4622,8 @@ async fn security_review_regressions() {
     assert_eq!(s, StatusCode::BAD_REQUEST);
 
     // A known id can't overwrite another user's day entry.
+    let d1 = ymd(today_of(&t, &ben).await + chrono::Duration::days(2));
+    let d2 = ymd(today_of(&t, &anna).await + chrono::Duration::days(3));
     let (_, bt, _) = t
         .req(
             "POST",
@@ -4633,7 +4635,7 @@ async fn security_review_regressions() {
     let (_, be, _) = t
         .req(
             "POST",
-            "/api/v1/days/2026-10-10/entries",
+            &format!("/api/v1/days/{d1}/entries"),
             Some(&ben),
             Some(json!({"task_id": bt["id"], "start_time": "09:00"})),
         )
@@ -4648,13 +4650,13 @@ async fn security_review_regressions() {
         .await;
     t.req(
         "POST",
-        "/api/v1/days/2026-10-11/entries",
+        &format!("/api/v1/days/{d2}/entries"),
         Some(&anna),
         Some(json!({"id": be["id"], "task_id": at["id"], "start_time": "18:00"})),
     )
     .await;
     let (_, day, _) = t
-        .req("GET", "/api/v1/days/2026-10-10", Some(&ben), None)
+        .req("GET", &format!("/api/v1/days/{d1}"), Some(&ben), None)
         .await;
     let e = day["entries"]
         .as_array()
@@ -5470,6 +5472,48 @@ async fn checklists_on_tasks_and_routines() {
         o["checklist"],
         json!([item("s", "Sort", true), item("h", "Hang", false)])
     );
+}
+
+#[tokio::test]
+async fn checklist_completes_and_reopens_its_task() {
+    let t = setup().await;
+    let admin = t.admin().await;
+    let item = |id: &str, done: bool| json!({"id": id, "text": id, "done": done});
+    let (_, task, _) = t
+        .req(
+            "POST",
+            "/api/v1/tasks",
+            Some(&admin),
+            Some(json!({"title": "Do laundry", "checklist": [item("a", false), item("b", false)]})),
+        )
+        .await;
+    let path = format!("/api/v1/tasks/{}", task["id"].as_str().unwrap());
+    let patch = |body: Value| t.req("PATCH", &path, Some(&admin), Some(body));
+
+    let (_, v, _) = patch(json!({"checklist": [item("a", true), item("b", false)]})).await;
+    assert_eq!(v["status"], "open");
+    // Ticking the last item completes the task (D-80).
+    let (_, v, _) = patch(json!({"checklist": [item("a", true), item("b", true)]})).await;
+    assert_eq!(v["status"], "done");
+    assert!(v["completed_by"].is_string());
+    // Unticking one reopens it.
+    let (_, v, _) = patch(json!({"checklist": [item("a", true), item("b", false)]})).await;
+    assert_eq!(v["status"], "open");
+    assert!(v["completed_at"].is_null());
+    // A status in the same request wins.
+    let (_, v, _) =
+        patch(json!({"checklist": [item("a", true), item("b", true)], "status": "open"})).await;
+    assert_eq!(v["status"], "open");
+    // Reopened by hand with everything ticked: editing a text doesn't complete it again.
+    let (_, v, _) = patch(
+        json!({"checklist": [item("a", true), json!({"id": "b", "text": "Wash", "done": true})]}),
+    )
+    .await;
+    assert_eq!(v["status"], "open");
+    // Skipped tasks aren't touched.
+    patch(json!({"status": "skipped", "checklist": [item("a", false), item("b", false)]})).await;
+    let (_, v, _) = patch(json!({"checklist": [item("a", true), item("b", true)]})).await;
+    assert_eq!(v["status"], "skipped");
 }
 
 #[tokio::test]
