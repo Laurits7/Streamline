@@ -52,8 +52,10 @@ async fn check(
     check_attrs(t.estimate_min, t.difficulty, t.importance, t.urgency)?;
     let items = crate::models::checklist(t.checklist.0.clone()).map_err(bad)?;
     t.checklist = sqlx::types::Json(with_checklist(&items, streamline_domain::checklist::fresh));
-    let kinds = streamline_domain::checklist::normalize_kinds(t.kinds.0.iter().cloned().map(Into::into).collect())
-        .map_err(bad)?;
+    let kinds = streamline_domain::checklist::normalize_kinds(
+        t.kinds.0.iter().cloned().map(Into::into).collect(),
+    )
+    .map_err(bad)?;
     t.kinds = sqlx::types::Json(kinds.into_iter().map(Into::into).collect());
     if let Some(tt) = &t.task_type_id {
         check_task_type(conn, user, tt).await?;

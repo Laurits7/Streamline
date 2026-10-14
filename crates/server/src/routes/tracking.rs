@@ -67,7 +67,9 @@ pub async fn put_health(
     let ts = now();
     let existing = health_row(&mut tx, user.id(), &date).await?;
     // An offline edit of a check-in cleared since then stays cleared (D-79).
-    if existing.as_ref().is_some_and(|h| h.deleted_at.is_some()) && body.get("base").is_some_and(|b| !b.is_null()) {
+    if existing.as_ref().is_some_and(|h| h.deleted_at.is_some())
+        && body.get("base").is_some_and(|b| !b.is_null())
+    {
         return Err(AppError::NotFound);
     }
     let sent = |k: &str| body.get(k).and_then(|v| v.as_str()).map(String::from);
@@ -167,8 +169,11 @@ pub async fn put_record(
             .bind(&date)
             .fetch_optional(&mut *tx)
             .await?;
-    let (c, conflicts): (PutRecord, _) =
-        crate::merge::prepare(body, existing.as_ref(), existing.as_ref().map(|r| r.updated_at.as_str()))?;
+    let (c, conflicts): (PutRecord, _) = crate::merge::prepare(
+        body,
+        existing.as_ref(),
+        existing.as_ref().map(|r| r.updated_at.as_str()),
+    )?;
     for f in [&c.journal, &c.went_well, &c.went_badly, &c.tomorrow]
         .into_iter()
         .flatten()
@@ -177,24 +182,22 @@ pub async fn put_record(
             return Err(bad("text too long"));
         }
     }
-    let mut r: DayRecord =
-        match existing
-        {
-            Some(r) => r,
-            None => DayRecord {
-                id: new_id(),
-                user_id: user.id().into(),
-                date,
-                journal: String::new(),
-                went_well: String::new(),
-                went_badly: String::new(),
-                tomorrow: String::new(),
-                created_at: ts.clone(),
-                updated_at: ts.clone(),
-                deleted_at: None,
-                rev: 0,
-            },
-        };
+    let mut r: DayRecord = match existing {
+        Some(r) => r,
+        None => DayRecord {
+            id: new_id(),
+            user_id: user.id().into(),
+            date,
+            journal: String::new(),
+            went_well: String::new(),
+            went_badly: String::new(),
+            tomorrow: String::new(),
+            created_at: ts.clone(),
+            updated_at: ts.clone(),
+            deleted_at: None,
+            rev: 0,
+        },
+    };
     if let Some(v) = c.journal {
         r.journal = v;
     }
@@ -584,7 +587,8 @@ pub async fn patch_entry(
 ) -> ApiResult<Json<crate::merge::Merged<MetricEntry>>> {
     let mut tx = state.db.write.begin().await?;
     let mut e = load_entry(&mut tx, &user, &id).await?;
-    let (c, conflicts): (PatchEntry, _) = crate::merge::prepare(body, Some(&e), Some(&e.updated_at))?;
+    let (c, conflicts): (PatchEntry, _) =
+        crate::merge::prepare(body, Some(&e), Some(&e.updated_at))?;
     let m = load_metric(&mut tx, &user, &e.metric_id).await?;
     if let Some(v) = c.value {
         check_value(&m, v)?;

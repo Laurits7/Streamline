@@ -62,7 +62,11 @@ pub fn merge_fields(
         } else if v == *b {
             // Unchanged on the client: the server's change stands.
         } else {
-            let kept = if client_newer { Side::Client } else { Side::Server };
+            let kept = if client_newer {
+                Side::Client
+            } else {
+                Side::Server
+            };
             conflicts.push(Conflict {
                 field: k.clone(),
                 item: None,
@@ -87,7 +91,14 @@ fn pick<T: PartialEq>(b: Option<&T>, s: &T, c: &T, client_newer: bool) -> (Side,
     } else if Some(s) == b {
         (Side::Client, false)
     } else {
-        (if client_newer { Side::Client } else { Side::Server }, true)
+        (
+            if client_newer {
+                Side::Client
+            } else {
+                Side::Server
+            },
+            true,
+        )
     }
 }
 
@@ -122,7 +133,11 @@ pub fn merge_checklist(
             conflicts.push(Conflict {
                 field: "checklist".into(),
                 item: Some(c.id.clone()),
-                kept: if client_newer { Side::Client } else { Side::Server },
+                kept: if client_newer {
+                    Side::Client
+                } else {
+                    Side::Server
+                },
                 server: view(&s),
                 client: view(c),
             });
@@ -171,7 +186,8 @@ mod tests {
 
     #[test]
     fn both_changed_newer_wins() {
-        let current = obj(json!({"title": "Laundry (server)", "notes": "server", "estimate_min": 60}));
+        let current =
+            obj(json!({"title": "Laundry (server)", "notes": "server", "estimate_min": 60}));
         let base = obj(json!({"title": "Laundry", "notes": "", "estimate_min": 30}));
         // Notes changed on both sides to the same value: no conflict.
         let edit = obj(json!({"title": "Laundry (client)", "notes": "server", "estimate_min": 30}));
@@ -183,7 +199,10 @@ mod tests {
         assert_eq!(cs[0].server, json!("Laundry (server)"));
         // The client is newer: its changed values win.
         let (out, cs) = merge_fields(edit.clone(), &base, &current, true);
-        assert_eq!(out, obj(json!({"title": "Laundry (client)", "notes": "server"})));
+        assert_eq!(
+            out,
+            obj(json!({"title": "Laundry (client)", "notes": "server"}))
+        );
         assert_eq!((cs.len(), cs[0].kept), (1, Side::Client));
     }
 
@@ -203,7 +222,12 @@ mod tests {
     fn nulls_are_values() {
         let current = obj(json!({"due_date": "2026-10-20"}));
         let base = obj(json!({"due_date": null}));
-        let (out, cs) = merge_fields(obj(json!({"due_date": "2026-10-21"})), &base, &current, false);
+        let (out, cs) = merge_fields(
+            obj(json!({"due_date": "2026-10-21"})),
+            &base,
+            &current,
+            false,
+        );
         assert!(out.is_empty());
         assert_eq!(cs[0].server, json!("2026-10-20"));
         let base = obj(json!({"due_date": "2026-10-20"}));
@@ -222,20 +246,42 @@ mod tests {
         }
     }
     fn ids(l: &[Item]) -> Vec<(&str, &str, bool)> {
-        l.iter().map(|i| (i.id.as_str(), i.text.as_str(), i.done)).collect()
+        l.iter()
+            .map(|i| (i.id.as_str(), i.text.as_str(), i.done))
+            .collect()
     }
 
     #[test]
     fn checklist_keeps_ticks_and_additions_from_both_sides() {
-        let base = vec![it("a", "Sort", false), it("b", "Wash", false), it("c", "Fold", false)];
+        let base = vec![
+            it("a", "Sort", false),
+            it("b", "Wash", false),
+            it("c", "Fold", false),
+        ];
         // Server: ticked Sort, added Iron after Wash.
-        let server = vec![it("a", "Sort", true), it("b", "Wash", false), it("i", "Iron", false), it("c", "Fold", false)];
+        let server = vec![
+            it("a", "Sort", true),
+            it("b", "Wash", false),
+            it("i", "Iron", false),
+            it("c", "Fold", false),
+        ];
         // Client (offline): ticked Wash, renamed Fold, added Hang at the end.
-        let client = vec![it("a", "Sort", false), it("b", "Wash", true), it("c", "Fold neatly", false), it("h", "Hang", false)];
+        let client = vec![
+            it("a", "Sort", false),
+            it("b", "Wash", true),
+            it("c", "Fold neatly", false),
+            it("h", "Hang", false),
+        ];
         let (out, cs) = merge_checklist(&base, &server, &client, false);
         assert_eq!(
             ids(&out),
-            vec![("a", "Sort", true), ("b", "Wash", true), ("i", "Iron", false), ("c", "Fold neatly", false), ("h", "Hang", false)]
+            vec![
+                ("a", "Sort", true),
+                ("b", "Wash", true),
+                ("i", "Iron", false),
+                ("c", "Fold neatly", false),
+                ("h", "Hang", false)
+            ]
         );
         assert!(cs.is_empty());
         // Each tick keeps its own record.
@@ -261,7 +307,10 @@ mod tests {
         let (out, cs) = merge_checklist(&base, &server, &client, false);
         assert_eq!(ids(&out), vec![("a", "Sort whites", true)]);
         assert_eq!(cs.len(), 1);
-        assert_eq!((cs[0].item.as_deref(), cs[0].kept), (Some("a"), Side::Server));
+        assert_eq!(
+            (cs[0].item.as_deref(), cs[0].kept),
+            (Some("a"), Side::Server)
+        );
         let (out, cs) = merge_checklist(&base, &server, &client, true);
         // Only the text conflicts; the tick was changed on the server alone and stays.
         assert_eq!(ids(&out), vec![("a", "Sort colours", true)]);
@@ -279,7 +328,9 @@ mod tests {
     fn checklist_merges_through_fields() {
         let current = obj(json!({"checklist": [{"id": "a", "text": "Sort", "done": true}]}));
         let base = obj(json!({"checklist": [{"id": "a", "text": "Sort", "done": false}]}));
-        let edit = obj(json!({"checklist": [{"id": "a", "text": "Sort", "done": false}, {"id": "b", "text": "Wash", "done": false}]}));
+        let edit = obj(
+            json!({"checklist": [{"id": "a", "text": "Sort", "done": false}, {"id": "b", "text": "Wash", "done": false}]}),
+        );
         let (out, cs) = merge_fields(edit, &base, &current, true);
         assert!(cs.is_empty());
         assert_eq!(

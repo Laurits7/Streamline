@@ -149,7 +149,11 @@ pub fn normalize_kinds(kinds: Vec<Kind>) -> Result<Vec<Kind>, &'static str> {
 }
 
 fn valid_id(id: &str) -> bool {
-    !id.is_empty() && id.len() <= 40 && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    !id.is_empty()
+        && id.len() <= 40
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
 }
 
 /// (done, total)
@@ -206,11 +210,24 @@ mod tests {
             k("c", "Colours", vec![]),
         ])
         .unwrap();
-        assert_eq!(got, vec![k("l", "Linen", vec![it("w", "Wash", false)]), k("c", "Colours", vec![])]);
+        assert_eq!(
+            got,
+            vec![
+                k("l", "Linen", vec![it("w", "Wash", false)]),
+                k("c", "Colours", vec![])
+            ]
+        );
         assert!(normalize_kinds(vec![k("a", "A", vec![]), k("a", "B", vec![])]).is_err());
         assert!(normalize_kinds(vec![k("a b", "A", vec![])]).is_err());
         assert!(normalize_kinds(vec![k("a", &"x".repeat(81), vec![])]).is_err());
-        assert!(normalize_kinds(vec![k("a", "A", vec![it("s", "", false), it("s", "x", false), it("s", "y", false)])]).is_err());
+        assert!(
+            normalize_kinds(vec![k(
+                "a",
+                "A",
+                vec![it("s", "", false), it("s", "x", false), it("s", "y", false)]
+            )])
+            .is_err()
+        );
         let many: Vec<Kind> = (0..21).map(|i| k(&i.to_string(), "x", vec![])).collect();
         assert!(normalize_kinds(many).is_err());
     }
@@ -226,18 +243,30 @@ mod tests {
         let mut next = vec![it("a", "Wash", true), it("b", "Fold", true)];
         next[0].done_at = Some("2026-10-14T09:00:00Z".into());
         let got = stamp(&old, next, now, "u2");
-        assert_eq!(at(&got[0]), (Some("2026-10-13T08:00:00.000Z".into()), Some("u1".into())));
+        assert_eq!(
+            at(&got[0]),
+            (Some("2026-10-13T08:00:00.000Z".into()), Some("u1".into()))
+        );
         // Newly ticked without a time: now, by the caller.
-        assert_eq!(at(&got[1]), (Some("2026-10-14T10:00:00.000Z".into()), Some("u2".into())));
+        assert_eq!(
+            at(&got[1]),
+            (Some("2026-10-14T10:00:00.000Z".into()), Some("u2".into()))
+        );
         // An offline tick keeps its (past) time, normalised to UTC.
         let mut next = vec![it("b", "Fold", true)];
         next[0].done_at = Some("2026-10-13T23:30:00+02:00".into());
-        assert_eq!(stamp(&old, next, now, "u2")[0].done_at.as_deref(), Some("2026-10-13T21:30:00.000Z"));
+        assert_eq!(
+            stamp(&old, next, now, "u2")[0].done_at.as_deref(),
+            Some("2026-10-13T21:30:00.000Z")
+        );
         // Future or malformed times become now.
         for bad in ["2026-10-15T00:00:00Z", "yesterday"] {
             let mut next = vec![it("b", "Fold", true)];
             next[0].done_at = Some(bad.into());
-            assert_eq!(stamp(&old, next, now, "u2")[0].done_at.as_deref(), Some("2026-10-14T10:00:00.000Z"));
+            assert_eq!(
+                stamp(&old, next, now, "u2")[0].done_at.as_deref(),
+                Some("2026-10-14T10:00:00.000Z")
+            );
         }
         // Unticking clears it.
         let mut next = vec![it("a", "Wash", false)];
@@ -245,7 +274,10 @@ mod tests {
         assert_eq!(at(&stamp(&old, next, now, "u2")[0]), (None, None));
         // Fresh copies and kept ticks carry the record along or drop it.
         assert_eq!(at(&fresh(&old)[0]), (None, None));
-        assert_eq!(at(&keep_ticks(&[it("a", "Wash!", false)], &old)[0]), at(&old[0]));
+        assert_eq!(
+            at(&keep_ticks(&[it("a", "Wash!", false)], &old)[0]),
+            at(&old[0])
+        );
     }
 
     #[test]

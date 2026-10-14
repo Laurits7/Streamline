@@ -11,8 +11,8 @@ use crate::{
     auth::AuthUser,
     db::next_rev,
     error::{ApiResult, AppError, bad},
-    merge::Merged,
     events::Change,
+    merge::Merged,
     models::{
         ChecklistItem, DayEntry, TASK_STATUSES, Task, log_task_event, upsert_entry, upsert_task,
     },
@@ -225,7 +225,11 @@ pub async fn create(
         .await?
     {
         // A replayed create (offline outbox, D-79) gets the record, shared ones too.
-        if crate::visibility::can_see(&user, existing.owner_user_id.as_deref(), existing.owner_group_id.as_deref()) {
+        if crate::visibility::can_see(
+            &user,
+            existing.owner_user_id.as_deref(),
+            existing.owner_group_id.as_deref(),
+        ) {
             return Ok(Json(existing));
         }
         return Err(AppError::Conflict("id already in use".into()));
@@ -486,7 +490,8 @@ pub async fn patch(
 ) -> ApiResult<Json<Merged<Task>>> {
     let mut tx = state.db.write.begin().await?;
     let mut t = load_visible(&mut tx, &user, &id).await?;
-    let (c, conflicts): (PatchTask, _) = crate::merge::prepare(body, Some(&t), Some(&t.updated_at))?;
+    let (c, conflicts): (PatchTask, _) =
+        crate::merge::prepare(body, Some(&t), Some(&t.updated_at))?;
     let old_status = t.status.clone();
     if let Some(v) = c.title {
         t.title = check_title(&v)?;
@@ -551,9 +556,15 @@ pub async fn patch(
         let dom = |l: &[ChecklistItem]| -> Vec<streamline_domain::checklist::Item> {
             l.iter().cloned().map(Into::into).collect()
         };
-        let new = crate::models::with_checklist(&crate::models::checklist(v).map_err(bad)?, |new| {
-            streamline_domain::checklist::stamp(&dom(&t.checklist), new.to_vec(), chrono::Utc::now(), user.id())
-        });
+        let new =
+            crate::models::with_checklist(&crate::models::checklist(v).map_err(bad)?, |new| {
+                streamline_domain::checklist::stamp(
+                    &dom(&t.checklist),
+                    new.to_vec(),
+                    chrono::Utc::now(),
+                    user.id(),
+                )
+            });
         checklist_status =
             streamline_domain::checklist::status_after(&dom(&t.checklist), &dom(&new), &t.status)
                 .map(String::from);

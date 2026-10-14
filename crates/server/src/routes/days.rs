@@ -471,7 +471,8 @@ pub async fn patch_entry(
 ) -> ApiResult<Json<crate::merge::Merged<DayEntry>>> {
     let mut tx = state.db.write.begin().await?;
     let mut e = load_entry(&mut tx, &user, &id).await?;
-    let (c, conflicts): (PatchEntry, _) = crate::merge::prepare(body, Some(&e), Some(&e.updated_at))?;
+    let (c, conflicts): (PatchEntry, _) =
+        crate::merge::prepare(body, Some(&e), Some(&e.updated_at))?;
     if let Some(d) = c.date
         && d != e.date
     {

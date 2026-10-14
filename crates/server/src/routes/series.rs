@@ -257,7 +257,11 @@ pub async fn create(
         .await?
     {
         // A replayed create (offline outbox, D-79) gets the record, shared ones too.
-        if crate::visibility::can_see(&user, existing.owner_user_id.as_deref(), existing.owner_group_id.as_deref()) {
+        if crate::visibility::can_see(
+            &user,
+            existing.owner_user_id.as_deref(),
+            existing.owner_group_id.as_deref(),
+        ) {
             return Ok(Json(existing));
         }
         return Err(AppError::Conflict("id already in use".into()));
@@ -366,7 +370,8 @@ pub async fn patch(
     let today = today_for(&user.user);
     let mut tx = state.db.write.begin().await?;
     let old = load_visible(&mut tx, &user, &id).await?;
-    let (c, conflicts): (PatchSeries, _) = crate::merge::prepare(body, Some(&old), Some(&old.updated_at))?;
+    let (c, conflicts): (PatchSeries, _) =
+        crate::merge::prepare(body, Some(&old), Some(&old.updated_at))?;
     let from = match &c.from {
         Some(f) => parse_date(f)?.max(today),
         None => today,
