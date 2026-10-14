@@ -673,6 +673,12 @@ own), then the server's merge support, then the desktop app on top of it.
       on installing and on how the owner pushes the packages to the AUR.
 - [ ] **9.8 Phase gate** (Part D) plus: desktop app memory at idle, offline smoke test (pull
       the network, edit, reconnect), security review of the local engine and token storage.
+      *Done 2026-10-14:* tests, fmt and clippy green (CI not run yet: not pushed); resource log
+      updated (image 15.0 MB, idle 7.8 MiB, 97.9 KB initial; desktop app 294 MiB PSS at idle);
+      offline smoke test in the real app passed; security review done and fixed (D-92); no
+      test passwords or tokens in the test, server or app logs; README, DECISIONS, OpenAPI
+      and TS types current. *Left for the owner:* smoke test on a phone and behind the HTTPS
+      proxy, and the pre-release tag.
 
 ---
 

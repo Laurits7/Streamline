@@ -214,3 +214,6 @@ Any of them can be revisited when the chunk that implements it starts.
 | End of Phases 3b.6a, 5a, 5b, 5c | 12.5 MB | 6.8 MiB (fresh container, 20 s, incl. the first nameday download) | 94.8 KB initial (new pages lazy) | not measured | 2026-10-06 |
 | End of Phase 6.1–6.4 | 12.8 MB | 7.0 MiB (fresh container, 20 s, incl. first nameday download) | 78.6 KB initial (more views lazy) | day view p95 9.9 ms on a desktop with a busy year of data (Pi not measured) | 2026-10-06 |
 | After the security review | 14.3 MB (+1.5 MB: unwinding panics) | 7.0 MiB (fresh container, 20 s) | 78.6 KB initial | unchanged | 2026-10-07 |
+| End of Phase 9 (v1.3) | 15.0 MB | 7.8 MiB (fresh container, 20 s) | 97.9 KB initial | not re-measured | 2026-10-14 |
+
+Desktop app (Linux, release build, signed in to a server, idle on Today for 45 s, 2026-10-14): **294 MiB PSS** in total: the app process 91, WebKit's web process 170, its network process 33. RSS adds up to 548 MiB but counts shared libraries once per process. Most of it is the web engine itself.
