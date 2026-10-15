@@ -1,0 +1,29 @@
+# Two Streamline servers on one machine, to try sharing a project between servers
+# (Phase 8). Both use the host's network so each can reach the other at localhost:
+#
+#   docker compose -f docker/docker-compose.two-servers.yml up --build
+#
+# Open http://localhost:3001 (the "home" server) and http://localhost:3002 (someone
+# else's). On the home server: share a top-level project with a group you own, then
+# project menu → People on other servers → Make an invite link. On the other server:
+# Settings → Projects from other servers → paste the link.
+services:
+  home:
+    build:
+      context: ..
+    image: streamline:latest
+    network_mode: host
+    volumes:
+      - ./two-servers/home:/data
+    environment:
+      PORT: "3001"
+      LOG_LEVEL: info
+  elsewhere:
+    image: streamline:latest
+    depends_on: [home]
+    network_mode: host
+    volumes:
+      - ./two-servers/elsewhere:/data
+    environment:
+      PORT: "3002"
+      LOG_LEVEL: info

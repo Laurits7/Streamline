@@ -26,6 +26,7 @@
     ['places', 'Places'],
     ['calendar', 'Your calendar and the agenda'],
     ['forges', 'Tasks from GitHub, GitLab and others'],
+    ['servers', 'Sharing with other Streamline servers'],
     ['occasions', 'Namedays and birthdays'],
     ['tracking', 'Summary, journal and tracking'],
     ['goals', 'Long-term goals'],
@@ -453,6 +454,21 @@
       <li>Streamline checks every 10 minutes (or press <em>Check now</em>). Once an issue is closed or merged, or is no longer assigned to you, its task is completed by itself.</li>
       <li>Read-only: completing the task doesn't close anything there. The token is stored encrypted and never sent back to the browser; if it stops working, Settings shows the error and the tasks stay as they were.</li>
       <li>Removing an account removes its open tasks too; finished ones stay in your history.</li>
+    </ul>
+  </section>
+
+  <section id="servers">
+    <h2><Icon name="users" size={18} /> Sharing with other Streamline servers</h2>
+    <p>
+      Someone who runs their own Streamline can work on one of your projects without an account here, and you can join
+      theirs the same way.
+    </p>
+    <ul>
+      <li><strong>Sharing yours:</strong> share a top-level project with a group you own, then in the project's menu choose <em>People on other servers</em> → <em>Make an invite link</em>. Send the link to one person; it works once, for 7 days. They join that group for this project only.</li>
+      <li><strong>Joining theirs:</strong> paste the link you were sent in <a href="/settings#remote-projects">Settings → Projects from other servers</a>. The project appears with your own, marked <em>From</em> their server. Work on it as usual: plan its tasks on your days, tick them off, add tasks, steps and subprojects.</li>
+      <li>Changes go through the project's own server, and arrive on the other side within moments. If that server can't be reached, the project is read-only until it's back, and says so.</li>
+      <li>Your day plans, journal, tracking, calendar and focus time stay on your server. Places, workflows and custom task types aren't shared.</li>
+      <li>The project's owner can remove someone (same menu), and you can leave in Settings; either way their copy disappears.</li>
     </ul>
   </section>
 

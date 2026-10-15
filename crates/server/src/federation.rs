@@ -968,7 +968,7 @@ async fn pull_pages(state: &AppState, j: &Join) -> anyhow::Result<Pulled> {
             .bearer_auth(&secret)
             .send()
             .await
-            .with_context(|| format!("can't reach {}", host_of(&j.home_url)))?;
+            .map_err(|_| anyhow::anyhow!("can't reach {}", host_of(&j.home_url)))?;
         match res.status() {
             StatusCode::GONE => return Ok(Pulled::Gone),
             StatusCode::UNAUTHORIZED => bail!(
@@ -1013,9 +1013,11 @@ async fn apply(state: &AppState, j: &Join, feed: &Feed) -> anyhow::Result<()> {
         match here {
             Some(None) => {} // one of ours
             Some(Some(_)) => {
-                sqlx::query("UPDATE users SET display_name = ? WHERE id = ?")
+                // Only names this server introduced (not people from a third one).
+                sqlx::query("UPDATE users SET display_name = ? WHERE id = ? AND home = ?")
                     .bind(&display)
                     .bind(&p.id)
+                    .bind(&j.home_url)
                     .execute(&mut *tx)
                     .await?;
             }
@@ -1044,7 +1046,15 @@ async fn apply(state: &AppState, j: &Join, feed: &Feed) -> anyhow::Result<()> {
         }
     }
 
-    // The group, mirrored: same id, its members as the home server has them.
+    // The group, mirrored: same id, its members as the home server has them. (Never one
+    // of this server's own groups.)
+    let clash: Option<Option<String>> = sqlx::query_scalar("SELECT home FROM groups WHERE id = ?")
+        .bind(&feed.group_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+    if clash == Some(None) {
+        bail!("the shared group clashes with one of this server's");
+    }
     let before: HashSet<String> =
         sqlx::query_scalar("SELECT user_id FROM group_members WHERE group_id = ?")
             .bind(&feed.group_id)
@@ -1065,7 +1075,25 @@ async fn apply(state: &AppState, j: &Join, feed: &Feed) -> anyhow::Result<()> {
     .bind(&j.home_url)
     .execute(&mut *tx)
     .await?;
-    let members: Vec<&Person> = feed.people.iter().filter(|p| p.role.is_some()).collect();
+    // People of this server are in the mirror only if they joined (the home server can't
+    // put anyone else here in it).
+    let joined: HashSet<String> =
+        sqlx::query_scalar("SELECT user_id FROM fed_joins WHERE group_id = ?")
+            .bind(&feed.group_id)
+            .fetch_all(&mut *tx)
+            .await?
+            .into_iter()
+            .collect();
+    let local_ids: HashSet<String> = sqlx::query_scalar("SELECT id FROM users WHERE home IS NULL")
+        .fetch_all(&mut *tx)
+        .await?
+        .into_iter()
+        .collect();
+    let members: Vec<&Person> = feed
+        .people
+        .iter()
+        .filter(|p| p.role.is_some() && (!local_ids.contains(&p.id) || joined.contains(&p.id)))
+        .collect();
     let after: HashSet<String> = members.iter().map(|p| p.id.clone()).collect();
     sqlx::query("DELETE FROM group_members WHERE group_id = ?")
         .bind(&feed.group_id)
@@ -1087,14 +1115,9 @@ async fn apply(state: &AppState, j: &Join, feed: &Feed) -> anyhow::Result<()> {
         .execute(&mut *tx)
         .await?;
     }
-    let locals: HashSet<String> = sqlx::query_scalar("SELECT id FROM users WHERE home IS NULL")
-        .fetch_all(&mut *tx)
-        .await?
-        .into_iter()
-        .collect();
     for u in before
         .symmetric_difference(&after)
-        .filter(|u| locals.contains(*u))
+        .filter(|u| local_ids.contains(*u))
     {
         changes.push(Change::membership(u));
     }
@@ -1127,15 +1150,22 @@ async fn apply(state: &AppState, j: &Join, feed: &Feed) -> anyhow::Result<()> {
             ordered.append(&mut projects); // a cycle: let the database decide
         }
     }
+    let (root, group) = (j.root_project_id.as_str(), feed.group_id.as_str());
     for p in ordered {
         let mut p = p.clone();
         p.default_place_id = None;
-        if let Some(parent) = &p.parent_id
-            && !row_exists(&mut tx, "projects", parent).await?
-        {
+        if p.id == root {
             p.parent_id = None;
+        } else {
+            // Anything else hangs under a project of this copy.
+            let parent = p.parent_id.clone().filter(|parent| *parent != p.id);
+            if !held(&mut tx, root, parent.as_deref().unwrap_or_default()).await? {
+                continue;
+            }
         }
-        if !owner_ok(&mut tx, &p.owner_user_id, &p.owner_group_id).await? {
+        if !ours(&p.owner_user_id, &p.owner_group_id, group)
+            || !may_write(&mut tx, "projects", &p.id, root, group).await?
+        {
             continue;
         }
         p.rev = next_rev(&mut tx).await?;
@@ -1156,11 +1186,9 @@ async fn apply(state: &AppState, j: &Join, feed: &Feed) -> anyhow::Result<()> {
         if !row_exists(&mut tx, "task_types", &s.task_type_id).await? {
             s.task_type_id = crate::routes::tasks::DEFAULT_TASK_TYPE.into();
         }
-        if !owner_ok(&mut tx, &s.owner_user_id, &s.owner_group_id).await? {
-            continue;
-        }
-        if let Some(p) = &s.project_id
-            && !row_exists(&mut tx, "projects", p).await?
+        if !ours(&s.owner_user_id, &s.owner_group_id, group)
+            || !held(&mut tx, root, s.project_id.as_deref().unwrap_or_default()).await?
+            || !may_write(&mut tx, "series", &s.id, root, group).await?
         {
             continue;
         }
@@ -1192,11 +1220,9 @@ async fn apply(state: &AppState, j: &Join, feed: &Feed) -> anyhow::Result<()> {
                 *who = None;
             }
         }
-        if !owner_ok(&mut tx, &t.owner_user_id, &t.owner_group_id).await? {
-            continue;
-        }
-        if let Some(p) = &t.project_id
-            && !row_exists(&mut tx, "projects", p).await?
+        if !ours(&t.owner_user_id, &t.owner_group_id, group)
+            || !held(&mut tx, root, t.project_id.as_deref().unwrap_or_default()).await?
+            || !may_write(&mut tx, "tasks", &t.id, root, group).await?
         {
             continue;
         }
@@ -1240,16 +1266,43 @@ async fn row_exists(conn: &mut SqliteConnection, table: &str, id: &str) -> sqlx:
     .await
 }
 
-/// The owner a replicated row names must exist here (the mirrored group, or a person).
-async fn owner_ok(
+/// Replicated rows belong to the mirrored group, never to a person here.
+fn ours(user: &Option<String>, group: &Option<String>, mirrored: &str) -> bool {
+    user.is_none() && group.as_deref() == Some(mirrored)
+}
+
+/// The item is part of this shared project's copy here (held by a join of it).
+async fn held(conn: &mut SqliteConnection, root: &str, id: &str) -> sqlx::Result<bool> {
+    sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM fed_items f JOIN fed_joins j ON j.id = f.join_id WHERE f.item_id = ? AND j.root_project_id = ?)",
+    )
+    .bind(id)
+    .bind(root)
+    .fetch_one(conn)
+    .await
+}
+
+/// A feed may only write rows that are new here, already part of this copy, or left over
+/// from an earlier copy of the same project (deleted, owned by the mirrored group): never
+/// anything of this server's own.
+async fn may_write(
     conn: &mut SqliteConnection,
-    user: &Option<String>,
-    group: &Option<String>,
+    table: &str,
+    id: &str,
+    root: &str,
+    group: &str,
 ) -> sqlx::Result<bool> {
-    Ok(match (user, group) {
-        (Some(u), _) => row_exists(conn, "users", u).await?,
-        (None, Some(_)) => true,
-        _ => false,
+    let existing: Option<(Option<String>, Option<String>)> = sqlx::query_as(&format!(
+        "SELECT owner_group_id, deleted_at FROM {table} WHERE id = ?"
+    ))
+    .bind(id)
+    .fetch_optional(&mut *conn)
+    .await?;
+    Ok(match existing {
+        None => true,
+        Some((g, deleted)) => {
+            held(conn, root, id).await? || (deleted.is_some() && g.as_deref() == Some(group))
+        }
     })
 }
 
@@ -1288,12 +1341,18 @@ async fn release(
     kind: &str,
     id: &str,
 ) -> anyhow::Result<Vec<Change>> {
-    sqlx::query("DELETE FROM fed_items WHERE join_id = ? AND kind = ? AND item_id = ?")
-        .bind(join)
-        .bind(kind)
-        .bind(id)
-        .execute(&mut *conn)
-        .await?;
+    let released =
+        sqlx::query("DELETE FROM fed_items WHERE join_id = ? AND kind = ? AND item_id = ?")
+            .bind(join)
+            .bind(kind)
+            .bind(id)
+            .execute(&mut *conn)
+            .await?
+            .rows_affected();
+    // Only what this join held (a feed can't name this server's own things).
+    if released == 0 {
+        return Ok(vec![]);
+    }
     let held: bool =
         sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM fed_items WHERE kind = ? AND item_id = ?)")
             .bind(kind)

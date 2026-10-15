@@ -29,12 +29,17 @@
   import Login from './views/Login.svelte'
   import { toast } from './lib/toast.svelte'
 
-  let phase = $state<'loading' | 'login' | 'setup' | 'app' | 'error' | 'reconcile'>('loading')
+  let phase = $state<'loading' | 'login' | 'setup' | 'app' | 'error' | 'reconcile' | 'join'>('loading')
 
   async function boot() {
     // A printed sheet's QR link opens without signing in (7.3, D-14).
     if (match(location.pathname).name === 'reconcile') {
       phase = 'reconcile'
+      return
+    }
+    // An invite to share a project with another server explains itself (Phase 8).
+    if (match(location.pathname).name === 'join') {
+      phase = 'join'
       return
     }
     phase = 'loading'
@@ -244,6 +249,8 @@
 
 {#if phase === 'reconcile'}
   {#await import('./views/Reconcile.svelte') then m}<m.default token={(route as { token: string }).token} />{/await}
+{:else if phase === 'join'}
+  {#await import('./views/Join.svelte') then m}<m.default />{/await}
 {:else if phase === 'loading'}
   <div class="splash" aria-busy="true"></div>
 {:else if phase === 'error'}

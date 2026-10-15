@@ -33,6 +33,7 @@ import type { Place } from './api/types/Place'
 import type { Project } from './api/types/Project'
 import type { Series } from './api/types/Series'
 import type { Group } from './api/types/Group'
+import type { JoinView } from './api/types/JoinView'
 import type { UserSummary } from './api/types/UserSummary'
 import type { WorkflowTemplate } from './api/types/WorkflowTemplate'
 import type { TaskTemplate } from './api/types/TaskTemplate'
@@ -193,6 +194,8 @@ class Store {
   /** Calendar events (by calendar + UID) assigned to projects. */
   eventProjects = new SvelteMap<string, EventProject>()
   calendarAccount = $state<CalendarAccountView | null>(null)
+  /** Projects joined on other servers (Phase 8), by join id. */
+  remoteProjects = new SvelteMap<string, JoinView>()
   people = new SvelteMap<string, Person>()
   dayTemplates = new SvelteMap<string, DayTemplate>()
   dayRecords = new SvelteMap<string, DayRecord>()
@@ -262,6 +265,7 @@ class Store {
     this.events.clear()
     this.eventProjects.clear()
     this.calendarAccount = null
+    this.remoteProjects.clear()
     this.people.clear()
     this.dayTemplates.clear()
     this.timeBlocks.clear()
@@ -350,6 +354,8 @@ class Store {
     this.occasionTemplates.clear()
     for (const x of r.occasion_templates) this.occasionTemplates.set(x.kind, x)
     this.calendarAccount = r.calendar_account
+    this.remoteProjects.clear()
+    for (const j of r.remote_projects) this.remoteProjects.set(j.id, j)
     // Groups always come complete.
     this.groups.clear()
     for (const g of r.groups) this.groups.set(g.id, g)
@@ -411,6 +417,11 @@ class Store {
         if (g.deleted_at || !g.members.some((m) => m.user_id === this.me?.id) && !this.me?.is_admin) this.groups.delete(g.id)
         else this.groups.set(g.id, g)
       } else if (c.kind === 'calendar_account') this.calendarAccount = c.data as CalendarAccountView | null
+      else if (c.kind === 'remote_project') {
+        const j = c.data as JoinView & { deleted?: boolean }
+        if (j.deleted) this.remoteProjects.delete(j.id)
+        else this.remoteProjects.set(j.id, j)
+      }
       else if (c.kind === 'namedays') {
         if (this.namedays) this.loadNamedays(true).catch(() => {})
       } else if (c.kind === 'occasion_template') {
@@ -1381,10 +1392,21 @@ class Store {
   // ---- groups ----------------------------------------------------------------
 
   /** Groups I'm a member of (admins also see others in `groups`, for managing them). */
+  /** Groups of this server I'm in (not ones mirrored from another server: those can't own things here). */
   myGroups(): Group[] {
     return [...this.groups.values()]
-      .filter((g) => g.members.some((m) => m.user_id === this.me?.id))
+      .filter((g) => !g.home && g.members.some((m) => m.user_id === this.me?.id))
       .sort((a, b) => a.name.localeCompare(b.name))
+  }
+
+  /** If the project (or the project it's in) was joined from another server: that join. */
+  remoteFor(projectId: string | null | undefined): JoinView | null {
+    let p = projectId ? this.projects.get(projectId) : undefined
+    for (let i = 0; p && i < 50; i++) {
+      for (const j of this.remoteProjects.values()) if (j.root_project_id === p.id) return j
+      p = p.parent_id ? this.projects.get(p.parent_id) : undefined
+    }
+    return null
   }
 
   groupName(id: string | null | undefined): string {

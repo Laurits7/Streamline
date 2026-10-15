@@ -1,6 +1,7 @@
 <script lang="ts">
   import DefaultTasks from '../lib/components/DefaultTasks.svelte'
   import ForgeAccounts from '../lib/components/ForgeAccounts.svelte'
+  import RemoteProjects from '../lib/components/RemoteProjects.svelte'
   import { api, ApiError } from '../lib/api/client'
   import type { ApiToken } from '../lib/api/types/ApiToken'
   import type { Backup } from '../lib/api/types/Backup'
@@ -738,6 +739,8 @@
 </section>
 
 <ForgeAccounts />
+
+<RemoteProjects />
 
 <section class="card">
   <h2>Focus timer</h2>

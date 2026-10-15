@@ -212,6 +212,24 @@ With the prebuilt image: `docker compose pull && docker compose up -d`. Pin a ve
 schedule. Database migrations run automatically on startup; going back to an older version after a
 migration means restoring the backup.
 
+### Sharing a project with someone on another Streamline server
+
+People don't need an account on your server to work on a project with you: if they run their own
+Streamline, share the project from yours. Share a top-level project with a group you own, then
+open the project's menu → **People on other servers** → **Make an invite link**, and send the
+link to that one person. They paste it in their Streamline under **Settings → Projects from
+other servers**. Their server keeps a copy of the project (subprojects, tasks, routines) and
+sends their changes to yours, which checks them as it would for anyone in the group. Day plans,
+journals, tracking and calendars stay on each person's own server.
+
+- Your server must be reachable from theirs (over HTTPS when it's on the internet; see above).
+  Theirs never needs to be reachable: it only connects out to yours.
+- While your server is down, their copy is read-only and says so.
+- Invite links work once, for 7 days. Removing someone (same menu) or taking the project out
+  of the group ends their copy. They can leave from their Settings.
+- To try it on one machine: `docker compose -f docker/docker-compose.two-servers.yml up --build`
+  starts two servers at http://localhost:3001 and http://localhost:3002.
+
 ### Raspberry Pi (arm64)
 
 Two options:
@@ -255,6 +273,9 @@ always-on-top are reliable on X11 and may be ignored by Wayland compositors.
 - Streamline makes outbound requests only to addresses you give it (calendar, ntfy) and to push
   services. Local network addresses are allowed (for a home calendar server); cloud-metadata and
   link-local addresses are refused.
+- Projects shared with another server: the invite link is the credential (single use, 7 days);
+  the other server then holds a per-link key that only reaches that project, and can be cut off
+  at any time. The name and server shown for someone who joined are what their server says.
 - Journal, tracking, day plans and calendar events are visible only to their owner, even inside a
   shared group. A shared item can be taken private or deleted by any member of its group.
 - Keep `data/` private: it holds the database, backups and keys. Use HTTPS when it's reachable

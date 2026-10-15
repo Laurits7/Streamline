@@ -35,6 +35,10 @@
   off) arrive as tasks with a link, in the project a repository rule names or the inbox, and
   complete themselves once closed, merged or no longer yours; removing the account removes
   its open tasks. Read-only (D-97, D-99).
+- Share projects with people on other Streamline servers: an invite link (single use, 7 days)
+  lets someone with their own Streamline join a project shared with your group. Their server
+  keeps a copy and sends their changes to yours, which checks them; while yours is down, their
+  copy is read-only. Join and leave in Settings → Projects from other servers (D-69, D-100).
 
 ## 1.3.0 (2026-10-14)
 

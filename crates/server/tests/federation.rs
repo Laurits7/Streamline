@@ -1,5 +1,6 @@
 //! Sharing projects between two Streamline servers (Phase 8): both run in this process,
 //! the home server on a real port (the replica calls it over HTTP).
+#![recursion_limit = "256"]
 
 use std::net::SocketAddr;
 
@@ -715,4 +716,151 @@ async fn live_stream_brings_home_edits_over() {
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     }
     panic!("the new task didn't reach the replica");
+}
+
+/// A fake home server that answers a join, then sends a feed aimed at this server's own
+/// data: a task with the id of someone's local task, a "gone" list naming local items,
+/// a group member who never joined, and a task in a local project.
+async fn hostile_home(
+    local_task: String,
+    local_project: String,
+    bystander: String,
+    joiner: std::sync::Arc<std::sync::Mutex<String>>,
+) -> String {
+    use axum::routing::{get, post};
+    let root = ulid::Ulid::new().to_string();
+    let group = ulid::Ulid::new().to_string();
+    let link = ulid::Ulid::new().to_string();
+    let (r2, g2) = (root.clone(), group.clone());
+    let j2 = joiner.clone();
+    let app = Router::new()
+        .route(
+            "/api/v1/federation/join",
+            post(move |axum::Json(v): axum::Json<Value>| {
+                let (root, group, link) = (root.clone(), group.clone(), link.clone());
+                *j2.lock().unwrap() = v["user"]["id"].as_str().unwrap().to_string();
+                async move {
+                    axum::Json(json!({"link_id": link, "secret": "sls_x", "root_project_id": root, "group_id": group, "name": "Trap"}))
+                }
+            }),
+        )
+        .route(
+            "/api/v1/federation/links/{id}/feed",
+            get(move || {
+                let (root, group) = (r2.clone(), g2.clone());
+                let (local_task, local_project, bystander) = (local_task.clone(), local_project.clone(), bystander.clone());
+                let joiner = joiner.lock().unwrap().clone();
+                async move {
+                    let task = |id: &str, project: &str, title: &str| json!({
+                        "id": id, "owner_user_id": null, "owner_group_id": group, "assignee_user_id": null,
+                        "project_id": project, "title": title, "notes": "", "status": "open", "position": "a0",
+                        "due_date": null, "estimate_min": null, "difficulty": null, "importance": null, "urgency": null,
+                        "actual_min": 0, "task_type_id": "tt_carry_on", "carry_count": 0, "started_at": null,
+                        "completed_at": null, "completed_by": null, "ext_source": null, "ext_id": null, "ext_url": null,
+                        "place_id": null, "event_id": null, "also_project_ids": [], "depends_on": [], "blocked": false,
+                        "wait_min": null, "ready_at": null, "workflow_instance_id": null, "workflow_step": null,
+                        "workflow_steps": null, "series_id": null, "occurrence_key": null, "occurrence_date": null,
+                        "window_end": null, "waiting_since": null, "check_back_at": null, "waiting_note": "",
+                        "waiting_by": null, "checklist": [], "created_at": "2026-10-01T00:00:00.000Z",
+                        "updated_at": "2026-10-01T00:00:00.000Z", "deleted_at": null, "rev": 5
+                    });
+                    axum::Json(json!({
+                        "rev": 10, "more": false, "root_project_id": root, "group_id": group, "group_name": "Trap",
+                        "people": [
+                            {"id": joiner, "username": "anna", "display_name": "Anna", "home": "http://r.test", "role": "member"},
+                            {"id": bystander, "username": "carl", "display_name": "Carl", "home": "http://r.test", "role": "member"}
+                        ],
+                        "projects": [{
+                            "id": root, "owner_user_id": null, "owner_group_id": group, "parent_id": null, "name": "Trap",
+                            "color": null, "shape": "circle", "position": "a0", "archived_at": null, "default_place_id": null,
+                            "description": "", "status": "active", "created_at": "2026-10-01T00:00:00.000Z",
+                            "updated_at": "2026-10-01T00:00:00.000Z", "deleted_at": null, "rev": 3
+                        }],
+                        "series": [],
+                        "tasks": [
+                            task(&local_task, &root, "Overwritten!"),
+                            task(&ulid::Ulid::new().to_string(), &local_project, "Planted in your project")
+                        ],
+                        "gone": [["task", local_task], ["project", local_project]]
+                    }))
+                }
+            }),
+        );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    format!("http://{addr}")
+}
+
+#[tokio::test]
+async fn a_hostile_home_server_cant_touch_local_data() {
+    let r = setup().await;
+    let r_admin = r.admin().await;
+    let (anna, _) = r.user(&r_admin, "anna").await;
+    let (carl, carl_id) = r.user(&r_admin, "carl").await;
+    let (_, p) = r
+        .req(
+            "POST",
+            "/api/v1/projects",
+            Some(&carl),
+            Some(json!({"name": "Carl's"})),
+        )
+        .await;
+    let carls_project = p["id"].as_str().unwrap().to_string();
+    let (_, t) = r
+        .req(
+            "POST",
+            "/api/v1/tasks",
+            Some(&carl),
+            Some(json!({"title": "Carl's task", "project_id": carls_project})),
+        )
+        .await;
+    let carls_task = t["id"].as_str().unwrap().to_string();
+
+    let joiner = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+    let home = hostile_home(
+        carls_task.clone(),
+        carls_project.clone(),
+        carl_id.clone(),
+        joiner,
+    )
+    .await;
+    let (s, j) = r
+        .req(
+            "POST",
+            "/api/v1/federation/joins",
+            Some(&anna),
+            Some(json!({"invite": format!("{home}/join/abc"), "origin": "http://r.test"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{j}");
+
+    let v = r.sync(&carl).await;
+    let task = live(&v["tasks"], &carls_task).expect("Carl's task is still there");
+    assert_eq!(task["title"], "Carl's task");
+    assert!(live(&v["projects"], &carls_project).is_some());
+    assert!(
+        !v["tasks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|t| t["title"] == "Planted in your project")
+    );
+    // Carl never joined, so he isn't put in the mirrored group and sees nothing of it.
+    assert!(
+        !v["projects"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|p| p["name"] == "Trap")
+    );
+    let v = r.sync(&anna).await;
+    assert!(
+        v["projects"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|p| p["name"] == "Trap")
+    );
+    assert!(find(&v["tasks"], &carls_task).is_none());
 }

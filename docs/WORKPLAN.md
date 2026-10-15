@@ -530,11 +530,11 @@ Legend: **Deliverables** = what exists afterwards · **Tests** = what must be co
 *v1.4 (D-93) takes 7.1, 7.2, 7.3, 7.6 and 7.7; 7.4 (thermal printing) is dropped and 7.5 stays
 postponed.*
 
-- [ ] **7.1 Integration framework + Mealie shopping list** *(needs Q-10)*: `IntegrationProvider`
+- [ ] **7.1 Integration framework + Mealie shopping list** *(parked, D-101)*: `IntegrationProvider`
       trait, encrypted settings, polling job, last-known state + warning on failure; develop against Mealie v3.25.0 (the
       owner's version, D-96) in a local container with its OpenAPI. One open "Go shopping" task per list (deduplicated via
       `ext_source/ext_id`), auto-complete when the list is empty, optional minimum item count.
-- [ ] **7.2 Mealie meal plan**: one task per meal entry with a recipe link, ingredients and
+- [ ] **7.2 Mealie meal plan** *(parked, D-101)*: one task per meal entry with a recipe link, ingredients and
       steps shown in the focus view, prep+cook time as the estimate, type `expires`; generic
       "prepare lunch" tasks resolve against the meal plan.
 - [x] **7.3 Print, A4**: print-CSS day sheet with stable item codes and a QR code to the
@@ -610,25 +610,25 @@ ideas: projects that aren't started yet, kept with a description.
 
 ---
 
-### Phase 8: Sync between Streamline servers (v1.4, D-69, D-93)
+### Phase 8: Sync between Streamline servers (v1.4, D-69, D-93; as built: D-100)
 
 Shared projects across instances: each collaborator keeps their own server. Home-server model:
 the sharer's server is authoritative; members' servers hold a replica and forward writes.
 
-- [ ] **8.1 Federated identities**: remote members (`name@host`) as login-less user rows; group
+- [x] **8.1 Federated identities**: remote members (`name@host`) as login-less user rows; group
       membership for remote members; how they're shown (name, server).
-- [ ] **8.2 Invites and handshake**: per-project invite link (expiring, single use); the
+- [x] **8.2 Invites and handshake**: per-project invite link (expiring, single use); the
       collaborator's server redeems it over HTTPS and gets a per-link secret (revocable);
       server identity check; outbound calls through `net.rs`.
-- [ ] **8.3 Replication feed**: project-scoped change feed and live stream for a link (project,
+- [x] **8.3 Replication feed**: project-scoped change feed and live stream for a link (project,
       subprojects, tasks, routines); the replica server applies changes as read-only mirrors;
       routines, rollover of shared items and occurrences run only on the home server.
-- [ ] **8.4 Forwarded writes**: edits to replicated items go to the home server as the remote
+- [x] **8.4 Forwarded writes**: edits to replicated items go to the home server as the remote
       member (same permission checks as local members); the result comes back via the feed.
       Home unreachable → read-only with a banner (D-69).
-- [ ] **8.5 UI**: invite/join flow, remote members in groups, server status per shared project,
+- [x] **8.5 UI**: invite/join flow, remote members in groups, server status per shared project,
       leaving/removing (replica deleted).
-- [ ] **8.6 Tests and security review**: two servers in one test process (join, edit both ways,
+- [x] **8.6 Tests and security review**: two servers in one test process (join, edit both ways,
       remove, revoke, home down, hostile peer input); compose file with two instances; review
       of the new server-to-server surface.
 
