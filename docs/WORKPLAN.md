@@ -544,7 +544,7 @@ postponed.*
       complete the printed items (`source=print`).
 - [ ] **7.5 Child profiles** *(needs Q-15, only if needed)*: restricted role, simplified UI,
       optional parent confirmation.
-- [ ] **7.6 GitHub, GitLab and others** (D-97): connect accounts with access tokens (GitHub,
+- [x] **7.6 GitHub, GitLab and others** (D-97, D-99): connect accounts with access tokens (GitHub,
       GitLab.com or self-hosted, Gitea/Forgejo; encrypted like the calendar password); a
       polling job brings in what's yours (assigned issues, assigned PRs/MRs, review requests,
       mentions; each kind on/off per account) as tasks with a link, deduplicated by source and

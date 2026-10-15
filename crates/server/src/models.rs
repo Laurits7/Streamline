@@ -871,6 +871,100 @@ impl From<&CalendarAccount> for CalendarAccountView {
     }
 }
 
+/// A connected GitHub, GitLab or Gitea/Forgejo account (7.6, D-97). The token is stored
+/// encrypted and never leaves the server.
+#[derive(Debug, Clone, FromRow)]
+pub struct ForgeAccount {
+    pub id: String,
+    pub user_id: String,
+    pub kind: String,
+    pub url: String,
+    pub login: String,
+    pub secret: Option<Vec<u8>>,
+    pub issues: bool,
+    pub prs: bool,
+    pub reviews: bool,
+    pub mentions: bool,
+    pub rules: sqlx::types::Json<Vec<streamline_domain::forge::Rule>>,
+    pub status: String,
+    pub last_sync_at: Option<String>,
+    pub last_error: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+impl ForgeAccount {
+    /// What to bring in, as `domain::forge` flags.
+    pub fn kinds(&self) -> u8 {
+        use streamline_domain::forge::{ISSUE, MENTION, PR, REVIEW};
+        [
+            (self.issues, ISSUE),
+            (self.prs, PR),
+            (self.reviews, REVIEW),
+            (self.mentions, MENTION),
+        ]
+        .into_iter()
+        .filter(|(on, _)| *on)
+        .fold(0, |acc, (_, k)| acc | k)
+    }
+}
+
+/// A repository rule: tasks from matching repositories go to the project.
+#[derive(Debug, Clone, Serialize, serde::Deserialize, TS, utoipa::ToSchema)]
+#[ts(export)]
+pub struct ForgeRule {
+    /// `owner/repo`; `*` matches any text (`owner/*`).
+    pub repo: String,
+    pub project_id: String,
+}
+
+/// What the API shows of a forge account.
+#[derive(Debug, Clone, Serialize, TS, utoipa::ToSchema)]
+#[ts(export)]
+pub struct ForgeAccountView {
+    pub id: String,
+    /// `github`, `gitlab` or `gitea` (Forgejo too).
+    pub kind: String,
+    pub url: String,
+    /// The account the token belongs to.
+    pub login: String,
+    pub issues: bool,
+    pub prs: bool,
+    pub reviews: bool,
+    pub mentions: bool,
+    pub rules: Vec<ForgeRule>,
+    /// `new` (not synced yet), `ok` or `error`.
+    pub status: String,
+    pub last_sync_at: Option<String>,
+    pub last_error: Option<String>,
+}
+
+impl From<&ForgeAccount> for ForgeAccountView {
+    fn from(a: &ForgeAccount) -> Self {
+        Self {
+            id: a.id.clone(),
+            kind: a.kind.clone(),
+            url: a.url.clone(),
+            login: a.login.clone(),
+            issues: a.issues,
+            prs: a.prs,
+            reviews: a.reviews,
+            mentions: a.mentions,
+            rules: a
+                .rules
+                .iter()
+                .map(|r| ForgeRule {
+                    repo: r.repo.clone(),
+                    project_id: r.project_id.clone(),
+                })
+                .collect(),
+            status: a.status.clone(),
+            last_sync_at: a.last_sync_at.clone(),
+            last_error: a.last_error.clone(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, FromRow, TS, utoipa::ToSchema)]
 #[ts(export)]
 pub struct Calendar {

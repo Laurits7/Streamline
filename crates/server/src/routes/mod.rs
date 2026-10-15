@@ -4,6 +4,7 @@ mod blocks;
 mod calendar;
 mod days;
 pub mod focus;
+mod forges;
 mod goals;
 pub mod groups;
 mod log;
@@ -50,6 +51,7 @@ use crate::AppState;
         places::list, places::create, places::patch, places::delete,
         series::list, series::all_stats, series::create, series::patch, series::delete,
         calendar::get_account, calendar::put_account, calendar::patch_account, calendar::delete_account, calendar::test, calendar::sync_now, calendar::patch_calendar, calendar::put_event_project,
+        forges::list, forges::test, forges::create, forges::patch, forges::sync_now, forges::delete,
         occasions::calendar, occasions::search, occasions::load, occasions::create_person, occasions::patch_person, occasions::delete_person, occasions::put_template,
         blocks::create_template, blocks::patch_template, blocks::delete_template, blocks::apply_template, blocks::create_block, blocks::patch_block, blocks::delete_block, blocks::suggest,
         tracking::put_record, tracking::put_health, tracking::delete_health, tracking::summary, tracking::glance, tracking::create_metric, tracking::patch_metric, tracking::delete_metric, tracking::create_entry, tracking::patch_entry, tracking::delete_entry, tracking::metric_csv, tracking::import_csv, tracking::export,
@@ -75,6 +77,7 @@ use crate::AppState;
         (name = "workflows", description = "Multi-step workflow templates"),
         (name = "groups", description = "Groups and shared ownership"),
         (name = "calendar", description = "Calendar account (CalDAV) and calendars"),
+        (name = "forges", description = "Tasks from GitHub, GitLab and Gitea/Forgejo"),
         (name = "occasions", description = "Nameday calendar, people, birthdays and namedays"),
         (name = "tracking", description = "Reflection, metrics, day summary and export (personal)"),
         (name = "goals", description = "Long-term goals, milestones and reviews"),
@@ -194,6 +197,10 @@ pub fn router(state: AppState) -> Router {
         .route("/calendar/test", post(calendar::test))
         .route("/calendar/sync", post(calendar::sync_now))
         .route("/calendars/{id}", patch(calendar::patch_calendar))
+        .route("/forges", get(forges::list).post(forges::create))
+        .route("/forges/test", post(forges::test))
+        .route("/forges/{id}", patch(forges::patch).delete(forges::delete))
+        .route("/forges/{id}/sync", post(forges::sync_now))
         .route(
             "/calendar/event-projects",
             axum::routing::put(calendar::put_event_project),

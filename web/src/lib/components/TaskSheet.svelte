@@ -422,6 +422,14 @@
       <p class="muted help">{behaviorHelp[store.taskType(task.task_type_id)?.day_end_behavior ?? 'carry']}</p>
     </section>
 
+    {#if task.ext_url && /^https?:\/\//.test(task.ext_url)}
+      <section>
+        <h3>Comes from</h3>
+        <a class="link" href={task.ext_url} target="_blank" rel="noopener noreferrer">Open on {new URL(task.ext_url).host} ↗</a>
+        {#if task.ext_source === 'forge'}<p class="muted help">Completed here by itself once it's closed, merged or no longer yours there.</p>{/if}
+      </section>
+    {/if}
+
     <section>
       <h3>Notes</h3>
       <textarea bind:value={notes} onblur={saveNotes} rows="5" placeholder="Details, links…"></textarea>

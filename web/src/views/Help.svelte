@@ -25,6 +25,7 @@
     ['groups', 'Sharing with your household'],
     ['places', 'Places'],
     ['calendar', 'Your calendar and the agenda'],
+    ['forges', 'Tasks from GitHub, GitLab and others'],
     ['occasions', 'Namedays and birthdays'],
     ['tracking', 'Summary, journal and tracking'],
     ['goals', 'Long-term goals'],
@@ -436,6 +437,22 @@
       plan within a minute (moved, rescheduled or removed), from yesterday to two weeks ahead; titles can be hidden
       (“Busy”). A separate calendar, say “Streamline”, keeps them apart; turning it off removes them again.
     </p>
+  </section>
+
+  <section id="forges">
+    <h2><Icon name="inbox" size={18} /> Tasks from GitHub, GitLab and others</h2>
+    <p>
+      In <a href="/settings#forges">Settings → GitHub, GitLab and others</a>, connect an account on GitHub, GitLab
+      (gitlab.com or your own) or Gitea/Forgejo (Codeberg too) with an access token made there; the settings say which
+      kind. Several accounts can be connected at once.
+    </p>
+    <ul>
+      <li>What's yours arrives as tasks: issues and pull/merge requests assigned to you, reviews requested from you, and where you're mentioned. Each can be switched off per account (mentions can be a lot).</li>
+      <li>Each issue or pull request becomes one task, with a link to open it there. Delete a task you don't want and it isn't brought back.</li>
+      <li><strong>Projects</strong>: rules like <code>acme/*</code> → <em>Work</em> put a repository's tasks into a project; the first matching rule decides, anything else goes to the inbox.</li>
+      <li>Streamline checks every 10 minutes (or press <em>Check now</em>). Once an issue is closed or merged, or is no longer assigned to you, its task is completed by itself.</li>
+      <li>Read-only: completing the task doesn't close anything there. The token is stored encrypted and never sent back to the browser; if it stops working, Settings shows the error and the tasks stay as they were.</li>
+    </ul>
   </section>
 
   <section id="tracking">

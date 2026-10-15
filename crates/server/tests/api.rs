@@ -6650,3 +6650,565 @@ async fn calendar_write_back() {
     streamline::writeback::run_all(&t.state).await.unwrap();
     assert!(written().is_empty());
 }
+
+// ----- Tasks from GitHub, GitLab and Gitea (7.6): a mock forge with recorded answers -----
+
+/// What the mock forge currently shows. Answers follow the shapes the real APIs send
+/// (trimmed to the fields that matter plus a few neighbours).
+#[derive(Default)]
+struct ForgeMock {
+    /// GitHub: (repo, number, title, is_pr, reasons as `q` qualifiers it matches).
+    github: Vec<(&'static str, u64, &'static str, bool, Vec<&'static str>)>,
+    incomplete: bool,
+    requests: Vec<String>,
+}
+
+type ForgeState = std::sync::Arc<std::sync::Mutex<ForgeMock>>;
+
+async fn forge_handler(
+    axum::extract::State(f): axum::extract::State<ForgeState>,
+    uri: axum::http::Uri,
+    headers: axum::http::HeaderMap,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    let mut f = f.lock().unwrap();
+    let path = uri.path().to_string();
+    let query: std::collections::HashMap<String, String> =
+        reqwest::Url::parse(&format!("http://mock{uri}"))
+            .unwrap()
+            .query_pairs()
+            .into_owned()
+            .collect();
+    f.requests.push(uri.to_string());
+    let auth = |h: &str| {
+        headers
+            .get(h)
+            .and_then(|v| v.to_str().ok())
+            .map(String::from)
+    };
+    let json = |v: Value| Json(v).into_response();
+    use axum::Json;
+    match path.as_str() {
+        // ---- GitHub Enterprise layout (/api/v3) ----
+        p if p.starts_with("/api/v3/") => {
+            if auth("authorization").as_deref() != Some("Bearer ghp_test") {
+                return (StatusCode::UNAUTHORIZED, Json(json!({"message": "Bad credentials", "documentation_url": "https://docs.github.com/rest", "status": "401"}))).into_response();
+            }
+            match p {
+                "/api/v3/user" => {
+                    json(json!({"login": "anna", "id": 1, "type": "User", "site_admin": false}))
+                }
+                "/api/v3/search/issues" => {
+                    let q = query.get("q").cloned().unwrap_or_default();
+                    let is_issue = q.contains("is:issue");
+                    let is_pr = q.contains("is:pr");
+                    let reason = ["assignee:", "user-review-requested:", "mentions:"]
+                        .into_iter()
+                        .find(|r| q.contains(r))
+                        .unwrap();
+                    let items: Vec<Value> = f
+                        .github
+                        .iter()
+                        .filter(|(_, _, _, pr, reasons)| {
+                            (!is_issue || !pr) && (!is_pr || *pr) && reasons.contains(&reason)
+                        })
+                        .map(|(repo, n, title, pr, _)| {
+                            let mut v = json!({
+                                "url": format!("https://ghe.test/api/v3/repos/{repo}/issues/{n}"),
+                                "repository_url": format!("https://ghe.test/api/v3/repos/{repo}"),
+                                "html_url": format!("https://ghe.test/{repo}/{}/{n}", if *pr { "pull" } else { "issues" }),
+                                "number": n, "title": title, "state": "open", "locked": false,
+                                "user": {"login": "someone"}, "labels": [], "comments": 0,
+                                "created_at": "2026-10-01T10:00:00Z", "updated_at": "2026-10-10T10:00:00Z",
+                            });
+                            if *pr {
+                                v["pull_request"] = json!({"url": format!("https://ghe.test/api/v3/repos/{repo}/pulls/{n}"), "merged_at": null});
+                            }
+                            v
+                        })
+                        .collect();
+                    json(
+                        json!({"total_count": items.len(), "incomplete_results": f.incomplete, "items": items}),
+                    )
+                }
+                _ => StatusCode::NOT_FOUND.into_response(),
+            }
+        }
+        // ---- GitLab (/api/v4) ----
+        p if p.starts_with("/api/v4/") => {
+            if auth("private-token").as_deref() != Some("glpat-test") {
+                return (
+                    StatusCode::UNAUTHORIZED,
+                    Json(json!({"message": "401 Unauthorized"})),
+                )
+                    .into_response();
+            }
+            let issue = |iid: u64, full: &str, title: &str, mr: bool| {
+                let (proj, _) = full.rsplit_once(['#', '!']).unwrap();
+                json!({
+                    "id": 1000 + iid, "iid": iid, "project_id": 42, "title": title, "state": "opened",
+                    "web_url": format!("https://gitlab.test/{proj}/-/{}/{iid}", if mr { "merge_requests" } else { "issues" }),
+                    "references": {"short": full.trim_start_matches(proj), "relative": full.trim_start_matches(proj), "full": full},
+                    "author": {"username": "someone"}, "labels": [],
+                })
+            };
+            match (
+                p,
+                query.get("scope").map(String::as_str),
+                query.get("action").map(String::as_str),
+            ) {
+                ("/api/v4/user", _, _) => {
+                    json(json!({"id": 7, "username": "anna", "name": "Anna", "state": "active"}))
+                }
+                ("/api/v4/issues", Some("assigned_to_me"), _) => {
+                    json(json!([issue(4, "grp/sub/app#4", "Crash on start", false)]))
+                }
+                ("/api/v4/merge_requests", Some("assigned_to_me"), _) => json(json!([])),
+                ("/api/v4/merge_requests", Some("all"), _)
+                    if query.get("reviewer_username").map(String::as_str) == Some("anna") =>
+                {
+                    json(json!([issue(2, "grp/sub/app!2", "Faster build", true)]))
+                }
+                ("/api/v4/todos", _, Some("mentioned")) => json(json!([
+                    {"id": 1, "action_name": "mentioned", "target_type": "Issue", "state": "pending",
+                     "project": {"path_with_namespace": "grp/other"}, "target": issue(9, "grp/other#9", "Question for Anna", false)},
+                    {"id": 2, "action_name": "mentioned", "target_type": "Issue", "state": "pending",
+                     "project": {"path_with_namespace": "grp/other"}, "target": {"state": "closed", "iid": 8, "title": "Old", "references": {"full": "grp/other#8"}}},
+                    {"id": 3, "action_name": "mentioned", "target_type": "Commit", "state": "pending", "target": {"id": "abc"}},
+                ])),
+                ("/api/v4/todos", _, Some("directly_addressed")) => json(json!([])),
+                _ => StatusCode::NOT_FOUND.into_response(),
+            }
+        }
+        // ---- Gitea / Forgejo (/api/v1) ----
+        p if p.starts_with("/api/v1/") => {
+            if auth("authorization").as_deref() != Some("token gitea-test") {
+                return (
+                    StatusCode::UNAUTHORIZED,
+                    Json(json!({"message": "token is required"})),
+                )
+                    .into_response();
+            }
+            match p {
+                "/api/v1/user" => json(json!({"id": 3, "login": "anna", "full_name": "Anna"})),
+                "/api/v1/repos/issues/search" => {
+                    let assigned_issues = query.get("type").map(String::as_str) == Some("issues")
+                        && query.get("assigned").map(String::as_str) == Some("true");
+                    json(if assigned_issues {
+                        json!([{"id": 55, "number": 5, "title": "Write notes", "state": "open",
+                                "html_url": "https://codeberg.test/anna/notes/issues/5", "pull_request": null,
+                                "repository": {"id": 9, "name": "notes", "owner": "anna", "full_name": "anna/notes"}}])
+                    } else {
+                        json!([])
+                    })
+                }
+                _ => StatusCode::NOT_FOUND.into_response(),
+            }
+        }
+        _ => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+async fn mock_forge() -> (String, ForgeState) {
+    let f = ForgeState::default();
+    let app = Router::new().fallback(forge_handler).with_state(f.clone());
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    (format!("http://{addr}"), f)
+}
+
+async fn forge_tasks(t: &T, auth: &str) -> Vec<Value> {
+    let (_, v, _) = t.req("GET", "/api/v1/tasks", Some(auth), None).await;
+    v.as_array()
+        .unwrap()
+        .iter()
+        .filter(|t| t["ext_source"] == "forge")
+        .cloned()
+        .collect()
+}
+
+fn by_url<'a>(tasks: &'a [Value], url_end: &str) -> &'a Value {
+    tasks
+        .iter()
+        .find(|t| t["ext_url"].as_str().unwrap().ends_with(url_end))
+        .unwrap_or_else(|| panic!("no task for {url_end}"))
+}
+
+#[tokio::test]
+async fn github_items_become_tasks_and_complete_upstream() {
+    let t = setup().await;
+    let admin = t.admin().await;
+    let anna = t.user(&admin, "anna").await;
+    let bob = t.user(&admin, "bob").await;
+    let (url, f) = mock_forge().await;
+    {
+        let mut m = f.lock().unwrap();
+        m.github = vec![
+            (
+                "acme/web",
+                1,
+                "Fix the header",
+                false,
+                vec!["assignee:", "mentions:"],
+            ),
+            (
+                "acme/api",
+                7,
+                "Add rate limits",
+                true,
+                vec!["user-review-requested:"],
+            ),
+            (
+                "me/dotfiles",
+                3,
+                "Did you see this?",
+                false,
+                vec!["mentions:"],
+            ),
+        ];
+    }
+    let (_, project, _) = t
+        .req(
+            "POST",
+            "/api/v1/projects",
+            Some(&anna),
+            Some(json!({"name": "Work"})),
+        )
+        .await;
+    let work = project["id"].as_str().unwrap();
+
+    // A wrong token is reported, not saved.
+    let (s, v, _) = t
+        .req(
+            "POST",
+            "/api/v1/forges/test",
+            Some(&anna),
+            Some(json!({"kind": "github", "url": url, "token": "nope"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(v["ok"], false);
+    assert!(v["error"].as_str().unwrap().contains("refused"), "{v}");
+    let (s, _, _) = t
+        .req(
+            "POST",
+            "/api/v1/forges",
+            Some(&anna),
+            Some(json!({"kind": "github", "url": url, "token": "nope"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    let (_, v, _) = t
+        .req(
+            "POST",
+            "/api/v1/forges/test",
+            Some(&anna),
+            Some(json!({"kind": "github", "url": url, "token": "ghp_test"})),
+        )
+        .await;
+    assert_eq!(v["login"], "anna");
+
+    // Connect: everything that's anna's arrives in the inbox, once per item.
+    let (s, acc, _) = t
+        .req(
+            "POST",
+            "/api/v1/forges",
+            Some(&anna),
+            Some(json!({"kind": "github", "url": format!("{url}/"), "token": "ghp_test"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{acc}");
+    assert_eq!(acc["status"], "ok", "{acc}");
+    assert_eq!(acc["login"], "anna");
+    assert_eq!(acc["url"], url.as_str());
+    assert!(acc.get("token").is_none() && acc.get("secret").is_none());
+    let id = acc["id"].as_str().unwrap().to_string();
+    let tasks = forge_tasks(&t, &anna).await;
+    assert_eq!(tasks.len(), 3);
+    let header = by_url(&tasks, "/acme/web/issues/1");
+    assert_eq!(header["title"], "Fix the header");
+    assert_eq!(header["project_id"], Value::Null);
+    assert!(
+        header["notes"]
+            .as_str()
+            .unwrap()
+            .contains("acme/web#1 on GitHub: assigned issue, you were mentioned")
+    );
+    assert_eq!(
+        by_url(&tasks, "/acme/api/pull/7")["title"],
+        "Review: Add rate limits"
+    );
+    // Only anna's: other people see nothing of it.
+    assert!(forge_tasks(&t, &bob).await.is_empty());
+    let (s, _, _) = t
+        .req(
+            "POST",
+            &format!("/api/v1/forges/{id}/sync"),
+            Some(&bob),
+            None,
+        )
+        .await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+
+    // Polling again changes nothing.
+    t.req(
+        "POST",
+        &format!("/api/v1/forges/{id}/sync"),
+        Some(&anna),
+        None,
+    )
+    .await;
+    assert_eq!(forge_tasks(&t, &anna).await.len(), 3);
+
+    // Repository rules: new acme items go to the project.
+    let (s, v, _) = t
+        .req(
+            "PATCH",
+            &format!("/api/v1/forges/{id}"),
+            Some(&anna),
+            Some(json!({"rules": [{"repo": "acme/*", "project_id": work}]})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    let (s, _, _) = t
+        .req(
+            "PATCH",
+            &format!("/api/v1/forges/{id}"),
+            Some(&anna),
+            Some(json!({"rules": [{"repo": "x/*", "project_id": "nope"}]})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    f.lock()
+        .unwrap()
+        .github
+        .push(("acme/web", 2, "Footer too", false, vec!["assignee:"]));
+    t.req(
+        "POST",
+        &format!("/api/v1/forges/{id}/sync"),
+        Some(&anna),
+        None,
+    )
+    .await;
+    let tasks = forge_tasks(&t, &anna).await;
+    assert_eq!(by_url(&tasks, "/acme/web/issues/2")["project_id"], work);
+
+    // Closed upstream (gone from every list): the task is done. A cut-off answer
+    // completes nothing.
+    f.lock().unwrap().github.retain(|i| i.1 != 1);
+    f.lock().unwrap().incomplete = true;
+    t.req(
+        "POST",
+        &format!("/api/v1/forges/{id}/sync"),
+        Some(&anna),
+        None,
+    )
+    .await;
+    assert_eq!(
+        by_url(&forge_tasks(&t, &anna).await, "/acme/web/issues/1")["status"],
+        "open"
+    );
+    f.lock().unwrap().incomplete = false;
+    t.req(
+        "POST",
+        &format!("/api/v1/forges/{id}/sync"),
+        Some(&anna),
+        None,
+    )
+    .await;
+    let tasks = forge_tasks(&t, &anna).await;
+    assert_eq!(by_url(&tasks, "/acme/web/issues/1")["status"], "done");
+    assert_eq!(by_url(&tasks, "/acme/api/pull/7")["status"], "open");
+
+    // Mentions switched off: the mention-only task isn't "done", it just stays.
+    let (_, v, _) = t
+        .req(
+            "PATCH",
+            &format!("/api/v1/forges/{id}"),
+            Some(&anna),
+            Some(json!({"mentions": false})),
+        )
+        .await;
+    assert_eq!(v["mentions"], false);
+    t.req(
+        "POST",
+        &format!("/api/v1/forges/{id}/sync"),
+        Some(&anna),
+        None,
+    )
+    .await;
+    assert!(
+        !f.lock()
+            .unwrap()
+            .requests
+            .last()
+            .unwrap()
+            .contains("mentions")
+    );
+    assert_eq!(
+        by_url(&forge_tasks(&t, &anna).await, "/me/dotfiles/issues/3")["status"],
+        "open"
+    );
+
+    // A deleted task isn't brought back.
+    let review = by_url(&forge_tasks(&t, &anna).await, "/acme/api/pull/7")["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let (s, _, _) = t
+        .req(
+            "DELETE",
+            &format!("/api/v1/tasks/{review}"),
+            Some(&anna),
+            None,
+        )
+        .await;
+    assert!(s.is_success());
+    t.req(
+        "POST",
+        &format!("/api/v1/forges/{id}/sync"),
+        Some(&anna),
+        None,
+    )
+    .await;
+    assert!(
+        forge_tasks(&t, &anna)
+            .await
+            .iter()
+            .all(|t| !t["ext_url"].as_str().unwrap().ends_with("/pull/7"))
+    );
+
+    // A token that stops working shows as an error; tasks stay as they were.
+    sqlx::query("UPDATE forge_accounts SET secret = ? WHERE id = ?")
+        .bind(t.state.secrets.encrypt("revoked"))
+        .bind(&id)
+        .execute(&t.state.db.write)
+        .await
+        .unwrap();
+    let (_, v, _) = t
+        .req(
+            "POST",
+            &format!("/api/v1/forges/{id}/sync"),
+            Some(&anna),
+            None,
+        )
+        .await;
+    assert_eq!(v["status"], "error");
+    assert!(v["last_error"].as_str().unwrap().contains("refused"));
+    let open = forge_tasks(&t, &anna)
+        .await
+        .iter()
+        .filter(|t| t["status"] == "open")
+        .count();
+    assert_eq!(open, 2);
+
+    // Removing the account keeps its tasks.
+    let (s, _, _) = t
+        .req("DELETE", &format!("/api/v1/forges/{id}"), Some(&anna), None)
+        .await;
+    assert_eq!(s, StatusCode::NO_CONTENT);
+    let (_, v, _) = t.req("GET", "/api/v1/forges", Some(&anna), None).await;
+    assert_eq!(v, json!([]));
+    assert_eq!(forge_tasks(&t, &anna).await.len(), 3);
+}
+
+#[tokio::test]
+async fn gitlab_and_gitea_items() {
+    let t = setup().await;
+    let admin = t.admin().await;
+    let anna = t.user(&admin, "anna").await;
+    let (url, _f) = mock_forge().await;
+    let (_, project, _) = t
+        .req(
+            "POST",
+            "/api/v1/projects",
+            Some(&anna),
+            Some(json!({"name": "App"})),
+        )
+        .await;
+    let app = project["id"].as_str().unwrap();
+
+    let (s, acc, _) = t
+        .req(
+            "POST",
+            "/api/v1/forges",
+            Some(&anna),
+            Some(json!({"kind": "gitlab", "url": url, "token": "glpat-test"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{acc}");
+    assert_eq!(acc["status"], "ok", "{acc}");
+    let id = acc["id"].as_str().unwrap();
+    t.req(
+        "PATCH",
+        &format!("/api/v1/forges/{id}"),
+        Some(&anna),
+        Some(json!({"rules": [{"repo": "grp/*", "project_id": app}]})),
+    )
+    .await;
+    // The rule only applies to what arrives later; the first items are in the inbox.
+    let tasks = forge_tasks(&t, &anna).await;
+    assert_eq!(tasks.len(), 3, "{tasks:?}");
+    assert_eq!(
+        by_url(&tasks, "/grp/sub/app/-/issues/4")["title"],
+        "Crash on start"
+    );
+    assert_eq!(
+        by_url(&tasks, "/grp/sub/app/-/merge_requests/2")["title"],
+        "Review: Faster build"
+    );
+    let q = by_url(&tasks, "/grp/other/-/issues/9");
+    assert!(
+        q["notes"]
+            .as_str()
+            .unwrap()
+            .starts_with("grp/other#9 on GitLab: you were mentioned")
+    );
+
+    // Connecting the same account twice is refused.
+    let (s, _, _) = t
+        .req(
+            "POST",
+            "/api/v1/forges",
+            Some(&anna),
+            Some(json!({"kind": "gitlab", "url": url, "token": "glpat-test"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+
+    let (s, acc, _) = t
+        .req(
+            "POST",
+            "/api/v1/forges",
+            Some(&anna),
+            Some(json!({"kind": "gitea", "url": url, "token": "gitea-test"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{acc}");
+    assert_eq!(acc["status"], "ok", "{acc}");
+    let tasks = forge_tasks(&t, &anna).await;
+    let notes = by_url(&tasks, "/anna/notes/issues/5");
+    assert_eq!(notes["title"], "Write notes");
+    assert!(notes["ext_id"].as_str().unwrap().ends_with(":anna/notes#5"));
+
+    // Gitea needs an address; link-local ones are refused.
+    let (s, _, _) = t
+        .req(
+            "POST",
+            "/api/v1/forges/test",
+            Some(&anna),
+            Some(json!({"kind": "gitea", "url": "", "token": "x"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    let (s, _, _) = t
+        .req(
+            "POST",
+            "/api/v1/forges/test",
+            Some(&anna),
+            Some(json!({"kind": "gitea", "url": "http://169.254.169.254", "token": "x"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+}

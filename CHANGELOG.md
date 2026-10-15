@@ -30,6 +30,10 @@
   paper (D-14).
 - Your tasks in your calendar: tasks with a time can be written to one of your CalDAV
   calendars as busy time (titles optional), kept in step with your plan (D-98).
+- Tasks from GitHub, GitLab and Gitea/Forgejo: connect accounts with an access token; issues
+  and pull/merge requests assigned to you, review requests and mentions (each can be switched
+  off) arrive as tasks with a link, in the project a repository rule names or the inbox, and
+  complete themselves once closed, merged or no longer yours. Read-only (D-97, D-99).
 
 ## 1.3.0 (2026-10-14)
 

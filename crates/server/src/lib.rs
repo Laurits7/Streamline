@@ -12,6 +12,7 @@ pub mod deps;
 pub mod digest;
 pub mod error;
 pub mod events;
+pub mod forge;
 pub mod jobs;
 pub mod local;
 pub mod merge;
@@ -88,6 +89,7 @@ pub async fn run() -> anyhow::Result<()> {
     let (app, state) = build(config).await?;
     jobs::spawn(state.clone());
     calsync::spawn(state.clone());
+    forge::spawn(state.clone());
     backup::spawn(state);
     let listener = TcpListener::bind(addr).await?;
     tracing::info!("Streamline listening on http://{addr}");
