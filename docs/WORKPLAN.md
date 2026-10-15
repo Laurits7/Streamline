@@ -531,8 +531,8 @@ Legend: **Deliverables** = what exists afterwards · **Tests** = what must be co
 postponed.*
 
 - [ ] **7.1 Integration framework + Mealie shopping list** *(needs Q-10)*: `IntegrationProvider`
-      trait, encrypted settings, polling job, last-known state + warning on failure; read the
-      live instance's `/docs` first. One open "Go shopping" task per list (deduplicated via
+      trait, encrypted settings, polling job, last-known state + warning on failure; develop against Mealie v3.25.0 (the
+      owner's version, D-96) in a local container with its OpenAPI. One open "Go shopping" task per list (deduplicated via
       `ext_source/ext_id`), auto-complete when the list is empty, optional minimum item count.
 - [ ] **7.2 Mealie meal plan**: one task per meal entry with a recipe link, ingredients and
       steps shown in the focus view, prep+cook time as the estimate, type `expires`; generic
@@ -544,7 +544,13 @@ postponed.*
       complete the printed items (`source=print`).
 - [ ] **7.5 Child profiles** *(needs Q-15, only if needed)*: restricted role, simplified UI,
       optional parent confirmation.
-- [ ] **7.6 GitHub integration**: import/link issues and PRs per project, mirror status.
+- [ ] **7.6 GitHub, GitLab and others** (D-97): connect accounts with access tokens (GitHub,
+      GitLab.com or self-hosted, Gitea/Forgejo; encrypted like the calendar password); a
+      polling job brings in what's yours (assigned issues, assigned PRs/MRs, review requests,
+      mentions; each kind on/off per account) as tasks with a link, deduplicated by source and
+      id; repository rules choose the project (else the inbox); closed, merged or unassigned
+      upstream completes the task; read-only towards the forge; tests with recorded API
+      answers; help and CHANGELOG.
 - [ ] **7.7 Calendar write-back**: `put_event` on the provider; write planned blocks as busy
       events to a dedicated calendar.
 - [ ] **7.8 Native app** *(Linux desktop app moved to Phase 9, D-78; phones stay on the PWA, D-61)*: evaluate Tauri 2 reusing `web/`, with token auth and the
