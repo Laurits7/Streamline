@@ -74,6 +74,8 @@ pub struct SyncResponse {
     pub metrics: Vec<MetricDefinition>,
     /// Logged values (a full sync covers the last 400 days).
     pub metric_entries: Vec<MetricEntry>,
+    /// Your day answers for habit goals (a full sync covers the last 400 days; D-105).
+    pub habit_checks: Vec<crate::models::HabitCheck>,
     /// Health check-ins (a full sync covers the last 400 days; D-75).
     pub health_days: Vec<HealthDay>,
     /// Your goals and your groups' goals.
@@ -282,6 +284,14 @@ pub async fn sync(
     .bind(&year_ago)
     .fetch_all(db)
     .await?;
+    let habit_checks = sqlx::query_as(
+        "SELECT * FROM habit_checks WHERE user_id = ?1 AND (?2 = 0 AND deleted_at IS NULL AND date >= ?3 OR ?2 > 0 AND rev > ?2)",
+    )
+    .bind(user.id())
+    .bind(since)
+    .bind(&year_ago)
+    .fetch_all(db)
+    .await?;
     let health_days = sqlx::query_as(
         "SELECT * FROM health_days WHERE user_id = ?1 AND (?2 = 0 AND deleted_at IS NULL AND date >= ?3 OR ?2 > 0 AND rev > ?2)",
     )
@@ -342,6 +352,7 @@ pub async fn sync(
         day_records,
         metrics,
         metric_entries,
+        habit_checks,
         health_days,
         goals,
         people,

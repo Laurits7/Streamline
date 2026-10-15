@@ -57,7 +57,7 @@ use crate::AppState;
         occasions::calendar, occasions::search, occasions::load, occasions::create_person, occasions::patch_person, occasions::delete_person, occasions::put_template,
         blocks::create_template, blocks::patch_template, blocks::delete_template, blocks::apply_template, blocks::create_block, blocks::patch_block, blocks::delete_block, blocks::suggest,
         tracking::put_record, tracking::put_health, tracking::delete_health, tracking::summary, tracking::glance, tracking::create_metric, tracking::patch_metric, tracking::delete_metric, tracking::create_entry, tracking::patch_entry, tracking::delete_entry, tracking::metric_csv, tracking::import_csv, tracking::export,
-        goals::create, goals::patch, goals::delete, goals::all_progress, goals::review, goals::reviews,
+        goals::create, goals::patch, goals::delete, goals::put_check, goals::delete_check, goals::all_progress, goals::review, goals::reviews,
         push::key, push::subscribe, push::unsubscribe, push::test,
         backups::list, backups::create, backups::download,
         sync::sync, sync::events, sync::today, sync::task_types,
@@ -289,6 +289,10 @@ pub fn router(state: AppState) -> Router {
         .route("/goals/review", post(goals::review))
         .route("/goals/{id}", patch(goals::patch).delete(goals::delete))
         .route("/goals/{id}/reviews", get(goals::reviews))
+        .route(
+            "/goals/{id}/checks/{date}",
+            axum::routing::put(goals::put_check).delete(goals::delete_check),
+        )
         .route("/push/key", get(push::key))
         .route("/push/subscriptions", post(push::subscribe))
         .route("/push/subscriptions/remove", post(push::unsubscribe))

@@ -3,6 +3,7 @@
   import { untrack } from 'svelte'
   import { api } from '../api/client'
   import { store } from '../store.svelte'
+  import HabitCheckins from './HabitCheckins.svelte'
 
   let { date, compact = false }: { date: string; compact?: boolean } = $props()
   type Fields = { journal: string; went_well: string; went_badly: string; tomorrow: string }
@@ -57,6 +58,7 @@
 </script>
 
 <div class="reflection">
+  <HabitCheckins {date} />
   <textarea rows={compact ? 3 : 5} bind:value={form.journal} oninput={changed} placeholder="How was the day? Anything worth remembering…" aria-label="Journal"></textarea>
   {#if prompts || form.went_well || form.went_badly || form.tomorrow}
     <div class="prompts">

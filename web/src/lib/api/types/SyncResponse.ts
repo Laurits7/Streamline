@@ -11,6 +11,7 @@ import type { FocusSession } from "./FocusSession";
 import type { FocusTimer } from "./FocusTimer";
 import type { Goal } from "./Goal";
 import type { Group } from "./Group";
+import type { HabitCheck } from "./HabitCheck";
 import type { HealthDay } from "./HealthDay";
 import type { JoinView } from "./JoinView";
 import type { Me } from "./Me";
@@ -60,6 +61,10 @@ day_records: Array<DayRecord>, metrics: Array<MetricDefinition>,
  * Logged values (a full sync covers the last 400 days).
  */
 metric_entries: Array<MetricEntry>, 
+/**
+ * Your day answers for habit goals (a full sync covers the last 400 days; D-105).
+ */
+habit_checks: Array<HabitCheck>, 
 /**
  * Health check-ins (a full sync covers the last 400 days; D-75).
  */

@@ -726,6 +726,8 @@ then the gate.
       done, as waiting, or as ongoing.
 - [x] **10.9 Ongoing tasks** (owner request, D-102): kept at over a period, "worked on it" per
       day, never carried or missed, finished by hand; domain + web logic tested.
+- [x] **10.10 Habit goals** (owner request, D-105): goals that are habits, answered per day
+      (yes / partly / no) in Track and the reflection, judged per week in the review.
 - [ ] **10.7 Phase gate** (Part D) for v1.4.
       *Done 2026-10-15:* tests, fmt and clippy green (CI not run yet: not pushed); resource
       log updated (image 16.2 MB, idle 9.0 MiB, 110.4 KB initial); two-server, forge and

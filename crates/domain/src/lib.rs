@@ -9,6 +9,7 @@ pub mod digest;
 pub mod focus;
 pub mod forge;
 pub mod goals;
+pub mod habits;
 pub mod health;
 pub mod marks;
 pub mod merge;

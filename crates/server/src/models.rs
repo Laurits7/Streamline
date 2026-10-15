@@ -1430,7 +1430,13 @@ pub struct Goal {
     pub owner_group_id: Option<String>,
     pub title: String,
     pub description: String,
+    /// Outcomes: the target date. Habits: when the period ends (`null` = for good).
     pub target_date: Option<String>,
+    /// `outcome` (reached once: milestones, linked work) or `habit` (kept day by day; D-105).
+    #[ts(type = "'outcome' | 'habit'")]
+    pub kind: String,
+    /// Habits: when the period starts (`null` = from its creation).
+    pub start_date: Option<String>,
     #[ts(type = "'active' | 'paused' | 'achieved' | 'dropped'")]
     pub status: String,
     /// 0–1, set by hand; `null` = derived from milestones and linked work.
@@ -1452,19 +1458,52 @@ pub struct Goal {
     pub rev: i64,
 }
 
+/// A day's answer for a habit goal (D-105). Personal.
+#[derive(Debug, Clone, Serialize, FromRow, TS, utoipa::ToSchema)]
+#[ts(export)]
+pub struct HabitCheck {
+    pub id: String,
+    pub goal_id: String,
+    pub user_id: String,
+    pub date: String,
+    #[ts(type = "'yes' | 'partly' | 'no'")]
+    pub result: String,
+    pub note: String,
+    pub created_at: String,
+    pub updated_at: String,
+    pub deleted_at: Option<String>,
+    #[ts(type = "number")]
+    pub rev: i64,
+}
+
+pub async fn upsert_habit_check(conn: &mut SqliteConnection, c: &HabitCheck) -> sqlx::Result<()> {
+    sqlx::query(
+        "INSERT INTO habit_checks (id, goal_id, user_id, date, result, note, created_at, updated_at, deleted_at, rev)
+         VALUES (?,?,?,?,?,?,?,?,?,?)
+         ON CONFLICT(id) DO UPDATE SET result=excluded.result, note=excluded.note, updated_at=excluded.updated_at,
+           deleted_at=excluded.deleted_at, rev=excluded.rev",
+    )
+    .bind(&c.id).bind(&c.goal_id).bind(&c.user_id).bind(&c.date).bind(&c.result).bind(&c.note)
+    .bind(&c.created_at).bind(&c.updated_at).bind(&c.deleted_at).bind(c.rev)
+    .execute(conn)
+    .await
+    .map(|_| ())
+}
+
 pub async fn upsert_goal(conn: &mut SqliteConnection, g: &Goal) -> sqlx::Result<()> {
     sqlx::query(
         "INSERT INTO goals (id, owner_user_id, owner_group_id, title, description, target_date, status, progress_override, milestones,
-           project_ids, task_ids, position, created_at, updated_at, deleted_at, rev)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+           project_ids, task_ids, position, created_at, updated_at, deleted_at, rev, kind, start_date)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
          ON CONFLICT(id) DO UPDATE SET owner_user_id=excluded.owner_user_id, owner_group_id=excluded.owner_group_id, title=excluded.title,
            description=excluded.description, target_date=excluded.target_date, status=excluded.status, progress_override=excluded.progress_override,
            milestones=excluded.milestones, project_ids=excluded.project_ids, task_ids=excluded.task_ids, position=excluded.position,
-           updated_at=excluded.updated_at, deleted_at=excluded.deleted_at, rev=excluded.rev",
+           updated_at=excluded.updated_at, deleted_at=excluded.deleted_at, rev=excluded.rev,
+           kind=excluded.kind, start_date=excluded.start_date",
     )
     .bind(&g.id).bind(&g.owner_user_id).bind(&g.owner_group_id).bind(&g.title).bind(&g.description).bind(&g.target_date)
     .bind(&g.status).bind(g.progress_override).bind(&g.milestones).bind(&g.project_ids).bind(&g.task_ids).bind(&g.position)
-    .bind(&g.created_at).bind(&g.updated_at).bind(&g.deleted_at).bind(g.rev)
+    .bind(&g.created_at).bind(&g.updated_at).bind(&g.deleted_at).bind(g.rev).bind(&g.kind).bind(&g.start_date)
     .execute(conn)
     .await
     .map(|_| ())

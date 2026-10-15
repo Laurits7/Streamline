@@ -45,6 +45,10 @@
 - Ongoing tasks, for things you keep at over a period like reading a book: they show every day
   of their period under Ongoing, are ticked as "worked on it today" rather than done, count the
   days you worked on them, are never carried over or missed, and are finished by hand (D-102).
+- Habit goals: a goal can be a habit you keep up ("eat less junk"), from a start date and for
+  good or until a date. Each day the Track card (and the reflection) asks "Did you manage?":
+  yes, partly or no, with a note. The Goals page shows the week, the streak and the share of
+  good days; the weekly review shows each habit's week and asks for your verdict (D-105).
 
 ## 1.3.0 (2026-10-14)
 

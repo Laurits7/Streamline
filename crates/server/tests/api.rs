@@ -7327,3 +7327,152 @@ async fn ongoing_tasks_are_worked_on_not_carried() {
     assert_eq!(v["ongoing"], false);
     assert!(v["start_date"].is_null());
 }
+
+#[tokio::test]
+async fn habit_goals_are_answered_per_day_and_reviewed() {
+    let t = setup().await;
+    let admin = t.admin().await;
+    let bob = t.user(&admin, "bob").await;
+    let (_, v, _) = t.req("GET", "/api/v1/today", Some(&admin), None).await;
+    let today = v["date"].as_str().unwrap().to_string();
+    let day = |n: i64| {
+        (chrono::NaiveDate::parse_from_str(&today, "%Y-%m-%d").unwrap() - chrono::Duration::days(n))
+            .format("%Y-%m-%d")
+            .to_string()
+    };
+    let (s, g, _) = t
+        .req(
+            "POST",
+            "/api/v1/goals",
+            Some(&admin),
+            Some(json!({"title": "Eat less junk", "kind": "habit", "start_date": day(10)})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{g}");
+    assert_eq!(g["kind"], "habit");
+    let id = g["id"].as_str().unwrap().to_string();
+    let (_, outcome, _) = t
+        .req(
+            "POST",
+            "/api/v1/goals",
+            Some(&admin),
+            Some(json!({"title": "Run a 10k"})),
+        )
+        .await;
+    assert_eq!(outcome["kind"], "outcome");
+    assert!(outcome["start_date"].is_null());
+
+    for (n, r) in [(3, "yes"), (2, "yes"), (1, "partly"), (0, "no")] {
+        let (s, c, _) = t
+            .req(
+                "PUT",
+                &format!("/api/v1/goals/{id}/checks/{}", day(n)),
+                Some(&admin),
+                Some(
+                    json!({"result": r, "note": if r == "no" { "chips at the party" } else { "" }}),
+                ),
+            )
+            .await;
+        assert_eq!(s, StatusCode::OK, "{c}");
+    }
+    // Answering again changes the day's answer.
+    let (_, c, _) = t
+        .req(
+            "PUT",
+            &format!("/api/v1/goals/{id}/checks/{}", day(0)),
+            Some(&admin),
+            Some(json!({"result": "yes"})),
+        )
+        .await;
+    assert_eq!(c["result"], "yes");
+    let (s, _, _) = t
+        .req(
+            "PUT",
+            &format!("/api/v1/goals/{id}/checks/{}", day(0)),
+            Some(&admin),
+            Some(json!({"result": "maybe"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    let (s, _, _) = t
+        .req(
+            "PUT",
+            &format!(
+                "/api/v1/goals/{}/checks/{}",
+                outcome["id"].as_str().unwrap(),
+                day(0)
+            ),
+            Some(&admin),
+            Some(json!({"result": "yes"})),
+        )
+        .await;
+    assert_eq!(
+        s,
+        StatusCode::BAD_REQUEST,
+        "outcomes aren't answered per day"
+    );
+    let (s, _, _) = t
+        .req(
+            "PUT",
+            &format!("/api/v1/goals/{id}/checks/{}", day(0)),
+            Some(&bob),
+            Some(json!({"result": "yes"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::NOT_FOUND, "someone else's habit");
+
+    // Progress: share of good days (partly = half), the streak of yeses up to today.
+    let (_, all, _) = t
+        .req("GET", "/api/v1/goals/progress", Some(&admin), None)
+        .await;
+    let p = all
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["goal_id"] == id.as_str())
+        .unwrap();
+    assert_eq!(p["habit"]["yes"], 3);
+    assert_eq!(p["habit"]["partly"], 1);
+    assert_eq!(p["habit"]["streak"], 1);
+    assert_eq!(p["habit"]["unanswered"], 7);
+    assert!((p["progress"].as_f64().unwrap() - 3.5 / 4.0).abs() < 1e-9);
+
+    // Clearing a day; the answers sync to the user's devices only.
+    let (s, _, _) = t
+        .req(
+            "DELETE",
+            &format!("/api/v1/goals/{id}/checks/{}", day(3)),
+            Some(&admin),
+            None,
+        )
+        .await;
+    assert_eq!(s, StatusCode::NO_CONTENT);
+    let (_, v, _) = t.req("GET", "/api/v1/sync", Some(&admin), None).await;
+    assert_eq!(v["habit_checks"].as_array().unwrap().len(), 3);
+    let (_, v, _) = t.req("GET", "/api/v1/sync", Some(&bob), None).await;
+    assert_eq!(v["habit_checks"], json!([]));
+
+    // The weekly review keeps a verdict per habit.
+    let (s, _, _) = t
+        .req("POST", "/api/v1/goals/review", Some(&admin), Some(json!({"notes": [{"goal_id": id, "note": "better than last week", "verdict": "partly"}]})))
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    let (_, reviews, _) = t
+        .req(
+            "GET",
+            &format!("/api/v1/goals/{id}/reviews"),
+            Some(&admin),
+            None,
+        )
+        .await;
+    assert_eq!(reviews[0]["verdict"], "partly");
+    let (s, _, _) = t
+        .req(
+            "POST",
+            "/api/v1/goals/review",
+            Some(&admin),
+            Some(json!({"notes": [{"goal_id": id, "verdict": "great"}]})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+}

@@ -8,6 +8,7 @@
   import { addDays, dayLabel, fmtMinutes, longDate, nowHHMM, weekOf } from '../lib/dates'
   import { dayLoad } from '../lib/planning'
   import { looseEnds, projectsWithoutNextStep, weekStats, type LooseEnd } from '../lib/review'
+  import { stripSummary, suggestedVerdict, weekStrip, type Answer } from '../lib/habits'
   import { router } from '../lib/router.svelte'
   import { store } from '../lib/store.svelte'
   import { toast } from '../lib/toast.svelte'
@@ -20,6 +21,13 @@
   let handled = $state<Set<string>>(new Set())
   let nextStep = $state<Record<string, string>>({})
   let notes = $state<Record<string, string>>({})
+  /** Habits (D-105): your verdict for the week; unset = the one the days suggest. */
+  let verdicts = $state<Record<string, Answer | null>>({})
+  const VERDICTS: { value: Answer; label: string }[] = [
+    { value: 'yes', label: '✓ Managed' },
+    { value: 'partly', label: '~ Partly' },
+    { value: 'no', label: '✗ Not really' },
+  ]
   let saving = $state(false)
 
   $effect(() => {
@@ -46,7 +54,13 @@
   const waiting = $derived(store.waitingTasks().filter((t) => !handled.has(t.id)))
   const bare = $derived(projectsWithoutNextStep([...store.projects.values()], [...store.tasks.values()], (id) => store.subtree(id)).filter((p) => !handled.has(p.id)))
   const ideas = $derived([...store.projects.values()].filter((p) => p.status === 'idea' && !p.archived_at && !p.deleted_at && !p.parent_id && !handled.has(p.id)))
-  const goals = $derived(store.goalList().filter((g) => g.status === 'active'))
+  // Habits only once they'd started by the reviewed week (nothing to judge before that).
+  const goals = $derived(
+    store
+      .goalList()
+      .filter((g) => g.status === 'active')
+      .filter((g) => g.kind !== 'habit' || weekStrip(g, [], reviewed, store.today).some((d) => d.inPeriod && !d.future)),
+  )
   const openEnds = $derived(ends.filter((l) => !handled.has(l.task.id) && store.tasks.get(l.task.id)?.status === 'open'))
   const counts = $derived([null, openEnds.length, waiting.length, bare.length + ideas.length, goals.length, null])
 
@@ -68,7 +82,13 @@
   async function finish() {
     saving = true
     try {
-      await store.submitReview(goals.map((g) => ({ goal_id: g.id, note: notes[g.id] ?? '' })))
+      await store.submitReview(
+        goals.map((g) => ({
+          goal_id: g.id,
+          note: notes[g.id] ?? '',
+          verdict: g.kind === 'habit' ? (verdicts[g.id] ?? suggestedVerdict(weekStrip(g, store.habitChecks.values(), reviewed, store.today))) : null,
+        })),
+      )
       toast('Weekly review done')
       router.go('/')
     } catch {
@@ -183,10 +203,31 @@
   {#each goals as g (g.id)}
     {@const p = pct(g.id)}
     <section class="card goal">
-      <div class="top"><a href="/goals"><strong>{g.title}</strong></a><span>{p === null ? '–' : `${p}%`}</span></div>
-      <div class="progress"><span style:width="{p ?? 0}%"></span></div>
-      {#each g.milestones.filter((m) => !m.done).slice(0, 3) as m (m.id)}<p class="small">○ {m.title}</p>{/each}
-      <textarea rows="2" bind:value={notes[g.id]} placeholder="Progress, blockers, next step…" aria-label="Note on {g.title}"></textarea>
+      {#if g.kind === 'habit'}
+        {@const strip = weekStrip(g, store.habitChecks.values(), reviewed, store.today)}
+        {@const chosen = verdicts[g.id] ?? suggestedVerdict(strip)}
+        <div class="top"><a href="/goals"><strong>{g.title}</strong></a><span class="muted small">habit</span></div>
+        <div class="hstrip">
+          {#each strip as d (d.date)}
+            <span class="hday" class:off={!d.inPeriod || d.future} title="{longDate(d.date)}: {d.answer ?? 'not answered'}">
+              <span class="muted">{new Date(d.date + 'T00:00:00Z').toLocaleDateString(store.me?.locale || undefined, { weekday: 'narrow', timeZone: 'UTC' })}</span>
+              <i class={d.answer ?? ''}>{d.answer === 'yes' ? '✓' : d.answer === 'partly' ? '~' : d.answer === 'no' ? '✗' : ''}</i>
+            </span>
+          {/each}
+        </div>
+        <p class="small muted">{stripSummary(strip)}</p>
+        <div class="verdicts" role="radiogroup" aria-label="How did {g.title} go this week?">
+          {#each VERDICTS as v (v.value)}
+            <button class="chip" class:on={chosen === v.value} role="radio" aria-checked={chosen === v.value} onclick={() => (verdicts[g.id] = v.value)}>{v.label}</button>
+          {/each}
+        </div>
+        <textarea rows="2" bind:value={notes[g.id]} placeholder="What helped, what got in the way…" aria-label="Note on {g.title}"></textarea>
+      {:else}
+        <div class="top"><a href="/goals"><strong>{g.title}</strong></a><span>{p === null ? '–' : `${p}%`}</span></div>
+        <div class="progress"><span style:width="{p ?? 0}%"></span></div>
+        {#each g.milestones.filter((m) => !m.done).slice(0, 3) as m (m.id)}<p class="small">○ {m.title}</p>{/each}
+        <textarea rows="2" bind:value={notes[g.id]} placeholder="Progress, blockers, next step…" aria-label="Note on {g.title}"></textarea>
+      {/if}
     </section>
   {:else}
     <section class="card"><p class="muted">No active goals. <a href="/goals">Add one</a> if there's something bigger you're working towards.</p></section>
@@ -372,5 +413,52 @@
     display: flex;
     justify-content: space-between;
     max-width: 860px;
+  }
+  .hstrip {
+    display: flex;
+    gap: 6px;
+    margin: 8px 0 4px;
+  }
+  .hday {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    font-size: 11px;
+  }
+  .hday i {
+    width: 24px;
+    height: 24px;
+    display: grid;
+    place-items: center;
+    border-radius: 6px;
+    font-style: normal;
+    font-weight: 700;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+  }
+  .hday i.yes {
+    background: var(--success, #16a34a);
+    color: #fff;
+    border-color: transparent;
+  }
+  .hday i.partly {
+    background: var(--warn);
+    color: #fff;
+    border-color: transparent;
+  }
+  .hday i.no {
+    background: var(--danger);
+    color: #fff;
+    border-color: transparent;
+  }
+  .hday.off {
+    opacity: 0.35;
+  }
+  .verdicts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 6px 0 8px;
   }
 </style>

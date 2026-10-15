@@ -1,4 +1,5 @@
 <script lang="ts">
+  import HabitCheckins from './HabitCheckins.svelte'
   // Today's quick log (SPEC §6.2b): mood, weight and your own metrics in a tap or two.
   import type { MetricDefinition } from '../api/types/MetricDefinition'
   import { store } from '../store.svelte'
@@ -93,9 +94,17 @@
       {/if}
     </div>
   {/each}
+  {#if store.habitsFor(date).length}
+    <div class="habits-row"><HabitCheckins {date} /></div>
+  {/if}
 </section>
 
 <style>
+  .habits-row {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
+  }
   .quicklog {
     padding: 12px 14px;
     margin-bottom: 14px;

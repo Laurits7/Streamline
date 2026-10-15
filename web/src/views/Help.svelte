@@ -510,6 +510,16 @@
       <li>Once a week (or month; choose on the Goals page) the Today view invites you to the <a href="/review">review</a>, a short walk through six steps: the week in numbers; <strong>loose ends</strong> (overdue tasks, ones carried over again and again, and ones untouched for three weeks) to plan or let go; what you're <strong>waiting</strong> for; <strong>projects</strong> with nothing to do next (add a next step or archive them) and ideas to start or drop; a note on each <strong>goal</strong>; and a look at the coming week, with the week planner one click away. Finishing records it until the next one. Notes are kept with the goal.</li>
       <li>Goals are yours unless you share one with a group, like a project.</li>
     </ul>
+    <p>
+      <strong>Habits.</strong> Some goals aren't reached once but kept up: “eat less junk”, “walk 30 minutes”, “no phone
+      after 22:00”. Choose <em>Habit</em> when you add one, from today (or another day) and for good or until a date;
+      have as many as you like. Each day, the <em>Track</em> card on Today (and the reflection in Summary &amp; journal
+      and the evening planning) asks <em>Did you manage?</em>: yes, partly or no, with a short note if you want (tap the
+      answer again to clear it). The Goals page shows this week's days, the days in a row, and the share of good days
+      over the last four weeks (partly counts half). In the weekly review each habit shows the week's days and suggests
+      a verdict from them; change it if the week felt different, and add a note. A shared habit is answered by each
+      member for themselves.
+    </p>
   </section>
 
   <section id="occasions">

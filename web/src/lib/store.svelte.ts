@@ -10,6 +10,7 @@ import type { CalendarEvent } from './api/types/CalendarEvent'
 import type { EventProject } from './api/types/EventProject'
 import type { DayEntry } from './api/types/DayEntry'
 import type { Goal } from './api/types/Goal'
+import type { HabitCheck } from './api/types/HabitCheck'
 import type { GoalProgress } from './api/types/GoalProgress'
 import type { DayRecord } from './api/types/DayRecord'
 import type { MetricDefinition } from './api/types/MetricDefinition'
@@ -81,6 +82,7 @@ type Kind =
   | 'metric'
   | 'metric_entry'
   | 'goal'
+  | 'habit_check'
 type Entity =
   | Task
   | Project
@@ -103,6 +105,7 @@ type Entity =
   | MetricDefinition
   | MetricEntry
   | Goal
+  | HabitCheck
 
 export type TaskPatch = Partial<
   Pick<
@@ -202,6 +205,8 @@ class Store {
   people = new SvelteMap<string, Person>()
   dayTemplates = new SvelteMap<string, DayTemplate>()
   dayRecords = new SvelteMap<string, DayRecord>()
+  /** Your day answers for habit goals (D-105), by id. */
+  habitChecks = new SvelteMap<string, HabitCheck>()
   healthDays = new SvelteMap<string, HealthDay>()
   metrics = new SvelteMap<string, MetricDefinition>()
   metricEntries = new SvelteMap<string, MetricEntry>()
@@ -273,6 +278,7 @@ class Store {
     this.dayTemplates.clear()
     this.timeBlocks.clear()
     this.dayRecords.clear()
+    this.habitChecks.clear()
     this.healthDays.clear()
     this.metrics.clear()
     this.metricEntries.clear()
@@ -349,6 +355,7 @@ class Store {
       this.dayTemplates.clear()
       this.timeBlocks.clear()
       this.dayRecords.clear()
+    this.habitChecks.clear()
       this.healthDays.clear()
       this.metrics.clear()
       this.metricEntries.clear()
@@ -387,6 +394,7 @@ class Store {
     for (const x of r.time_blocks) this.applyRemote('time_block', x)
     for (const x of r.day_records) this.applyRemote('day_record', x)
     for (const x of r.health_days) this.applyRemote('health_day', x)
+    for (const x of r.habit_checks) this.applyRemote('habit_check', x)
     for (const x of r.metrics) this.applyRemote('metric', x)
     for (const x of r.metric_entries) this.applyRemote('metric_entry', x)
     for (const x of r.goals) this.applyRemote('goal', x)
@@ -447,7 +455,8 @@ class Store {
         c.kind === 'health_day' ||
         c.kind === 'metric' ||
         c.kind === 'metric_entry' ||
-        c.kind === 'goal'
+        c.kind === 'goal' ||
+        c.kind === 'habit_check'
       )
         this.applyRemote(c.kind, c.data as Entity)
       else if (c.kind === 'task' || c.kind === 'project' || c.kind === 'day_entry' || c.kind === 'day_plan')
@@ -492,6 +501,7 @@ class Store {
       metric: this.metrics,
       metric_entry: this.metricEntries,
       goal: this.goals,
+      habit_check: this.habitChecks,
     }
     return maps[kind] as SvelteMap<string, Entity>
   }
@@ -2058,7 +2068,7 @@ class Store {
     return reviewDue(this.me.review_cadence as Cadence, this.me.last_review_date, this.today, this.me.week_start)
   }
 
-  createGoal(title: string, groupId: string | null = null) {
+  createGoal(title: string, groupId: string | null = null, kind: 'outcome' | 'habit' = 'outcome') {
     const id = ulid()
     const ts = now()
     const g: Goal = {
@@ -2068,6 +2078,8 @@ class Store {
       title,
       description: '',
       target_date: null,
+      kind,
+      start_date: kind === 'habit' ? this.today : null,
       status: 'active',
       progress_override: null,
       milestones: [],
@@ -2082,13 +2094,13 @@ class Store {
     return this.optimistic(
       [['goal', id]],
       () => this.goals.set(id, g),
-      async () => [['goal', await api.post<Goal>('/goals', { id, title, owner_group_id: groupId })]],
+      async () => [['goal', await api.post<Goal>('/goals', { id, title, owner_group_id: groupId, kind, start_date: g.start_date })]],
     ).then(() => this.loadGoalProgress())
   }
 
   updateGoal(
     id: string,
-    patch: Partial<Pick<Goal, 'title' | 'description' | 'target_date' | 'status' | 'progress_override' | 'milestones' | 'project_ids' | 'task_ids' | 'owner_group_id'>>,
+    patch: Partial<Pick<Goal, 'title' | 'description' | 'target_date' | 'start_date' | 'kind' | 'status' | 'progress_override' | 'milestones' | 'project_ids' | 'task_ids' | 'owner_group_id'>>,
   ) {
     const cur = this.goals.get(id)
     if (!cur) return
@@ -2110,7 +2122,60 @@ class Store {
     )
   }
 
-  async submitReview(notes: { goal_id: string; note: string }[]) {
+  // ---- habit goals (D-105) ----------------------------------------------------
+
+  /** Active habits that apply on `day` (its period includes it). */
+  habitsFor(day: string): Goal[] {
+    return this.goalList().filter(
+      (g) => g.kind === 'habit' && g.status === 'active' && (!g.start_date || g.start_date <= day) && (!g.target_date || day <= g.target_date),
+    )
+  }
+
+  habitCheck(goalId: string, day: string): HabitCheck | undefined {
+    for (const c of this.habitChecks.values()) if (c.goal_id === goalId && c.date === day && !c.deleted_at) return c
+  }
+
+  /** Say how a habit went on a day; the same answer again clears it. */
+  answerHabit(goalId: string, day: string, result: HabitCheck['result'], note?: string) {
+    const cur = this.habitCheck(goalId, day)
+    if (cur && cur.result === result && note === undefined) {
+      return this.optimistic(
+        [['habit_check', cur.id]],
+        () => this.habitChecks.delete(cur.id),
+        async () => {
+          await api.del(`/goals/${goalId}/checks/${day}`)
+          return []
+        },
+      ).then(() => this.loadGoalProgress())
+    }
+    const ts = now()
+    const local: HabitCheck = {
+      id: cur?.id ?? ulid(),
+      goal_id: goalId,
+      user_id: this.me?.id ?? '',
+      date: day,
+      result,
+      note: note ?? cur?.note ?? '',
+      created_at: cur?.created_at ?? ts,
+      updated_at: ts,
+      deleted_at: null,
+      rev: cur?.rev ?? 0,
+    }
+    return this.optimistic(
+      [['habit_check', local.id]],
+      () => {
+        if (cur && cur.id !== local.id) this.habitChecks.delete(cur.id)
+        this.habitChecks.set(local.id, local)
+      },
+      async () => {
+        const saved = await api.put<HabitCheck>(`/goals/${goalId}/checks/${day}`, { result, note: local.note })
+        if (saved.id !== local.id) this.habitChecks.delete(local.id)
+        return [['habit_check', saved]]
+      },
+    ).then(() => this.loadGoalProgress())
+  }
+
+  async submitReview(notes: { goal_id: string; note: string; verdict?: HabitCheck['result'] | null }[]) {
     this.me = await api.post<Me>('/goals/review', { notes })
   }
 
