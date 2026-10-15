@@ -35,6 +35,8 @@ export type Route =
   | { name: 'week'; start: string | null }
   | { name: 'inbox' }
   | { name: 'triage' }
+  | { name: 'print'; date: string }
+  | { name: 'reconcile'; token: string }
   | { name: 'tasks' }
   | { name: 'routines' }
   | { name: 'occasions' }
@@ -61,6 +63,8 @@ export function match(path: string): Route {
   if ((m = p.match(/^\/week\/(\d{4}-\d{2}-\d{2})$/))) return { name: 'week', start: m[1] }
   if (p === '/inbox') return { name: 'inbox' }
   if (p === '/inbox/process') return { name: 'triage' }
+  if ((m = p.match(/^\/print\/(\d{4}-\d{2}-\d{2})$/))) return { name: 'print', date: m[1] }
+  if ((m = p.match(/^\/r\/([0-9A-Za-z_-]+)$/))) return { name: 'reconcile', token: m[1] }
   if (p === '/tasks') return { name: 'tasks' }
   if (p === '/routines') return { name: 'routines' }
   if (p === '/occasions') return { name: 'occasions' }

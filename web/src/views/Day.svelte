@@ -227,6 +227,7 @@
         <button class="icon-btn" onclick={() => go(addDays(date, -1))} aria-label="Previous day"><Icon name="left" /></button>
         {#if !isToday}<button class="btn small" onclick={() => go(store.today)}>Today</button>{/if}
         <button class="icon-btn" onclick={() => go(addDays(date, 1))} aria-label="Next day"><Icon name="right" /></button>
+        <a class="icon-btn" href="/print/{date}" aria-label="Print the day" title="Print the day"><Icon name="list" /></a>
       </nav>
     </header>
 

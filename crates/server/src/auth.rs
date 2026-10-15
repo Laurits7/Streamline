@@ -328,7 +328,7 @@ pub struct AuthUser {
     pub groups: Vec<String>,
 }
 
-async fn groups_of(state: &AppState, user_id: &str) -> sqlx::Result<Vec<String>> {
+pub async fn groups_of(state: &AppState, user_id: &str) -> sqlx::Result<Vec<String>> {
     sqlx::query_scalar("SELECT group_id FROM group_members WHERE user_id = ?")
         .bind(user_id)
         .fetch_all(&state.db.read)

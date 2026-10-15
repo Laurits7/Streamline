@@ -537,7 +537,7 @@ postponed.*
 - [ ] **7.2 Mealie meal plan**: one task per meal entry with a recipe link, ingredients and
       steps shown in the focus view, prep+cook time as the estimate, type `expires`; generic
       "prepare lunch" tasks resolve against the meal plan.
-- [ ] **7.3 Print, A4**: print-CSS day sheet with stable item codes and a QR code to the
+- [x] **7.3 Print, A4**: print-CSS day sheet with stable item codes and a QR code to the
       reconcile page.
 - [ ] **7.4 Thermal printing + reconcile**  *(needs Q-13, Q-14)*: ESC/POS over TCP 9100,
       58/80 mm layouts, scheduled morning print; signed, expiring reconcile links that can only

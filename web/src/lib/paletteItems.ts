@@ -31,6 +31,7 @@ export function paletteItems(actions: Entry[]): Entry[] {
   const out: Entry[] = [...actions]
   for (const [title, href] of PAGES) out.push({ key: `page:${href}`, kind: 'page', title, href })
   out.push({ key: 'page:plan', kind: 'page', title: 'Plan today', href: `/plan/${store.today}` })
+  out.push({ key: 'page:print', kind: 'page', title: 'Print today', href: `/print/${store.today}` })
   const tasks = [...store.tasks.values()].filter((t) => !t.deleted_at)
   // Open tasks first, then the most recently changed.
   tasks.sort((a, b) => Number(a.status !== 'open') - Number(b.status !== 'open') || b.updated_at.localeCompare(a.updated_at))

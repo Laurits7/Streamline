@@ -322,3 +322,24 @@ kbd {
   background: var(--surface);
   white-space: nowrap;
 }
+
+/* Printing (7.3): only the page's content, no app chrome. */
+@page {
+  size: A4;
+  margin: 14mm;
+}
+@media print {
+  .sidebar,
+  .tabbar,
+  .toasts,
+  .offline,
+  .screen-only {
+    display: none !important;
+  }
+  body,
+  .content {
+    background: #fff !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+}

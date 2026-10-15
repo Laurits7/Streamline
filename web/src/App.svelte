@@ -29,9 +29,14 @@
   import Login from './views/Login.svelte'
   import { toast } from './lib/toast.svelte'
 
-  let phase = $state<'loading' | 'login' | 'setup' | 'app' | 'error'>('loading')
+  let phase = $state<'loading' | 'login' | 'setup' | 'app' | 'error' | 'reconcile'>('loading')
 
   async function boot() {
+    // A printed sheet's QR link opens without signing in (7.3, D-14).
+    if (match(location.pathname).name === 'reconcile') {
+      phase = 'reconcile'
+      return
+    }
     phase = 'loading'
     try {
       await store.start()
@@ -237,7 +242,9 @@
   })
 </script>
 
-{#if phase === 'loading'}
+{#if phase === 'reconcile'}
+  {#await import('./views/Reconcile.svelte') then m}<m.default token={(route as { token: string }).token} />{/await}
+{:else if phase === 'loading'}
   <div class="splash" aria-busy="true"></div>
 {:else if phase === 'error'}
   <div class="splash">
@@ -333,6 +340,8 @@
         {#await import('./views/Trends.svelte') then m}<m.default />{/await}
       {:else if route.name === 'occasions'}
         {#await import('./views/Occasions.svelte') then m}<m.default />{/await}
+      {:else if route.name === 'print'}
+        {#await import('./views/PrintDay.svelte') then m}<m.default date={route.date} />{/await}
       {:else if route.name === 'triage'}
         {#await import('./views/Triage.svelte') then m}<m.default />{/await}
       {:else if route.name === 'week'}

@@ -6368,3 +6368,117 @@ async fn morning_digest() {
         .await;
     assert!(me["digest_time"].is_null());
 }
+
+#[tokio::test]
+async fn printed_sheet_and_reconcile_link() {
+    // 7.3, D-14: print a day; the QR link completes only that sheet's open items, without
+    // signing in, for 48 hours; completions are marked as coming from paper.
+    let t = setup().await;
+    let admin = t.admin().await;
+    let d = ymd(today_of(&t, &admin).await);
+    let mk = |title: &str| {
+        t.req(
+            "POST",
+            "/api/v1/tasks",
+            Some(&admin),
+            Some(json!({"title": title, "day": d})),
+        )
+    };
+    let (_, a, _) = mk("Laundry").await;
+    let (_, b, _) = mk("Dishes").await;
+    let (_, other, _) = t
+        .req(
+            "POST",
+            "/api/v1/tasks",
+            Some(&admin),
+            Some(json!({"title": "Not printed"})),
+        )
+        .await;
+
+    let (s, sheet, _) = t
+        .req(
+            "POST",
+            "/api/v1/print/sheets",
+            Some(&admin),
+            Some(json!({"date": d})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{sheet}");
+    assert_eq!(sheet["items"].as_array().unwrap().len(), 2);
+    let url = sheet["url"].as_str().unwrap();
+    assert!(url.starts_with("http://localhost:3000/r/"), "{url}");
+    assert!(sheet["qr_svg"].as_str().unwrap().starts_with("<?xml"));
+    let token = url.rsplit('/').next().unwrap();
+
+    // No sign-in needed to read it.
+    let (s, r, _) = t
+        .req("GET", &format!("/api/v1/reconcile/{token}"), None, None)
+        .await;
+    assert_eq!(s, StatusCode::OK, "{r}");
+    let titles: Vec<&str> = r["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|i| i["title"].as_str().unwrap())
+        .collect();
+    assert_eq!(titles, vec!["Laundry", "Dishes"]);
+    let code_a = r["items"][0]["code"].as_str().unwrap().to_string();
+
+    // Completing: only codes on the sheet count.
+    let (s, r, _) = t
+        .req(
+            "POST",
+            &format!("/api/v1/reconcile/{token}"),
+            None,
+            Some(json!({"codes": [code_a, "NOPE"]})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{r}");
+    assert_eq!(
+        (
+            r["items"][0]["done"].as_bool(),
+            r["items"][1]["done"].as_bool()
+        ),
+        (Some(true), Some(false))
+    );
+    let status = |id: &Value| {
+        let id = id["id"].as_str().unwrap().to_string();
+        let t = &t;
+        let admin = admin.clone();
+        async move {
+            t.req("GET", &format!("/api/v1/tasks/{id}"), Some(&admin), None)
+                .await
+                .1["status"]
+                .clone()
+        }
+    };
+    assert_eq!(status(&a).await, "done");
+    assert_eq!(status(&b).await, "open");
+    assert_eq!(status(&other).await, "open");
+    let source: Option<String> =
+        sqlx::query_scalar("SELECT data FROM task_events WHERE task_id = ? AND kind = 'completed'")
+            .bind(a["id"].as_str().unwrap())
+            .fetch_one(&t.state.db.read)
+            .await
+            .unwrap();
+    assert_eq!(source.as_deref(), Some(r#"{"source":"print"}"#));
+
+    // Wrong or expired links don't work.
+    let (s, _, _) = t
+        .req("GET", "/api/v1/reconcile/not-a-token", None, None)
+        .await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+    sqlx::query("UPDATE print_sheets SET expires_at = '2000-01-01T00:00:00.000Z'")
+        .execute(&t.state.db.write)
+        .await
+        .unwrap();
+    let (s, _, _) = t
+        .req(
+            "POST",
+            &format!("/api/v1/reconcile/{token}"),
+            None,
+            Some(json!({"codes": []})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+}

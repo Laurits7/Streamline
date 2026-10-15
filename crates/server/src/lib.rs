@@ -20,6 +20,7 @@ pub mod net;
 pub mod notify;
 pub mod occasions;
 pub mod ownership;
+pub mod print;
 pub mod push;
 pub mod reminders;
 pub mod rollover;

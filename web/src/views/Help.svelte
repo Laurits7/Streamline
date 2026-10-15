@@ -105,6 +105,12 @@
       added, skipped or missed, focus time and planning — in time order. It's on the day view and in the evening
       review, and <em>Copy as text</em> gives you a summary to reflect on or paste elsewhere.
     </p>
+    <p>
+      <strong>Print the day</strong> (the list button next to the day's arrows, or <em>Print today</em> in search) makes an A4 sheet:
+      calendar entries, then each task with a box to tick, its steps and a short code, and room for notes. It carries a
+      QR code: scan it with any phone afterwards, no sign-in needed, to tick off what you did on paper. The link only
+      works for that sheet's tasks and for 48 hours; completions are noted as done on paper.
+    </p>
   </section>
 
   <section id="planning">

@@ -15,6 +15,7 @@ pub mod occasions;
 pub mod order;
 pub mod planner;
 pub mod planning;
+pub mod print;
 pub mod recurrence;
 pub mod rollover;
 pub mod time;

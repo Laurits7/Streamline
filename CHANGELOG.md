@@ -25,6 +25,9 @@
 - Morning digest (Settings → Notifications, off until you pick a time): one message each
   morning with things at set times, the plan, what's due and waiting items to check on,
   through push, ntfy or in the app; Preview shows today's.
+- Print the day: an A4 sheet with tick boxes, steps, short codes and a QR code; scanning it
+  on any phone (no sign-in, 48 hours, only that sheet's tasks) ticks off what was done on
+  paper (D-14).
 
 ## 1.3.0 (2026-10-14)
 
