@@ -2342,6 +2342,7 @@ class Store {
         | 'review_cadence'
         | 'notify_off'
         | 'ntfy_url'
+        | 'digest_time'
       >
     >,
   ) {

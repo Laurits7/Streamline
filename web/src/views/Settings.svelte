@@ -6,6 +6,7 @@
   import type { DayTemplate } from '../lib/api/types/DayTemplate'
   import type { TemplateBlock } from '../lib/api/types/TemplateBlock'
   import type { Me } from '../lib/api/types/Me'
+  import type { DigestPreview } from '../lib/api/types/DigestPreview'
   import type { UserSummary } from '../lib/api/types/UserSummary'
   import Icon from '../lib/components/Icon.svelte'
   import PlaceSwitcher from '../lib/components/PlaceSwitcher.svelte'
@@ -306,6 +307,15 @@
     loadTokens()
     loadUsers()
   })
+  // The morning digest (10.6): what today's would say.
+  let digestPreview = $state<DigestPreview | null>(null)
+  async function previewDigest() {
+    try {
+      digestPreview = await api.get<DigestPreview>('/me/digest')
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : 'Could not load the preview', 'error')
+    }
+  }
 </script>
 
 <h1>Settings</h1>
@@ -424,6 +434,16 @@
   {#each KINDS as [kind, label] (kind)}
     <label class="check plain"><input type="checkbox" checked={!me.notify_off.includes(kind)} onchange={(e) => toggleKind(kind, (e.currentTarget as HTMLInputElement).checked)} /> {label}</label>
   {/each}
+  <div class="digest">
+    <label>
+      <span>Morning digest: one message with the day ahead (empty = off)</span>
+      <input type="time" value={me.digest_time ?? ''} aria-label="Morning digest time" onchange={(e) => store.updateMe({ digest_time: (e.currentTarget as HTMLInputElement).value || null })} />
+    </label>
+    <button class="btn small" onclick={previewDigest}>Preview</button>
+  </div>
+  {#if digestPreview}
+    <div class="digest-preview card"><strong>{digestPreview.title}</strong><pre>{digestPreview.body}</pre></div>
+  {/if}
   <label class="ntfy">
     <span>Also send to ntfy (optional, works without HTTPS): your topic's address</span>
     <input type="url" value={me.ntfy_url ?? ''} placeholder="https://ntfy.sh/your-secret-topic" onchange={(e) => store.updateMe({ ntfy_url: (e.currentTarget as HTMLInputElement).value })} />
@@ -827,6 +847,33 @@
 </div>
 
 <style>
+  .digest {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    margin-top: 12px;
+    flex-wrap: wrap;
+  }
+  .digest label {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .digest label span {
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .digest-preview {
+    margin-top: 8px;
+    padding: 10px 12px;
+    font-size: 14px;
+  }
+  .digest-preview pre {
+    margin: 4px 0 0;
+    font: inherit;
+    white-space: pre-wrap;
+    color: var(--muted);
+  }
   /* Wide screens: two columns of sections instead of very long form fields. */
   @media (min-width: 1280px) {
     .settings-grid {

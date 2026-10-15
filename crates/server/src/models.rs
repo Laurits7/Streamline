@@ -32,6 +32,8 @@ pub struct User {
     pub last_review_date: Option<String>,
     pub notify_off: String,
     pub ntfy_url: Option<String>,
+    pub digest_time: Option<String>,
+    pub last_digest_date: Option<String>,
 }
 
 impl User {
@@ -88,6 +90,8 @@ pub struct Me {
     pub notify_off: Vec<String>,
     /// ntfy topic URL notifications are also sent to.
     pub ntfy_url: Option<String>,
+    /// When the morning digest is sent (local HH:MM); `null` = off.
+    pub digest_time: Option<String>,
 }
 
 impl From<&User> for Me {
@@ -116,6 +120,7 @@ impl From<&User> for Me {
             last_review_date: u.last_review_date.clone(),
             notify_off: serde_json::from_str(&u.notify_off).unwrap_or_default(),
             ntfy_url: u.ntfy_url.clone(),
+            digest_time: u.digest_time.clone(),
         }
     }
 }

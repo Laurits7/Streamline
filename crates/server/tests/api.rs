@@ -6259,3 +6259,112 @@ async fn step_log_only_shows_tasks_still_visible() {
         .await;
     assert_eq!(steps(log), 0);
 }
+
+#[tokio::test]
+async fn morning_digest() {
+    // 10.6: off by default; a time turns it on; the preview shows the day ahead; the job
+    // sends it once a day within two hours of the time.
+    let t = setup().await;
+    let admin = t.admin().await;
+    let (_, me, _) = t.req("GET", "/api/v1/me", Some(&admin), None).await;
+    assert!(me["digest_time"].is_null(), "off by default");
+    let (s, _, _) = t
+        .req(
+            "PATCH",
+            "/api/v1/me",
+            Some(&admin),
+            Some(json!({"digest_time": "7:30am"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+
+    let today = today_of(&t, &admin).await;
+    let d = ymd(today);
+    let mk = |body: Value| t.req("POST", "/api/v1/tasks", Some(&admin), Some(body));
+    let (_, a, _) = mk(json!({"title": "Laundry"})).await;
+    let (_, b, _) = mk(json!({"title": "Dentist"})).await;
+    mk(json!({"title": "Pay bill", "due_date": ymd(today - chrono::Duration::days(2))})).await;
+    let (_, w, _) = mk(json!({"title": "Parcel"})).await;
+    t.req(
+        "POST",
+        &format!("/api/v1/days/{d}/entries"),
+        Some(&admin),
+        Some(json!({"task_id": a["id"]})),
+    )
+    .await;
+    t.req(
+        "POST",
+        &format!("/api/v1/days/{d}/entries"),
+        Some(&admin),
+        Some(json!({"task_id": b["id"], "start_time": "09:30"})),
+    )
+    .await;
+    let soon = (chrono::Utc::now() + chrono::Duration::hours(1))
+        .to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    t.req(
+        "PATCH",
+        &format!("/api/v1/tasks/{}", w["id"].as_str().unwrap()),
+        Some(&admin),
+        Some(json!({"waiting": true, "check_back_at": soon})),
+    )
+    .await;
+
+    let (s, p, _) = t.req("GET", "/api/v1/me/digest", Some(&admin), None).await;
+    assert_eq!(s, StatusCode::OK, "{p}");
+    assert_eq!(p["title"], "Good morning: 3 things today");
+    let body = p["body"].as_str().unwrap();
+    for part in [
+        "At set times: 09:30 Dentist",
+        "Planned: Laundry",
+        "Due: Pay bill (overdue)",
+    ] {
+        assert!(body.contains(part), "{body}");
+    }
+
+    // The job: a time that has just passed sends once; one hours ago doesn't.
+    let last = || async {
+        sqlx::query_scalar::<_, Option<String>>(
+            "SELECT last_digest_date FROM users WHERE username = 'admin'",
+        )
+        .fetch_one(&t.state.db.read)
+        .await
+        .unwrap()
+    };
+    let hhmm = |offset_min: i64| {
+        (chrono::Utc::now() - chrono::Duration::minutes(offset_min))
+            .format("%H:%M")
+            .to_string()
+    };
+    t.req(
+        "PATCH",
+        "/api/v1/me",
+        Some(&admin),
+        Some(json!({"digest_time": hhmm(300)})),
+    )
+    .await;
+    streamline::digest::run_all(&t.state).await.unwrap();
+    assert_eq!(last().await, None, "five hours late: skipped");
+    let (_, me, _) = t
+        .req(
+            "PATCH",
+            "/api/v1/me",
+            Some(&admin),
+            Some(json!({"digest_time": hhmm(5)})),
+        )
+        .await;
+    assert!(me["digest_time"].is_string());
+    streamline::digest::run_all(&t.state).await.unwrap();
+    let first = last().await;
+    assert!(first.is_some(), "sent");
+    streamline::digest::run_all(&t.state).await.unwrap();
+    assert_eq!(last().await, first, "once a day");
+    let (_, me, _) = t
+        .req(
+            "PATCH",
+            "/api/v1/me",
+            Some(&admin),
+            Some(json!({"digest_time": null})),
+        )
+        .await;
+    assert!(me["digest_time"].is_null());
+}

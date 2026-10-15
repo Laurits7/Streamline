@@ -713,7 +713,7 @@ then the gate.
       tested): the usual overrun overall and per project and type of task, a suggested
       estimate when planning and in the task sheet, and planning load using realistic
       times (optional); Trends shows estimate accuracy; help and CHANGELOG.
-- [ ] **10.6 Morning digest**: one message each morning (time per user, off by default)
+- [x] **10.6 Morning digest**: one message each morning (time per user, off by default)
       through push or ntfy: today's plan, fixed times, what's due, waiting items to check;
       tests for the content; help and CHANGELOG.
 - [ ] **10.7 Phase gate** (Part D) for v1.4.

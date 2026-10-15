@@ -44,7 +44,7 @@ use crate::AppState;
         account::patch_me, account::change_password, account::list_tokens, account::create_token,
         account::revoke_token, account::list_users, account::create_user, account::patch_user,
         account::delete_user,
-        account::patch_prefs, focus::get_focus, focus::post_focus,
+        account::patch_prefs, crate::digest::preview, focus::get_focus, focus::post_focus,
         groups::list, groups::directory, groups::create, groups::patch, groups::delete, groups::add_member, groups::remove_member,
         workflows::list, workflows::create, workflows::patch, workflows::delete, workflows::start,
         places::list, places::create, places::patch, places::delete,
@@ -150,6 +150,7 @@ pub fn router(state: AppState) -> Router {
             patch(account::patch_user).delete(account::delete_user),
         )
         .route("/me/prefs", patch(account::patch_prefs))
+        .route("/me/digest", get(crate::digest::preview))
         .route("/focus", get(focus::get_focus).post(focus::post_focus))
         .route("/groups", get(groups::list).post(groups::create))
         .route("/groups/{id}", patch(groups::patch).delete(groups::delete))

@@ -22,6 +22,9 @@
   task, or overall). The task sheet suggests a realistic estimate when yours are usually off,
   Trends shows how accurate they are, and "Plan with realistic times" (Settings) counts the
   day's load that way.
+- Morning digest (Settings → Notifications, off until you pick a time): one message each
+  morning with things at set times, the plan, what's due and waiting items to check on,
+  through push, ntfy or in the app; Preview shows today's.
 
 ## 1.3.0 (2026-10-14)
 

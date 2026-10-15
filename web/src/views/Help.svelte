@@ -497,6 +497,7 @@
     <ul>
       <li><strong>Notifications</strong>: in <a href="/settings">Settings → Notifications</a>, tap <em>Turn on</em> on each device (on iPhone, from the home-screen app). You then get planning reminders, overlap warnings and the like even when Streamline is closed. Choose which kinds there too.</li>
       <li>Without HTTPS, everything else works in the browser as usual; the <a href="https://ntfy.sh">ntfy</a> app can still deliver notifications (Settings → Notifications).</li>
+      <li><strong>Morning digest</strong>: pick a time in <a href="/settings#notifications">Settings → Notifications</a> and you get one message each morning with the day ahead: things at set times, what's planned, what's due or overdue, and waiting items to check on. It comes through the same channels as other notifications (in the app, push, ntfy); leave the time empty to turn it off. <em>Preview</em> shows what today's says.</li>
     </ul>
   </section>
 

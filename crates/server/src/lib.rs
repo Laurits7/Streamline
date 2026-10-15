@@ -9,6 +9,7 @@ pub mod calsync;
 pub mod config;
 pub mod db;
 pub mod deps;
+pub mod digest;
 pub mod error;
 pub mod events;
 pub mod jobs;
