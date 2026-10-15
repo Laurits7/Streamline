@@ -11,6 +11,7 @@ export type Entry = PaletteItem & { href?: string; run?: () => void; taskId?: st
 const PAGES: [string, string][] = [
   ['Today', '/'],
   ['Inbox', '/inbox'],
+  ['Process the inbox', '/inbox/process'],
   ['All tasks', '/tasks'],
   ['Week', '/week'],
   ['Agenda', '/agenda'],

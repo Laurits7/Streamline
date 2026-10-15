@@ -318,6 +318,14 @@
       open tasks off your plan from today on. An idea can also sit inside an active project: tick
       <em>Just an idea for now</em> under “Add a subproject…”.
     </p>
+    <p>
+      <strong>Process the inbox</strong> (the button on the <a href="/inbox">Inbox</a>, when something needs a decision)
+      goes through what's in the inbox one item at a time, oldest first, and you decide with one key: <kbd>x</kbd> done,
+      <kbd>f</kbd> do it now (focus), <kbd>t</kbd> today, <kbd>m</kbd> tomorrow, <kbd>d</kbd> another day, <kbd>p</kbd> to a
+      project (type a few letters, Enter), <kbd>a</kbd> waiting, <kbd>Del</kbd> won't do, <kbd>s</kbd> skip. <kbd>1</kbd>–<kbd>5</kbd>
+      set an estimate on the way, and <kbd>u</kbd> undoes the last decision. Tasks that are planned, waiting or from a
+      routine aren't asked about.
+    </p>
   </section>
 
   <section id="devices">

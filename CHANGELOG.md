@@ -12,6 +12,9 @@
   task, each day's load, and drag and drop between days and from the unplanned list; or a
   calendar of the week on an hour grid with events, timed tasks and time blocks, where tasks
   drag to another day or time (D-94).
+- Process the inbox: one item at a time, oldest first, with one key per decision (done, do
+  now, today, tomorrow, another day, to a project, waiting, won't do, skip), estimates on
+  the way, and undo.
 
 ## 1.3.0 (2026-10-14)
 

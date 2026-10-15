@@ -124,6 +124,8 @@
         return
       }
       if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || typing(e.target)) return
+      // Inbox triage has its own single keys.
+      if (route.name === 'triage') return
       // Not while a sheet, the palette or the tour is open.
       if (ui.palette || ui.tour !== null || document.querySelector('[role=dialog][aria-modal=true]')) return
       const a = read(e.key, Date.now())
@@ -270,7 +272,7 @@
         <a href="/" class="drop-zone" draggable="false" aria-current={todayActive} use:droppable={toToday}><Icon name="sun" /> Today</a>
         <a href="/week" draggable="false" aria-current={active('week')}><Icon name="columns" /> Week</a>
         <a href="/agenda" draggable="false" aria-current={active('agenda')}><Icon name="calendar" /> Agenda</a>
-        <a href="/inbox" class="drop-zone" draggable="false" aria-current={active('inbox')} use:droppable={toProject(null)}><Icon name="inbox" /> Inbox</a>
+        <a href="/inbox" class="drop-zone" draggable="false" aria-current={active('inbox') ?? active('triage')} use:droppable={toProject(null)}><Icon name="inbox" /> Inbox</a>
         <a href="/tasks" draggable="false" aria-current={active('tasks')}><Icon name="list" /> All tasks</a>
         <a href="/routines" draggable="false" aria-current={active('routines')}><Icon name="repeat" /> Routines</a>
         <a href="/focus" draggable="false"><Icon name="target" /> Focus</a>
@@ -331,6 +333,8 @@
         {#await import('./views/Trends.svelte') then m}<m.default />{/await}
       {:else if route.name === 'occasions'}
         {#await import('./views/Occasions.svelte') then m}<m.default />{/await}
+      {:else if route.name === 'triage'}
+        {#await import('./views/Triage.svelte') then m}<m.default />{/await}
       {:else if route.name === 'week'}
         {#await import('./views/Week.svelte') then m}<m.default start={route.start} />{/await}
       {:else if route.name === 'agenda'}
@@ -356,7 +360,7 @@
 
     <nav class="tabbar" aria-label="Main">
       <a href="/" class="drop-zone" draggable="false" aria-current={todayActive} use:droppable={toToday}><Icon name="sun" size={22} /><span>Today</span></a>
-      <a href="/inbox" class="drop-zone" draggable="false" aria-current={active('inbox')} use:droppable={toProject(null)}><Icon name="inbox" size={22} /><span>Inbox</span></a>
+      <a href="/inbox" class="drop-zone" draggable="false" aria-current={active('inbox') ?? active('triage')} use:droppable={toProject(null)}><Icon name="inbox" size={22} /><span>Inbox</span></a>
       <a href="/agenda" aria-current={active('agenda')}><Icon name="calendar" size={22} /><span>Agenda</span></a>
       <a href="/projects" aria-current={projectsActive}><Icon name="folder" size={22} /><span>Projects</span></a>
       <button type="button" onclick={() => (ui.palette = true)}><Icon name="search" size={22} /><span>Search</span></button>

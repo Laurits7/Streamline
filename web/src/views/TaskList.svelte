@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { triageQueue } from '../lib/triage'
   // Inbox (projectId = null) or a single project's todo list.
   import ProjectMark from '../lib/components/ProjectMark.svelte'
   import Icon from '../lib/components/Icon.svelte'
@@ -90,6 +91,8 @@
     store.moveToProject(item.taskId, target, keyAt(others, index))
   }
   let subIdea = $state(false)
+  // Inbox items that still need a decision (10.3).
+  const toProcess = $derived(projectId ? 0 : triageQueue(store.tasks.values(), (id) => !!store.entryForTask(id)).length)
 </script>
 
 {#if projectId && !project}
@@ -116,6 +119,10 @@
           .join(' · ')}
       </p>
     </div>
+    {#if !projectId && toProcess}
+      <a class="btn primary" href="/inbox/process" title="Decide on each inbox item, one at a time"
+        ><Icon name="bolt" size={16} /> Process {toProcess}</a>
+    {/if}
     {#if project}
       <div class="menu-wrap">
         <button class="icon-btn" onclick={() => (menu = !menu)} aria-label="Project actions" aria-expanded={menu}><Icon name="more" /></button>
