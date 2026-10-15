@@ -372,6 +372,16 @@
             store.updateTask(id, { estimate_min: v ? Math.min(1440, Math.max(0, Number(v))) : null })
           }} />
       </div>
+      {#if task.status === 'open'}
+        {@const s = store.estimateSuggestion(task)}
+        {#if s}
+          <p class="suggest">
+            {s.basis === 'project' && task.project_id ? `Tasks in ${store.projectPath(task.project_id)}` : s.basis === 'type' ? 'Tasks like this' : 'Your tasks'}
+            usually take {s.factor.toFixed(1)}× the estimate ({s.n} done), so about {fmtMinutes(s.minutes)}.
+            <button class="btn small" onclick={() => store.useSuggestedEstimate(id, s.minutes)}>Use {fmtMinutes(s.minutes)}</button>
+          </p>
+        {/if}
+      {/if}
     </section>
 
     <section>
@@ -432,6 +442,15 @@
 {/if}
 
 <style>
+  .suggest {
+    margin: 8px 0 0;
+    font-size: 13px;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
   .head {
     display: flex;
     align-items: center;

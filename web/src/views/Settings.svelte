@@ -11,7 +11,7 @@
   import PlaceSwitcher from '../lib/components/PlaceSwitcher.svelte'
   import { desktop, invoke, type DesktopStatus } from '../lib/desktop'
   import { disablePush, enablePush, pushBlocker, pushEnabled } from '../lib/pwa'
-  import { store } from '../lib/store.svelte'
+  import { REALISTIC_PREF, store } from '../lib/store.svelte'
   import { toast } from '../lib/toast.svelte'
   import { ui } from '../lib/ui.svelte'
 
@@ -394,6 +394,13 @@
   <p class="help muted">
     You get one reminder at the planning time (in the app; phone notifications come later), and Today shows a
     banner until the day is planned. “My day” is the time counted as free when planning.
+  </p>
+  <label class="check plain">
+    <input type="checkbox" checked={store.pref(REALISTIC_PREF, false)} onchange={(e) => store.setPref(REALISTIC_PREF, (e.currentTarget as HTMLInputElement).checked)} />
+    Plan with realistic times: count each estimate as long as such tasks usually take you
+  </label>
+  <p class="help muted">
+    Learned from the focus time on finished tasks{store.estimateModel.overall ? ` (${store.estimateModel.overall.n} so far; they take ${store.estimateModel.overall.factor.toFixed(1)}× the estimate)` : '; it needs a few finished tasks with an estimate and focus time first'}. See Trends.
   </p>
 </section>
 

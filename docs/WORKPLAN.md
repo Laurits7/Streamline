@@ -709,7 +709,7 @@ then the gate.
       waiting items, projects without a next step, ideas to start or drop, then plan next
       week; the goal review folds in; remembers when it was last done and reminds on the
       chosen day; tests; help and CHANGELOG.
-- [ ] **10.5 Better estimates**: from estimates vs. focus time actually spent (domain,
+- [x] **10.5 Better estimates**: from estimates vs. focus time actually spent (domain,
       tested): the usual overrun overall and per project and type of task, a suggested
       estimate when planning and in the task sheet, and planning load using realistic
       times (optional); Trends shows estimate accuracy; help and CHANGELOG.

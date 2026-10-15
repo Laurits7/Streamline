@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { accuracy } from '../lib/estimates'
+  import { weekOf } from '../lib/dates'
   // Trends (SPEC §6.2b): each metric over a week, month or year, and mood next to
   // routine completion. Small SVG charts, no chart library.
   import Icon from '../lib/components/Icon.svelte'
@@ -41,6 +43,14 @@
     STATUSES.map((s) => ({ ...s, n: healthDays.filter((d) => healthBy.get(d)?.status === s.id).length })).filter((s) => s.n),
   )
   const moodPct = $derived(days.map((d) => (moodByDay.has(d) ? ((moodByDay.get(d)! - 1) / 4) * 100 : null)))
+  // Estimates against focus time actually spent (10.5).
+  const est = $derived(accuracy(store.tasks.values(), (iso) => weekOf(iso.slice(0, 10), store.me?.week_start ?? 1)))
+  const projectFactors = $derived(
+    [...store.estimateModel.byProject.entries()]
+      .map(([id, f]) => [id ? store.projectPath(id) : 'Inbox', f] as const)
+      .sort((a, b) => b[1].n - a[1].n)
+      .slice(0, 5),
+  )
 </script>
 
 <h1>Trends</h1>
@@ -92,6 +102,26 @@
   </section>
 {/if}
 
+<section class="card">
+  <h2>Estimates</h2>
+  {#if est.n}
+    <p class="lead-num"><strong>{est.within === null ? '–' : Math.round(est.within * 100)}%</strong> of {est.n} finished tasks took within a quarter of their estimate{store.estimateModel.overall ? `; on the whole they take ${store.estimateModel.overall.factor.toFixed(1)}× the estimate` : ''}.</p>
+    <div class="weeks" role="img" aria-label="How long tasks took against their estimate, per week">
+      {#each est.weeks as w (w.week)}
+        <div class="wk" title="Week of {w.week}: {w.factor.toFixed(2)}× ({w.n} tasks)">
+          <span class="b" class:over={w.factor > 1.25} class:under={w.factor < 0.75} style:height="{Math.min(100, (w.factor / 2) * 100)}%"></span>
+          <span class="l">{w.week.slice(5)}</span>
+        </div>
+      {/each}
+    </div>
+    <p class="small muted">Per week: how long tasks took against their estimate. Half height is right on; orange means over by more than a quarter, grey under.</p>
+    {#if projectFactors.length}
+      <p class="small muted">By project: {projectFactors.map(([name, f]) => `${name} ${f.factor.toFixed(1)}× (${f.n})`).join(' · ')}</p>
+    {/if}
+  {:else}
+    <p class="muted small">Give tasks an estimate and use the focus timer on them: once a few are done, this shows how long things really take.</p>
+  {/if}
+</section>
 {#if store.healthDays.size}
   <section class="card">
     <h2>Health</h2>
@@ -110,6 +140,44 @@
 <p class="muted small"><Icon name="settings" size={12} /> Add your own metrics (sleep, water, steps…) in <a href="/settings">Settings</a>.</p>
 
 <style>
+  .lead-num {
+    margin: 0 0 10px;
+  }
+  .lead-num strong {
+    font-size: 22px;
+  }
+  .weeks {
+    display: flex;
+    align-items: flex-end;
+    gap: 6px;
+    height: 90px;
+    margin-bottom: 6px;
+  }
+  .wk {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-end;
+    height: 100%;
+    gap: 2px;
+  }
+  .wk .b {
+    width: 100%;
+    max-width: 28px;
+    border-radius: 4px 4px 0 0;
+    background: var(--accent);
+  }
+  .wk .b.over {
+    background: var(--warn);
+  }
+  .wk .b.under {
+    background: var(--faint);
+  }
+  .wk .l {
+    font-size: 10px;
+    color: var(--muted);
+  }
   .charts {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(520px, 1fr));

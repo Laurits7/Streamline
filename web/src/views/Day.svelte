@@ -85,8 +85,7 @@
   })
   // For today only the rest of the day counts as free.
   const free = $derived(
-    store.me ? dayLoad(store.me, store.dayEntries(date), (id) => store.tasks.get(id), isToday ? now : undefined, store.dayBusy(date)).free
-      : 0,
+    store.dayLoadFor(date, isToday ? now : undefined).free,
   )
   const dayEvents = $derived(store.dayEvents(date))
   $effect(() => {

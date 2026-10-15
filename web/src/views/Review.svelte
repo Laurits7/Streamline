@@ -64,10 +64,7 @@
     nextStep[projectId] = ''
     done(projectId)
   }
-  function load(date: string) {
-    if (!store.me) return { planned: 0, free: 0 }
-    return dayLoad(store.me, store.dayEntries(date), (id) => store.tasks.get(id), date === store.today ? nowHHMM(tz) : undefined, store.dayBusy(date))
-  }
+  const load = (date: string) => store.dayLoadFor(date)
   async function finish() {
     saving = true
     try {

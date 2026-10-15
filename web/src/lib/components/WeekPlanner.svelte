@@ -28,10 +28,7 @@
       .filter((r): r is { entry: typeof r.entry; task: Task } => !!r.task && r.task.status !== 'missed' && r.task.status !== 'skipped')
       .sort((a, b) => Number(!a.entry.start_time) - Number(!b.entry.start_time) || (a.entry.start_time ?? '').localeCompare(b.entry.start_time ?? ''))
   }
-  function load(date: string) {
-    if (!store.me) return { planned: 0, free: 0 }
-    return dayLoad(store.me, store.dayEntries(date), (id) => store.tasks.get(id), date === store.today ? nowHHMM(store.me.timezone) : undefined, store.dayBusy(date))
-  }
+  const load = (date: string) => store.dayLoadFor(date)
   function drop(item: DragItem, date: string) {
     over = null
     if (item.kind !== 'task') return

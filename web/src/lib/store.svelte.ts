@@ -51,6 +51,9 @@ import { ulid } from './ulid'
 import { pickSub, pickTop, type Shape } from './marks'
 import { checkBackDue, isWaiting } from './waiting'
 import { statusAfter } from './checklist'
+import { factorFor, learn, realistic, suggestion } from './estimates'
+import { nowHHMM } from './dates'
+import { dayLoad, type DayLoad } from './planning'
 import { DesktopEvents, desktop } from './desktop'
 import { allDefaults, matchDefaults, tasksFor, type DefaultMatch } from './defaults'
 
@@ -152,6 +155,10 @@ const IDLE_TIMER: FocusTimer = {
 /** Focus options (D-82): off by default, the last choice is the next default. */
 export type FocusOptions = Pick<FocusTimer, 'mute' | 'screens'>
 const FOCUS_OPTIONS_PREF = 'focusOptions'
+/** Count planned time with realistic durations (10.5). */
+export const REALISTIC_PREF = 'realisticLoad'
+/** Tasks whose estimate was set from a suggestion. */
+const ESTIMATED_PREF = 'estimated'
 const byPosition = (a: { position: string }, b: { position: string }) =>
   a.position < b.position ? -1 : a.position > b.position ? 1 : 0
 
@@ -525,6 +532,42 @@ class Store {
       return
     }
     for (const [k, e] of results ?? []) this.applyRemote(k, e)
+  }
+
+  /** How long tasks really take compared with their estimates (10.5). */
+  estimateModel = $derived.by(() => learn(this.tasks.values()))
+
+  /**
+   * The suggested estimate for a task (10.5), unless one was applied to it already: applying
+   * again would scale an estimate that's realistic already.
+   */
+  estimateSuggestion(task: Task) {
+    if (this.pref<string[]>(ESTIMATED_PREF, []).includes(task.id)) return null
+    return suggestion(this.estimateModel, task)
+  }
+
+  /** Apply a suggested estimate and remember it (the last 300). */
+  useSuggestedEstimate(id: string, minutes: number) {
+    this.updateTask(id, { estimate_min: minutes })
+    this.setPref(ESTIMATED_PREF, [...this.pref<string[]>(ESTIMATED_PREF, []).filter((x) => x !== id), id].slice(-300))
+  }
+
+  /**
+   * A day's planned time against its free time. With "plan with realistic times" on, each
+   * estimate counts as long as such tasks usually take (10.5).
+   */
+  dayLoadFor(date: string, now?: string): DayLoad {
+    const realisticOn = this.pref<boolean>(REALISTIC_PREF, false)
+    const model = this.estimateModel
+    const get = (id: string) => {
+      const t = this.tasks.get(id)
+      if (!realisticOn || !t?.estimate_min) return t
+      const f = factorFor(model, t)
+      return f ? { ...t, estimate_min: realistic(t.estimate_min, f.factor) } : t
+    }
+    if (!this.me) return { planned: 0, free: 0, scheduled: 0, unestimated: 0 }
+    const at = now ?? (date === this.today ? nowHHMM(this.me.timezone) : undefined)
+    return dayLoad(this.me, this.dayEntries(date), get, at, this.dayBusy(date))
   }
 
   /** A record's name for messages: its title, name or date. */

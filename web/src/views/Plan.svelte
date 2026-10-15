@@ -166,7 +166,7 @@
 
   // Confirm
   const load = $derived(
-    dayLoad(store.me!, store.dayEntries(date), (id) => store.tasks.get(id), date === store.today ? nowHHMM(store.me!.timezone) : undefined, store.dayBusy(date)),
+    store.dayLoadFor(date),
   )
   const isPlanned = $derived(store.isPlanned(date))
   function confirm() {
