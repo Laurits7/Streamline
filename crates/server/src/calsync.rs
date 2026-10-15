@@ -392,6 +392,10 @@ pub async fn expand_calendar(
                     tracing::debug!("{href}: {w}");
                 }
                 for i in &x.instances {
+                    // Streamline's own write-back events (7.7) aren't calendar events here.
+                    if i.uid.starts_with(crate::writeback::OWN_UID_PREFIX) {
+                        continue;
+                    }
                     wanted.insert((i.uid.clone(), i.key.clone()), row_of(i, cal));
                 }
             }
@@ -480,6 +484,9 @@ pub fn spawn(state: AppState) {
             crate::util::guarded("calendar sync", async move {
                 if let Err(e) = run_due(&s).await {
                     tracing::warn!("calendar sync job failed: {e:#}");
+                }
+                if let Err(e) = crate::writeback::run_all(&s).await {
+                    tracing::warn!("calendar write-back job failed: {e:#}");
                 }
             })
             .await;

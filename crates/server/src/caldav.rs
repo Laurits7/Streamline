@@ -26,8 +26,7 @@ pub struct RemoteObject {
     pub ics: String,
 }
 
-/// A source of calendar events. CalDAV is the only one in v1; writing is reserved for
-/// calendar write-back (WORKPLAN 7.7).
+/// A source of calendar events, and where timed tasks are written back to (7.7).
 #[allow(async_fn_in_trait)]
 pub trait CalendarProvider {
     async fn list_calendars(&self) -> anyhow::Result<Vec<RemoteCalendar>>;
@@ -38,12 +37,11 @@ pub trait CalendarProvider {
         calendar_href: &str,
         hrefs: &[String],
     ) -> anyhow::Result<Vec<RemoteObject>>;
-    async fn put_event(&self, _calendar_href: &str, _ics: &str) -> anyhow::Result<()> {
-        bail!("writing to the calendar is not supported yet")
-    }
-    async fn delete_event(&self, _href: &str) -> anyhow::Result<()> {
-        bail!("writing to the calendar is not supported yet")
-    }
+    /// Create or replace `name` in the calendar; returns its href.
+    async fn put_event(&self, calendar_href: &str, name: &str, ics: &str)
+    -> anyhow::Result<String>;
+    /// Remove an event (already gone counts as done).
+    async fn delete_event(&self, href: &str) -> anyhow::Result<()>;
 }
 
 pub struct CalDav {
@@ -242,6 +240,59 @@ fn calendar_of(r: &DavResponse, base: &Url) -> Option<RemoteCalendar> {
 }
 
 impl CalendarProvider for CalDav {
+    async fn put_event(
+        &self,
+        calendar_href: &str,
+        name: &str,
+        ics: &str,
+    ) -> anyhow::Result<String> {
+        let cal = self.resolve(calendar_href)?;
+        let url = cal
+            .join(name)
+            .with_context(|| format!("bad event name {name:?}"))?;
+        let res = self
+            .http
+            .put(url.clone())
+            .basic_auth(&self.username, Some(&self.password))
+            .header("Content-Type", "text/calendar; charset=utf-8")
+            .body(ics.to_string())
+            .send()
+            .await
+            .map_err(|e| {
+                anyhow::Error::new(e.without_url()).context("can't reach the calendar server")
+            })?;
+        match res.status() {
+            s if s.is_success() => Ok(url.path().to_string()),
+            StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => {
+                bail!("the calendar server doesn't let Streamline write to this calendar")
+            }
+            s => bail!(
+                "the calendar server answered {s} when writing {}",
+                url.path()
+            ),
+        }
+    }
+
+    async fn delete_event(&self, href: &str) -> anyhow::Result<()> {
+        let url = self.resolve(href)?;
+        let res = self
+            .http
+            .delete(url.clone())
+            .basic_auth(&self.username, Some(&self.password))
+            .send()
+            .await
+            .map_err(|e| {
+                anyhow::Error::new(e.without_url()).context("can't reach the calendar server")
+            })?;
+        match res.status() {
+            s if s.is_success() || s == StatusCode::NOT_FOUND || s == StatusCode::GONE => Ok(()),
+            s => bail!(
+                "the calendar server answered {s} when removing {}",
+                url.path()
+            ),
+        }
+    }
+
     async fn list_calendars(&self) -> anyhow::Result<Vec<RemoteCalendar>> {
         // The URL may point straight at a calendar.
         let here = self.propfind(&self.base, "0", CAL_PROPS).await?;

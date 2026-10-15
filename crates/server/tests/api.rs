@@ -3015,6 +3015,21 @@ async fn dav_handler(
                 )
             })
             .collect()),
+        // Calendar write-back (7.7): store and remove events.
+        ("PUT", p, _) if p.starts_with("/dav/anna/work/") => {
+            d.ctag += 1;
+            let etag = format!("\"w{}\"", d.ctag);
+            d.objects.insert(p.to_string(), (etag, body));
+            StatusCode::CREATED.into_response()
+        }
+        ("DELETE", p, _) => {
+            if d.objects.remove(p).is_some() {
+                d.ctag += 1;
+                StatusCode::NO_CONTENT.into_response()
+            } else {
+                StatusCode::NOT_FOUND.into_response()
+            }
+        }
         _ => StatusCode::NOT_FOUND.into_response(),
     }
 }
@@ -6481,4 +6496,157 @@ async fn printed_sheet_and_reconcile_link() {
         )
         .await;
     assert_eq!(s, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn calendar_write_back() {
+    // 7.7, D-98: timed tasks go to the chosen calendar as busy events, follow changes, are
+    // taken back when unscheduled or when write-back is turned off, and aren't read back in.
+    let t = setup().await;
+    let admin = t.admin().await;
+    let anna = t.user(&admin, "anna").await;
+    let (url, dav) = mock_dav().await;
+    let (s, v, _) = t
+        .req(
+            "PUT",
+            "/api/v1/calendar/account",
+            Some(&anna),
+            Some(json!({"url": url, "username": "anna", "password": "secret"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    let (_, sync, _) = t
+        .req("GET", "/api/v1/sync?since=0", Some(&anna), None)
+        .await;
+    let cal = sync["calendars"][0]["id"].as_str().unwrap().to_string();
+
+    let d = ymd(today_of(&t, &anna).await);
+    let (_, task, _) = t
+        .req(
+            "POST",
+            "/api/v1/tasks",
+            Some(&anna),
+            Some(json!({"title": "Call plumber", "estimate_min": 45})),
+        )
+        .await;
+    let (_, entry, _) = t
+        .req(
+            "POST",
+            &format!("/api/v1/days/{d}/entries"),
+            Some(&anna),
+            Some(json!({"task_id": task["id"], "start_time": "10:00"})),
+        )
+        .await;
+    let entry_path = format!("/api/v1/day-entries/{}", entry["id"].as_str().unwrap());
+    let written = || {
+        let d = dav.lock().unwrap();
+        d.objects
+            .iter()
+            .filter(|(h, _)| h.contains("streamline-"))
+            .map(|(_, (_, ics))| ics.clone())
+            .collect::<Vec<_>>()
+    };
+
+    // Off by default: nothing written.
+    streamline::writeback::run_all(&t.state).await.unwrap();
+    assert!(written().is_empty());
+    let (s, _, _) = t
+        .req(
+            "PATCH",
+            "/api/v1/calendar/account",
+            Some(&anna),
+            Some(json!({"write_calendar_id": "nope"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    let (_, v, _) = t
+        .req(
+            "PATCH",
+            "/api/v1/calendar/account",
+            Some(&anna),
+            Some(json!({"write_calendar_id": cal})),
+        )
+        .await;
+    assert_eq!(v["write_calendar_id"], cal.as_str());
+    streamline::writeback::run_all(&t.state).await.unwrap();
+    let w = written();
+    assert_eq!(w.len(), 1);
+    assert!(
+        w[0].contains("SUMMARY:Call plumber\r\n") && w[0].contains("UID:streamline-entry-"),
+        "{}",
+        w[0]
+    );
+
+    // Not read back in as a calendar event.
+    t.req("POST", "/api/v1/calendar/sync", Some(&anna), None)
+        .await;
+    let (_, sync, _) = t
+        .req("GET", "/api/v1/sync?since=0", Some(&anna), None)
+        .await;
+    assert!(
+        !sync["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|e| e["title"] == "Call plumber"),
+        "{}",
+        sync["events"]
+    );
+
+    // Nothing changed: nothing sent again.
+    let before = dav.lock().unwrap().requests.len();
+    streamline::writeback::run_all(&t.state).await.unwrap();
+    assert_eq!(dav.lock().unwrap().requests.len(), before);
+
+    // Moved: rewritten; titles off: "Busy".
+    t.req(
+        "PATCH",
+        &entry_path,
+        Some(&anna),
+        Some(json!({"start_time": "15:30"})),
+    )
+    .await;
+    t.req(
+        "PATCH",
+        "/api/v1/calendar/account",
+        Some(&anna),
+        Some(json!({"write_titles": false})),
+    )
+    .await;
+    streamline::writeback::run_all(&t.state).await.unwrap();
+    let w = written();
+    assert_eq!(w.len(), 1);
+    assert!(w[0].contains("SUMMARY:Busy\r\n"), "{}", w[0]);
+    assert!(!w[0].contains("T100000"), "moved away from 10:00: {}", w[0]);
+
+    // Unscheduled: taken back.
+    t.req(
+        "PATCH",
+        &entry_path,
+        Some(&anna),
+        Some(json!({"start_time": null})),
+    )
+    .await;
+    streamline::writeback::run_all(&t.state).await.unwrap();
+    assert!(written().is_empty());
+
+    // Scheduled again, then write-back off: taken back too.
+    t.req(
+        "PATCH",
+        &entry_path,
+        Some(&anna),
+        Some(json!({"start_time": "11:00"})),
+    )
+    .await;
+    streamline::writeback::run_all(&t.state).await.unwrap();
+    assert_eq!(written().len(), 1);
+    t.req(
+        "PATCH",
+        "/api/v1/calendar/account",
+        Some(&anna),
+        Some(json!({"write_calendar_id": null})),
+    )
+    .await;
+    streamline::writeback::run_all(&t.state).await.unwrap();
+    assert!(written().is_empty());
 }

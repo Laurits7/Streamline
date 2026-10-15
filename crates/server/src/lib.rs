@@ -33,6 +33,7 @@ pub mod util;
 pub mod visibility;
 pub mod waiting;
 pub mod workflows;
+pub mod writeback;
 
 use std::{collections::HashMap, net::SocketAddr, sync::Arc, time::Instant};
 

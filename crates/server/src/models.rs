@@ -831,6 +831,8 @@ pub struct CalendarAccount {
     pub updated_at: String,
     pub deleted_at: Option<String>,
     pub rev: i64,
+    pub write_calendar_id: Option<String>,
+    pub write_titles: bool,
 }
 
 /// What the API shows of a calendar account.
@@ -846,6 +848,10 @@ pub struct CalendarAccountView {
     pub status: String,
     pub last_sync_at: Option<String>,
     pub last_error: Option<String>,
+    /// Where timed tasks are written as busy events (7.7); `null` = not written.
+    pub write_calendar_id: Option<String>,
+    /// Write task titles (else just "Busy").
+    pub write_titles: bool,
 }
 
 impl From<&CalendarAccount> for CalendarAccountView {
@@ -859,6 +865,8 @@ impl From<&CalendarAccount> for CalendarAccountView {
             status: a.status.clone(),
             last_sync_at: a.last_sync_at.clone(),
             last_error: a.last_error.clone(),
+            write_calendar_id: a.write_calendar_id.clone(),
+            write_titles: a.write_titles,
         }
     }
 }

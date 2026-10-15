@@ -6,6 +6,7 @@
   import type { DayTemplate } from '../lib/api/types/DayTemplate'
   import type { TemplateBlock } from '../lib/api/types/TemplateBlock'
   import type { Me } from '../lib/api/types/Me'
+  import type { CalendarAccountView } from '../lib/api/types/CalendarAccountView'
   import type { DigestPreview } from '../lib/api/types/DigestPreview'
   import type { UserSummary } from '../lib/api/types/UserSummary'
   import Icon from '../lib/components/Icon.svelte'
@@ -314,6 +315,14 @@
       digestPreview = await api.get<DigestPreview>('/me/digest')
     } catch (e) {
       toast(e instanceof ApiError ? e.message : 'Could not load the preview', 'error')
+    }
+  }
+  // Calendar write-back (7.7).
+  async function setWriteBack(patch: { write_calendar_id?: string | null; write_titles?: boolean }) {
+    try {
+      store.calendarAccount = await api.patch<CalendarAccountView>('/calendar/account', patch)
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : 'Could not save', 'error')
     }
   }
 </script>
@@ -701,6 +710,25 @@
           onchange={(e) => store.updateCalendar(c.id, { user_color: (e.currentTarget as HTMLInputElement).value })} />
       </div>
     {/each}
+    <div class="writeback">
+      <label>
+        <span>Show my tasks with a time in this calendar (as busy)</span>
+        <select value={a.write_calendar_id ?? ''} onchange={(e) => setWriteBack({ write_calendar_id: (e.currentTarget as HTMLSelectElement).value || null })}>
+          <option value="">Don't write to my calendar</option>
+          {#each calendars as c (c.id)}<option value={c.id}>{c.name}</option>{/each}
+        </select>
+      </label>
+      {#if a.write_calendar_id}
+        <label class="check plain">
+          <input type="checkbox" checked={a.write_titles} onchange={(e) => setWriteBack({ write_titles: (e.currentTarget as HTMLInputElement).checked })} />
+          Use task titles (otherwise they show as “Busy”)
+        </label>
+      {/if}
+      <p class="help muted">
+        From yesterday to two weeks ahead, kept up to date within a minute; turning it off removes them again. A separate
+        calendar (say “Streamline”, made in your calendar app) keeps them apart from your own events.
+      </p>
+    </div>
     <div class="row">
       <button class="btn small" onclick={syncCal} disabled={!!calBusy}>{calBusy === 'sync' ? 'Syncing…' : 'Sync now'}</button>
       <button class="btn small danger" onclick={disconnectCal}>Disconnect</button>
@@ -847,6 +875,21 @@
 </div>
 
 <style>
+  .writeback {
+    margin: 12px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .writeback label:not(.check) {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .writeback label span {
+    font-size: 13px;
+    color: var(--muted);
+  }
   .digest {
     display: flex;
     align-items: flex-end;

@@ -551,7 +551,7 @@ postponed.*
       id; repository rules choose the project (else the inbox); closed, merged or unassigned
       upstream completes the task; read-only towards the forge; tests with recorded API
       answers; help and CHANGELOG.
-- [ ] **7.7 Calendar write-back**: `put_event` on the provider; write planned blocks as busy
+- [x] **7.7 Calendar write-back**: `put_event` on the provider; write planned blocks as busy
       events to a dedicated calendar.
 - [ ] **7.8 Native app** *(Linux desktop app moved to Phase 9, D-78; phones stay on the PWA, D-61)*: evaluate Tauri 2 reusing `web/`, with token auth and the
       change feed.

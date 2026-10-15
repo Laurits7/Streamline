@@ -430,6 +430,12 @@
       <li>Untick a calendar to hide it, or pick another colour. If the server can't be reached, the last known events stay and Settings shows the error.</li>
       <li>Your password is stored encrypted on the server and never sent back to the browser. Other people never see your events: a todo for one of your events in a shared project is visible to the group, but not the event it's for.</li>
     </ul>
+    <p>
+      <strong>Your tasks in your calendar</strong>: in <a href="/settings#calendar">Settings → Calendar</a>, choose a calendar to show
+      your tasks with a time in, as busy time, so others looking at your calendar see you're taken. They follow your
+      plan within a minute (moved, rescheduled or removed), from yesterday to two weeks ahead; titles can be hidden
+      (“Busy”). A separate calendar, say “Streamline”, keeps them apart; turning it off removes them again.
+    </p>
   </section>
 
   <section id="tracking">

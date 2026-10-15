@@ -159,6 +159,8 @@ pub async fn put_account(
             updated_at: ts,
             deleted_at: None,
             rev,
+            write_calendar_id: None,
+            write_titles: true,
         },
     };
     sqlx::query(
@@ -178,11 +180,70 @@ pub async fn put_account(
     Ok(Json(CalendarAccountView::from(&synced)))
 }
 
+#[derive(Deserialize, utoipa::ToSchema)]
+pub struct PatchAccount {
+    /// Write timed tasks to this calendar (one of yours) as busy events; `null` turns it
+    /// off and takes back what was written (7.7).
+    #[serde(default, deserialize_with = "double_option")]
+    write_calendar_id: Option<Option<String>>,
+    /// Show task titles in those events (else "Busy").
+    write_titles: Option<bool>,
+}
+
+#[utoipa::path(patch, path = "/calendar/account", tag = "calendar", summary = "Choose where timed tasks are written as busy events", request_body = PatchAccount, responses((status = 200, body = CalendarAccountView), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 404, description = "No calendar account"), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
+pub async fn patch_account(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Json(p): Json<PatchAccount>,
+) -> ApiResult<Json<CalendarAccountView>> {
+    let mut tx = state.db.write.begin().await?;
+    let mut a = account_for(&mut tx, user.id())
+        .await?
+        .ok_or(AppError::NotFound)?;
+    if let Some(v) = p.write_calendar_id {
+        if let Some(id) = &v {
+            let mine: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM calendars WHERE id = ? AND account_id = ? AND deleted_at IS NULL)")
+                .bind(id)
+                .bind(&a.id)
+                .fetch_one(&mut *tx)
+                .await?;
+            if !mine {
+                return Err(bad("unknown calendar"));
+            }
+        }
+        a.write_calendar_id = v;
+    }
+    if let Some(v) = p.write_titles {
+        a.write_titles = v;
+    }
+    a.updated_at = now();
+    a.rev = next_rev(&mut tx).await?;
+    sqlx::query("UPDATE calendar_accounts SET write_calendar_id = ?, write_titles = ?, updated_at = ?, rev = ? WHERE id = ?")
+        .bind(&a.write_calendar_id)
+        .bind(a.write_titles)
+        .bind(&a.updated_at)
+        .bind(a.rev)
+        .bind(&a.id)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    let view = CalendarAccountView::from(&a);
+    state
+        .bus
+        .publish([Change::calendar_account(user.id(), Some(&view))]);
+    Ok(Json(view))
+}
+
 #[utoipa::path(delete, path = "/calendar/account", tag = "calendar", summary = "Disconnect your calendar account (its events disappear)", responses((status = 204, description = "Done"), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
 pub async fn delete_account(
     State(state): State<AppState>,
     user: AuthUser,
 ) -> ApiResult<StatusCode> {
+    // Take back the events written to the calendar while the password is still known.
+    let existing = account_for(&mut *state.db.read.acquire().await?, user.id()).await?;
+    if let Some(a) = &existing {
+        let _ = crate::writeback::remove_all(&state, a).await;
+    }
     let _guard = state.calendar_lock.lock().await;
     let mut tx = state.db.write.begin().await?;
     let Some(a) = account_for(&mut tx, user.id()).await? else {
