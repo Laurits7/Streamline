@@ -35,8 +35,26 @@ impl Owner {
     }
 }
 
-/// `Some(group)` → that group (you must be a member); `None` → you.
-pub fn chosen(user: &AuthUser, group: Option<&str>) -> ApiResult<Owner> {
+/// `Some(group)` → that group (you must be a member, and it must be one of this server's,
+/// not mirrored from another; Phase 8); `None` → you.
+pub async fn chosen(
+    state: &crate::AppState,
+    user: &AuthUser,
+    group: Option<&str>,
+) -> ApiResult<Owner> {
+    if let Some(g) = group {
+        let mirrored: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM groups WHERE id = ? AND home IS NOT NULL)",
+        )
+        .bind(g)
+        .fetch_one(&state.db.read)
+        .await?;
+        if mirrored {
+            return Err(bad(
+                "that group is mirrored from another server; share things with it there",
+            ));
+        }
+    }
     match group {
         Some(g) if user.groups.iter().any(|x| x == g) => Ok(Owner {
             user: None,

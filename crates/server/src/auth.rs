@@ -137,7 +137,7 @@ pub async fn load_user(state: &AppState, id: &str) -> sqlx::Result<Option<User>>
 }
 
 pub async fn user_count(state: &AppState) -> sqlx::Result<i64> {
-    sqlx::query_scalar("SELECT COUNT(*) FROM users WHERE deleted_at IS NULL")
+    sqlx::query_scalar("SELECT COUNT(*) FROM users WHERE deleted_at IS NULL AND home IS NULL")
         .fetch_one(&state.db.read)
         .await
 }
@@ -335,6 +335,11 @@ pub async fn groups_of(state: &AppState, user_id: &str) -> sqlx::Result<Vec<Stri
         .await
 }
 
+/// Request extension: run this request as that user (edits forwarded by a collaborator's
+/// server, Phase 8). Only ever inserted by the server itself.
+#[derive(Clone)]
+pub struct ActingUser(pub String);
+
 impl AuthUser {
     pub fn id(&self) -> &str {
         &self.user.id
@@ -348,6 +353,18 @@ impl FromRequestParts<AppState> for AuthUser {
         parts: &mut Parts,
         state: &AppState,
     ) -> Result<Self, Self::Rejection> {
+        // An edit forwarded from another server, run as its person (set only internally,
+        // never from a request; Phase 8).
+        if let Some(ActingUser(id)) = parts.extensions.get::<ActingUser>().cloned() {
+            let user = load_user(state, &id).await?.ok_or(AppError::Unauthorized)?;
+            let groups = groups_of(state, &user.id).await?;
+            return Ok(AuthUser {
+                user,
+                session_hash: None,
+                token_hash: None,
+                groups,
+            });
+        }
         let headers = &parts.headers;
         if let Some(token) = headers
             .get(header::AUTHORIZATION)

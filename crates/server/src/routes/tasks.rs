@@ -239,7 +239,7 @@ pub async fn create(
         Some(p) => crate::ownership::project_owner(&mut tx, p)
             .await?
             .unwrap_or_else(|| crate::ownership::Owner::me(&user)),
-        None => crate::ownership::chosen(&user, c.owner_group_id.as_deref())?,
+        None => crate::ownership::chosen(&state, &user, c.owner_group_id.as_deref()).await?,
     };
     check_task_type(&mut tx, &user, &task_type_id).await?;
     crate::routes::places::check_place(&mut tx, &user, &c.place_id).await?;
@@ -523,7 +523,7 @@ pub async fn patch(
                 "this task is shared through its project; move it out of the project to share it separately",
             ));
         }
-        let o = crate::ownership::chosen(&user, g.as_deref())?;
+        let o = crate::ownership::chosen(&state, &user, g.as_deref()).await?;
         t.owner_user_id = o.user;
         t.owner_group_id = o.group;
     }

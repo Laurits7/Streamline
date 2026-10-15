@@ -117,7 +117,7 @@ pub async fn create(
     user: AuthUser,
     Json(c): Json<CreateGoal>,
 ) -> ApiResult<Json<Goal>> {
-    let owner = ownership::chosen(&user, c.owner_group_id.as_deref())?;
+    let owner = ownership::chosen(&state, &user, c.owner_group_id.as_deref()).await?;
     let id = id_or_new(c.id)?;
     let mut tx = state.db.write.begin().await?;
     if let Some(g) = sqlx::query_as::<_, Goal>("SELECT * FROM goals WHERE id = ?")
@@ -227,7 +227,7 @@ pub async fn patch(
         g.position = v;
     }
     if let Some(group) = c.owner_group_id {
-        let o = ownership::chosen(&user, group.as_deref())?;
+        let o = ownership::chosen(&state, &user, group.as_deref()).await?;
         g.owner_user_id = o.user;
         g.owner_group_id = o.group;
     }

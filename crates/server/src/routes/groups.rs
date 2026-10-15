@@ -27,6 +27,7 @@ struct GroupRow {
     updated_at: String,
     deleted_at: Option<String>,
     rev: i64,
+    home: Option<String>,
 }
 
 pub async fn load(conn: &mut SqliteConnection, id: &str) -> sqlx::Result<Option<Group>> {
@@ -53,6 +54,7 @@ pub async fn load(conn: &mut SqliteConnection, id: &str) -> sqlx::Result<Option<
         updated_at: r.updated_at,
         deleted_at: r.deleted_at,
         rev: r.rev,
+        home: r.home,
     }))
 }
 
@@ -80,12 +82,24 @@ pub async fn visible_groups(
     Ok(out)
 }
 
+/// A group mirrored from another server is managed there (Phase 8).
+fn not_mirrored(g: &Group) -> ApiResult<()> {
+    match &g.home {
+        Some(home) => Err(AppError::Forbidden(format!(
+            "this group comes from {}; it's managed there (leave its project in Settings instead)",
+            crate::federation::host_of(home)
+        ))),
+        None => Ok(()),
+    }
+}
+
 /// Group owners and admins manage a group; members can only see it (and leave).
 async fn load_managed(conn: &mut SqliteConnection, user: &AuthUser, id: &str) -> ApiResult<Group> {
     let g = load(conn, id)
         .await?
         .filter(|g| g.deleted_at.is_none())
         .ok_or(AppError::NotFound)?;
+    not_mirrored(&g)?;
     let member = g.members.iter().find(|m| m.user_id == user.id());
     if member.is_none() && !user.user.is_admin {
         return Err(AppError::NotFound);
@@ -121,7 +135,7 @@ pub async fn directory(
     State(state): State<AppState>,
     _user: AuthUser,
 ) -> ApiResult<Json<Vec<UserSummary>>> {
-    let rows = sqlx::query_as("SELECT id, display_name, username FROM users WHERE deleted_at IS NULL ORDER BY display_name")
+    let rows = sqlx::query_as("SELECT id, display_name, username FROM users WHERE deleted_at IS NULL AND home IS NULL ORDER BY display_name")
         .fetch_all(&state.db.read)
         .await?;
     Ok(Json(rows))
@@ -274,11 +288,12 @@ pub async fn add_member(
     }
     let mut tx = state.db.write.begin().await?;
     let g = load_managed(&mut tx, &user, &id).await?;
-    let exists: Option<String> =
-        sqlx::query_scalar("SELECT id FROM users WHERE id = ? AND deleted_at IS NULL")
-            .bind(&c.user_id)
-            .fetch_optional(&mut *tx)
-            .await?;
+    let exists: Option<String> = sqlx::query_scalar(
+        "SELECT id FROM users WHERE id = ? AND deleted_at IS NULL AND home IS NULL",
+    )
+    .bind(&c.user_id)
+    .fetch_optional(&mut *tx)
+    .await?;
     exists.ok_or_else(|| bad("unknown user"))?;
     if role == "member"
         && g.members
@@ -320,7 +335,8 @@ pub async fn remove_member(
         load(&mut tx, &id)
             .await?
             .filter(|g| g.deleted_at.is_none() && g.members.iter().any(|m| m.user_id == member))
-            .ok_or(AppError::NotFound)?
+            .ok_or(AppError::NotFound)
+            .and_then(|g| not_mirrored(&g).map(|_| g))?
     } else {
         load_managed(&mut tx, &user, &id).await?
     };

@@ -102,10 +102,11 @@ pub async fn gather(state: &AppState, user: &User, day: NaiveDate) -> anyhow::Re
 
 /// Send the digests that are due (the one-minute job tick).
 pub async fn run_all(state: &AppState) -> anyhow::Result<()> {
-    let users: Vec<User> =
-        sqlx::query_as("SELECT * FROM users WHERE deleted_at IS NULL AND digest_time IS NOT NULL")
-            .fetch_all(&state.db.read)
-            .await?;
+    let users: Vec<User> = sqlx::query_as(
+        "SELECT * FROM users WHERE deleted_at IS NULL AND home IS NULL AND digest_time IS NOT NULL",
+    )
+    .fetch_all(&state.db.read)
+    .await?;
     for user in users {
         let day = crate::rollover::today_for(&user);
         let date = day.format("%Y-%m-%d").to_string();

@@ -3,6 +3,7 @@ mod backups;
 mod blocks;
 mod calendar;
 mod days;
+mod federation;
 pub mod focus;
 mod forges;
 mod goals;
@@ -51,6 +52,7 @@ use crate::AppState;
         places::list, places::create, places::patch, places::delete,
         series::list, series::all_stats, series::create, series::patch, series::delete,
         calendar::get_account, calendar::put_account, calendar::patch_account, calendar::delete_account, calendar::test, calendar::sync_now, calendar::patch_calendar, calendar::put_event_project,
+        federation::create_invite, federation::remote_members, federation::remove_member, federation::join_here, federation::feed, federation::events, federation::forward, federation::leave_here, federation::list_joins, federation::create_join, federation::sync_join, federation::delete_join,
         forges::list, forges::test, forges::create, forges::patch, forges::sync_now, forges::delete,
         occasions::calendar, occasions::search, occasions::load, occasions::create_person, occasions::patch_person, occasions::delete_person, occasions::put_template,
         blocks::create_template, blocks::patch_template, blocks::delete_template, blocks::apply_template, blocks::create_block, blocks::patch_block, blocks::delete_block, blocks::suggest,
@@ -77,6 +79,7 @@ use crate::AppState;
         (name = "workflows", description = "Multi-step workflow templates"),
         (name = "groups", description = "Groups and shared ownership"),
         (name = "calendar", description = "Calendar account (CalDAV) and calendars"),
+        (name = "federation", description = "Sharing projects with people on other Streamline servers"),
         (name = "forges", description = "Tasks from GitHub, GitLab and Gitea/Forgejo"),
         (name = "occasions", description = "Nameday calendar, people, birthdays and namedays"),
         (name = "tracking", description = "Reflection, metrics, day summary and export (personal)"),
@@ -197,6 +200,32 @@ pub fn router(state: AppState) -> Router {
         .route("/calendar/test", post(calendar::test))
         .route("/calendar/sync", post(calendar::sync_now))
         .route("/calendars/{id}", patch(calendar::patch_calendar))
+        .route("/projects/{id}/invites", post(federation::create_invite))
+        .route(
+            "/projects/{id}/remote-members",
+            get(federation::remote_members),
+        )
+        .route("/federation/join", post(federation::join_here))
+        .route(
+            "/federation/joins",
+            get(federation::list_joins).post(federation::create_join),
+        )
+        .route(
+            "/federation/joins/{id}",
+            axum::routing::delete(federation::delete_join),
+        )
+        .route("/federation/joins/{id}/sync", post(federation::sync_join))
+        .route(
+            "/federation/links/{id}",
+            axum::routing::delete(federation::remove_member),
+        )
+        .route("/federation/links/{id}/feed", get(federation::feed))
+        .route("/federation/links/{id}/events", get(federation::events))
+        .route("/federation/links/{id}/forward", post(federation::forward))
+        .route(
+            "/federation/links/{id}/self",
+            axum::routing::delete(federation::leave_here),
+        )
         .route("/forges", get(forges::list).post(forges::create))
         .route("/forges/test", post(forges::test))
         .route("/forges/{id}", patch(forges::patch).delete(forges::delete))
@@ -293,7 +322,13 @@ pub fn router(state: AppState) -> Router {
             "/day-entries/{id}",
             patch(days::patch_entry).delete(days::delete_entry),
         )
-        .route("/openapi.json", get(openapi_json));
+        .route("/openapi.json", get(openapi_json))
+        // Edits to projects shared from another server go there (Phase 8).
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            crate::federation::forward_replica_writes,
+        ));
+    let _ = state.api.set(api.clone().with_state(state.clone()));
 
     Router::new()
         .nest("/api/v1", api)

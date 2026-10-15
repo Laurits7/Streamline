@@ -257,6 +257,27 @@ pub async fn complete(
         if !open {
             continue;
         }
+        // A task of a project shared from another server is completed there (Phase 8).
+        if let Some(res) = crate::federation::write_as(
+            &state,
+            &user.id,
+            axum::http::Method::PATCH,
+            &format!("/tasks/{}", it.task_id),
+            json!({"status": "done"}),
+        )
+        .await
+        {
+            if res.is_ok() {
+                sqlx::query(
+                    "UPDATE task_events SET data = ?2 WHERE rowid = (SELECT rowid FROM task_events WHERE task_id = ?1 AND kind = 'completed' ORDER BY at DESC LIMIT 1)",
+                )
+                .bind(&it.task_id)
+                .bind(json!({"source": "print"}).to_string())
+                .execute(&state.db.write)
+                .await?;
+            }
+            continue;
+        }
         // The usual completion (dependents, waiting, live updates), as the owner.
         let as_owner = AuthUser {
             user: user.clone(),

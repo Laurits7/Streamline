@@ -34,6 +34,8 @@ pub struct User {
     pub ntfy_url: Option<String>,
     pub digest_time: Option<String>,
     pub last_digest_date: Option<String>,
+    /// Set for people who live on another server (Phase 8): their server's address.
+    pub home: Option<String>,
 }
 
 impl User {
@@ -142,7 +144,7 @@ pub struct TaskType {
     pub rev: i64,
 }
 
-#[derive(Debug, Clone, Serialize, FromRow, TS, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, serde::Deserialize, FromRow, TS, utoipa::ToSchema)]
 #[ts(export)]
 pub struct Project {
     pub id: String,
@@ -170,7 +172,7 @@ pub struct Project {
     pub rev: i64,
 }
 
-#[derive(Debug, Clone, Serialize, FromRow, TS, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, serde::Deserialize, FromRow, TS, utoipa::ToSchema)]
 #[ts(export)]
 pub struct Task {
     pub id: String,
@@ -349,6 +351,9 @@ pub struct Group {
     pub deleted_at: Option<String>,
     #[ts(type = "number")]
     pub rev: i64,
+    /// Set for a group mirrored from another server (Phase 8): that server's address. It's
+    /// managed there and can't own anything made here.
+    pub home: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, FromRow, TS, utoipa::ToSchema)]
@@ -555,7 +560,7 @@ pub async fn upsert_place(conn: &mut SqliteConnection, p: &Place) -> sqlx::Resul
 }
 
 /// A routine: a template that spawns one task per occurrence (SPEC §6.3).
-#[derive(Debug, Clone, Serialize, FromRow, TS, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, serde::Deserialize, FromRow, TS, utoipa::ToSchema)]
 #[ts(export)]
 pub struct Series {
     pub id: String,

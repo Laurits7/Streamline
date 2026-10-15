@@ -451,11 +451,12 @@ async fn create_task(
     it: &Item,
 ) -> anyhow::Result<Task> {
     // The rule's project, if it still exists and is yours to see; else the inbox.
+    // (Not a project shared from another server: those change only there.)
     let project = match forge::project_for(&a.rules, &it.repo) {
-        Some(p) => crate::routes::projects::load_visible(conn, me, p)
+        Some(p) if !replica(conn, p).await? => crate::routes::projects::load_visible(conn, me, p)
             .await
             .ok(),
-        None => None,
+        _ => None,
     };
     let owner = project
         .as_ref()
@@ -526,6 +527,13 @@ async fn create_task(
     };
     upsert_task(conn, &t).await?;
     Ok(t)
+}
+
+async fn replica(conn: &mut sqlx::SqliteConnection, project_id: &str) -> sqlx::Result<bool> {
+    sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM fed_items WHERE item_id = ?)")
+        .bind(project_id)
+        .fetch_one(conn)
+        .await
 }
 
 /// Background job: poll accounts whose last poll is older than [`INTERVAL`].

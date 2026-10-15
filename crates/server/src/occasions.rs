@@ -276,7 +276,7 @@ async fn create_occasion(
 
 pub async fn materialize_all(state: &AppState) -> anyhow::Result<()> {
     let users: Vec<User> = sqlx::query_as(
-        "SELECT * FROM users WHERE deleted_at IS NULL AND id IN (SELECT owner_user_id FROM people WHERE deleted_at IS NULL)",
+        "SELECT * FROM users WHERE deleted_at IS NULL AND home IS NULL AND id IN (SELECT owner_user_id FROM people WHERE deleted_at IS NULL)",
     )
     .fetch_all(&state.db.read)
     .await?;
@@ -318,9 +318,10 @@ pub async fn load_namedays(
         .execute(&mut *tx)
         .await?;
     tx.commit().await?;
-    let users: Vec<String> = sqlx::query_scalar("SELECT id FROM users WHERE deleted_at IS NULL")
-        .fetch_all(&state.db.read)
-        .await?;
+    let users: Vec<String> =
+        sqlx::query_scalar("SELECT id FROM users WHERE deleted_at IS NULL AND home IS NULL")
+            .fetch_all(&state.db.read)
+            .await?;
     state.bus.publish([Change::namedays(users)]);
     Ok(n)
 }

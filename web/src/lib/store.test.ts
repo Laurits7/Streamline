@@ -125,7 +125,7 @@ function mockApi(handler: Handler) {
 function syncResponse(data: Partial<SyncResponse> = {}): SyncResponse {
   return { rev: 10, full: true, me: ME, today: '2026-10-06', task_types: [], projects: [], tasks: [], day_entries: [], day_plans: [],
     focus_timer: { task_id: null, phase: 'idle', running_since_ms: null, elapsed_ms: 0, length_min: 0, cycle_done: 0, mute: false, screens: 'off', rev: 0 },
-    focus_sessions: [], series: [], places: [], workflows: [], task_templates: [], groups: [], calendar_account: null, calendars: [], events: [], event_projects: [], people: [], occasion_templates: [], day_templates: [], time_blocks: [], day_records: [], metrics: [], metric_entries: [], health_days: [], goals: [], server_now: Date.now(), ...data }
+    focus_sessions: [], series: [], places: [], workflows: [], task_templates: [], groups: [], remote_projects: [], calendar_account: null, calendars: [], events: [], event_projects: [], people: [], occasion_templates: [], day_templates: [], time_blocks: [], day_records: [], metrics: [], metric_entries: [], health_days: [], goals: [], server_now: Date.now(), ...data }
 }
 
 /** Load the store with a full sync of the given data. */

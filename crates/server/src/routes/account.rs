@@ -92,11 +92,12 @@ pub async fn login(
         format!("ip:{}", auth::client_ip(&state, &headers, addr.ip())),
     ];
     auth::check_throttle(&state, &keys).await?;
-    let user: Option<User> =
-        sqlx::query_as("SELECT * FROM users WHERE username = ? AND deleted_at IS NULL")
-            .bind(&username)
-            .fetch_optional(&state.db.read)
-            .await?;
+    let user: Option<User> = sqlx::query_as(
+        "SELECT * FROM users WHERE username = ? AND deleted_at IS NULL AND home IS NULL",
+    )
+    .bind(&username)
+    .fetch_optional(&state.db.read)
+    .await?;
     let ok =
         auth::verify_password_async(c.password, user.as_ref().map(|u| u.password_hash.clone()))
             .await;
@@ -506,10 +507,11 @@ pub(crate) fn require_admin(user: &AuthUser) -> ApiResult<()> {
 #[utoipa::path(get, path = "/users", tag = "users", summary = "List users (admin)", responses((status = 200, body = Vec<Me>), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
 pub async fn list_users(State(state): State<AppState>, user: AuthUser) -> ApiResult<Json<Vec<Me>>> {
     require_admin(&user)?;
-    let users: Vec<User> =
-        sqlx::query_as("SELECT * FROM users WHERE deleted_at IS NULL ORDER BY username")
-            .fetch_all(&state.db.read)
-            .await?;
+    let users: Vec<User> = sqlx::query_as(
+        "SELECT * FROM users WHERE deleted_at IS NULL AND home IS NULL ORDER BY username",
+    )
+    .fetch_all(&state.db.read)
+    .await?;
     Ok(Json(users.iter().map(Me::from).collect()))
 }
 

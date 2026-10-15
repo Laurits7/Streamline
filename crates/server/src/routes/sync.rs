@@ -57,6 +57,8 @@ pub struct SyncResponse {
     pub workflows: Vec<WorkflowTemplate>,
     /// Default tasks, yours and your groups' (D-71).
     pub task_templates: Vec<TaskTemplate>,
+    /// Projects you joined on other servers, with how their copy is doing (always current).
+    pub remote_projects: Vec<crate::federation::JoinView>,
     /// Your connected calendar account, if any (always current).
     pub calendar_account: Option<CalendarAccountView>,
     pub calendars: Vec<Calendar>,
@@ -330,6 +332,7 @@ pub async fn sync(
         places,
         workflows,
         task_templates,
+        remote_projects: crate::federation::joins_of(&state, user.id()).await?,
         calendar_account,
         calendars,
         events,

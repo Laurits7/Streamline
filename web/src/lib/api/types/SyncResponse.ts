@@ -12,6 +12,7 @@ import type { FocusTimer } from "./FocusTimer";
 import type { Goal } from "./Goal";
 import type { Group } from "./Group";
 import type { HealthDay } from "./HealthDay";
+import type { JoinView } from "./JoinView";
 import type { Me } from "./Me";
 import type { MetricDefinition } from "./MetricDefinition";
 import type { MetricEntry } from "./MetricEntry";
@@ -31,6 +32,10 @@ export type SyncResponse = { rev: number, full: boolean, me: Me, today: string, 
  * Default tasks, yours and your groups' (D-71).
  */
 task_templates: Array<TaskTemplate>, 
+/**
+ * Projects you joined on other servers, with how their copy is doing (always current).
+ */
+remote_projects: Array<JoinView>, 
 /**
  * Your connected calendar account, if any (always current).
  */

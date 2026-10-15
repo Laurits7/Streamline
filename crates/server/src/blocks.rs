@@ -167,7 +167,7 @@ pub async fn materialize_user(state: &AppState, user: &User) -> anyhow::Result<(
 
 pub async fn materialize_all(state: &AppState) -> anyhow::Result<()> {
     let users: Vec<User> = sqlx::query_as(
-        "SELECT * FROM users WHERE deleted_at IS NULL AND (id IN (SELECT owner_user_id FROM day_templates WHERE deleted_at IS NULL AND weekdays <> '[]')
+        "SELECT * FROM users WHERE deleted_at IS NULL AND home IS NULL AND (id IN (SELECT owner_user_id FROM day_templates WHERE deleted_at IS NULL AND weekdays <> '[]')
            OR id IN (SELECT user_id FROM block_days WHERE manual = 0 AND template_id IS NOT NULL))",
     )
     .fetch_all(&state.db.read)
