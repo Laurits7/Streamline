@@ -727,6 +727,13 @@ then the gate.
 - [x] **10.9 Ongoing tasks** (owner request, D-102): kept at over a period, "worked on it" per
       day, never carried or missed, finished by hand; domain + web logic tested.
 - [ ] **10.7 Phase gate** (Part D) for v1.4.
+      *Done 2026-10-15:* tests, fmt and clippy green (CI not run yet: not pushed); resource
+      log updated (image 16.2 MB, idle 9.0 MiB, 110.4 KB initial); two-server, forge and
+      ongoing flows tried in the real app (headless Chrome, desktop and phone width); security
+      review done and fixed (D-104); no test passwords, tokens or link secrets in the test or
+      server logs; README, DECISIONS, Help, CHANGELOG, TS types current (OpenAPI is generated
+      at runtime). *Left for the owner:* smoke test on a phone and behind the HTTPS proxy,
+      push so CI runs, and the release (tag, GitHub release, AUR).
 
 ---
 

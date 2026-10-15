@@ -487,6 +487,34 @@ async fn share_a_project_with_another_server() {
         )
         .await;
     assert_eq!(s, StatusCode::FORBIDDEN);
+    // A "create" that names an existing item of the group outside the project doesn't
+    // hand it over.
+    let (_, chores) = h
+        .req(
+            "POST",
+            "/api/v1/projects",
+            Some(&alice),
+            Some(json!({"name": "Chores", "owner_group_id": group})),
+        )
+        .await;
+    let (_, secret_task) = h
+        .req(
+            "POST",
+            "/api/v1/tasks",
+            Some(&alice),
+            Some(json!({"title": "Surprise party", "project_id": chores["id"]})),
+        )
+        .await;
+    let (s, v) = h
+        .req(
+            "POST",
+            &format!("/api/v1/federation/links/{join_id}/forward"),
+            Some(&secret),
+            Some(json!({"method": "POST", "path": "/tasks", "body": {"id": secret_task["id"], "title": "x", "project_id": garden}})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::FORBIDDEN, "{v}");
+    assert!(!v.to_string().contains("Surprise party"));
     let (s, _) = h
         .req(
             "GET",
@@ -726,10 +754,11 @@ async fn hostile_home(
     local_project: String,
     bystander: String,
     joiner: std::sync::Arc<std::sync::Mutex<String>>,
+    ids: Option<(String, String)>,
 ) -> String {
     use axum::routing::{get, post};
-    let root = ulid::Ulid::new().to_string();
-    let group = ulid::Ulid::new().to_string();
+    let (root, group) =
+        ids.unwrap_or_else(|| (ulid::Ulid::new().to_string(), ulid::Ulid::new().to_string()));
     let link = ulid::Ulid::new().to_string();
     let (r2, g2) = (root.clone(), group.clone());
     let j2 = joiner.clone();
@@ -823,6 +852,7 @@ async fn a_hostile_home_server_cant_touch_local_data() {
         carls_project.clone(),
         carl_id.clone(),
         joiner,
+        None,
     )
     .await;
     let (s, j) = r
@@ -863,4 +893,79 @@ async fn a_hostile_home_server_cant_touch_local_data() {
             .any(|p| p["name"] == "Trap")
     );
     assert!(find(&v["tasks"], &carls_task).is_none());
+}
+
+#[tokio::test]
+async fn another_server_cant_take_over_a_copy_by_reusing_its_ids() {
+    // Anna on the replica follows Garden from a real home server...
+    let h = setup().await;
+    let (home_url, _stop) = serve(&h).await;
+    let h_admin = h.admin().await;
+    let (alice, _) = h.user(&h_admin, "alice").await;
+    let (_, g) = h
+        .req(
+            "POST",
+            "/api/v1/groups",
+            Some(&alice),
+            Some(json!({"name": "Family"})),
+        )
+        .await;
+    let group = g["id"].as_str().unwrap().to_string();
+    let (_, p) = h
+        .req(
+            "POST",
+            "/api/v1/projects",
+            Some(&alice),
+            Some(json!({"name": "Garden", "owner_group_id": group})),
+        )
+        .await;
+    let garden = p["id"].as_str().unwrap().to_string();
+    let (_, t) = h
+        .req(
+            "POST",
+            "/api/v1/tasks",
+            Some(&alice),
+            Some(json!({"title": "Buy seeds", "project_id": garden})),
+        )
+        .await;
+    let seeds = t["id"].as_str().unwrap().to_string();
+    let (_, inv) = h
+        .req(
+            "POST",
+            &format!("/api/v1/projects/{garden}/invites"),
+            Some(&alice),
+            None,
+        )
+        .await;
+    let r = setup().await;
+    let r_admin = r.admin().await;
+    let (anna, _) = r.user(&r_admin, "anna").await;
+    let (carl, carl_id) = r.user(&r_admin, "carl").await;
+    let (s, _) = r
+        .req("POST", "/api/v1/federation/joins", Some(&anna), Some(json!({"invite": format!("{home_url}/join/{}", inv["token"].as_str().unwrap()), "origin": "http://r.test"})))
+        .await;
+    assert_eq!(s, StatusCode::OK);
+
+    // ...then Carl accepts an invite from a server that answers with Garden's ids.
+    let joiner = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+    let evil = hostile_home(
+        seeds.clone(),
+        garden.clone(),
+        carl_id,
+        joiner,
+        Some((garden.clone(), group.clone())),
+    )
+    .await;
+    let (s, v) = r
+        .req(
+            "POST",
+            "/api/v1/federation/joins",
+            Some(&carl),
+            Some(json!({"invite": format!("{evil}/join/abc"), "origin": "http://r.test"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST, "{v}");
+    let v = r.sync(&anna).await;
+    assert_eq!(live(&v["tasks"], &seeds).unwrap()["title"], "Buy seeds");
+    assert!(find(&r.sync(&carl).await["projects"], &garden).is_none());
 }

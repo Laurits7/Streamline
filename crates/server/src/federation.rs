@@ -44,8 +44,11 @@ const MAX_FEED: usize = 32 << 20;
 /// How often a replica pulls even without a poke.
 const PULL_EVERY: Duration = Duration::from_secs(5 * 60);
 /// Fields that name things which stay on each server (places, calendar events,
-/// workflow templates) or would change who owns the project; dropped from forwarded edits.
-const LOCAL_FIELDS: [&str; 6] = [
+/// workflow templates, day plans) or would change who owns the project; dropped from
+/// forwarded edits.
+const LOCAL_FIELDS: [&str; 8] = [
+    "day",
+    "day_entry_id",
     "place_id",
     "default_place_id",
     "event_id",
@@ -245,6 +248,16 @@ pub struct JoinRequest {
     pub user: Visitor,
     /// The joining server's address (as its person uses it).
     pub origin: String,
+    /// Someone who already joined a project here proves it's them again: one of their
+    /// current links and its secret.
+    #[serde(default)]
+    pub proof: Option<Proof>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Proof {
+    pub link_id: String,
+    pub secret: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -272,6 +285,18 @@ pub async fn redeem(state: &AppState, j: JoinRequest) -> Result<Joined, AppError
     }
     let origin = origin.origin().ascii_serialization();
     let hash = sha256_hex(j.token.trim());
+    // Unknown links are turned away without touching the writer.
+    let known: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM fed_invites WHERE token_hash = ? AND used_at IS NULL)",
+    )
+    .bind(&hash)
+    .fetch_one(&state.db.read)
+    .await?;
+    if !known {
+        return Err(bad(
+            "this invite link isn't valid (already used or withdrawn?)",
+        ));
+    }
 
     let mut tx = state.db.write.begin().await?;
     let invite: Option<(String, String, String)> = sqlx::query_as(
@@ -318,6 +343,22 @@ pub async fn redeem(state: &AppState, j: JoinRequest) -> Result<Joined, AppError
             ));
         }
         Some(Some(_)) => {
+            // Someone with current links here must show one of them (else any server could
+            // claim their id and address).
+            let links: Vec<(String, String)> = sqlx::query_as(
+                "SELECT id, secret_hash FROM fed_links WHERE remote_user_id = ? AND revoked_at IS NULL",
+            )
+            .bind(&j.user.id)
+            .fetch_all(&mut *tx)
+            .await?;
+            let proven = j.proof.as_ref().is_some_and(|p| {
+                links
+                    .iter()
+                    .any(|(id, h)| *id == p.link_id && *h == sha256_hex(p.secret.trim()))
+            });
+            if !links.is_empty() && !proven {
+                return Err(bad("this person's id is already in use here"));
+            }
             sqlx::query("UPDATE users SET display_name = ?, updated_at = ? WHERE id = ?")
                 .bind(display)
                 .bind(now())
@@ -686,6 +727,26 @@ pub async fn run_forwarded(
             ));
         }
     }
+    // A create naming an id that already exists would answer with that item (an offline
+    // replay): only when it's part of the shared project.
+    if id.is_none()
+        && let Some(given) = body.get("id").and_then(Value::as_str)
+    {
+        let table = match kind {
+            "task" => "tasks",
+            "project" => "projects",
+            _ => "series",
+        };
+        let exists: bool = sqlx::query_scalar(&format!(
+            "SELECT EXISTS(SELECT 1 FROM {table} WHERE id = ?)"
+        ))
+        .bind(given)
+        .fetch_one(&mut *conn)
+        .await?;
+        if exists && !in_scope(&mut conn, root, kind, given).await? {
+            return Err(refuse(outside));
+        }
+    }
     match target_project(kind, &body) {
         Some(Some(p)) if in_scope(&mut conn, root, "project", &p).await? => {}
         Some(_) => return Err(refuse(outside)),
@@ -812,7 +873,23 @@ pub async fn join(
 ) -> Result<Join, AppError> {
     let bad = |m: String| AppError::BadRequest(m);
     let (home, token) = parse_invite(invite).map_err(|e| bad(format!("{e:#}")))?;
+    // Already joined something on that server: prove it's the same person.
+    let earlier: Option<(String, Vec<u8>)> = sqlx::query_as(
+        "SELECT id, secret FROM fed_joins WHERE user_id = ? AND home_url = ? ORDER BY created_at LIMIT 1",
+    )
+    .bind(user.id())
+    .bind(&home)
+    .fetch_optional(&state.db.read)
+    .await?;
+    let proof = earlier.and_then(|(link_id, sealed)| {
+        state
+            .secrets
+            .decrypt(&sealed)
+            .ok()
+            .map(|secret| Proof { link_id, secret })
+    });
     let body = json!({
+        "proof": proof,
         "token": token,
         "user": Visitor {
             id: user.id().into(),
@@ -864,7 +941,19 @@ pub async fn join(
             .bind(&joined.root_project_id)
             .fetch_optional(&state.db.read)
             .await?;
-    let refused = if local {
+    // Ids another server already uses here (a server can't take over someone else's copy
+    // by naming the same project or group).
+    let clash: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM fed_joins WHERE id = ?3 OR ((root_project_id = ?1 OR group_id = ?2) AND home_url <> ?4))
+           OR EXISTS(SELECT 1 FROM groups WHERE id = ?2 AND home IS NOT NULL AND home <> ?4)",
+    )
+    .bind(&joined.root_project_id)
+    .bind(&joined.group_id)
+    .bind(&joined.link_id)
+    .bind(&home)
+    .fetch_one(&state.db.read)
+    .await?;
+    let refused = if local || clash {
         Some("that project is on this server already")
     } else if mine.is_some() {
         Some("you've already joined that project")
@@ -917,16 +1006,33 @@ pub async fn leave(state: &AppState, j: &Join) -> anyhow::Result<()> {
     remove_replica(state, j).await
 }
 
-/// Pulls run one at a time.
-static PULL: LazyLock<tokio::sync::Mutex<()>> = LazyLock::new(Default::default);
+/// Pulls of one joined project run one at a time (each join its own lock, so one slow
+/// home server doesn't hold up the others).
+static PULL: LazyLock<
+    std::sync::Mutex<std::collections::HashMap<String, std::sync::Arc<tokio::sync::Mutex<()>>>>,
+> = LazyLock::new(Default::default);
+/// A pull gives up after this long (a home server that dribbles out pages).
+const PULL_DEADLINE: Duration = Duration::from_secs(10 * 60);
 
 /// Bring a joined project up to date, and record how it went.
 pub async fn pull(state: &AppState, join_id: &str) -> anyhow::Result<()> {
-    let _guard = PULL.lock().await;
+    let lock = PULL
+        .lock()
+        .unwrap()
+        .entry(join_id.to_string())
+        .or_default()
+        .clone();
+    let _guard = lock.lock().await;
     let Some(j) = load_join(state, join_id).await? else {
         return Ok(());
     };
-    let result = pull_pages(state, &j).await;
+    let result = match tokio::time::timeout(PULL_DEADLINE, pull_pages(state, &j)).await {
+        Ok(r) => r,
+        Err(_) => Err(anyhow::anyhow!(
+            "{} is too slow to answer",
+            host_of(&j.home_url)
+        )),
+    };
     let (status, error) = match &result {
         Ok(Pulled::Done) => ("ok", None),
         Ok(Pulled::Gone) => return remove_replica(state, &j).await,
@@ -981,6 +1087,10 @@ async fn pull_pages(state: &AppState, j: &Join) -> anyhow::Result<Pulled> {
         let feed: Feed = serde_json::from_str(&crate::net::text_limited(res, MAX_FEED).await?)
             .context("unexpected answer from the home server")?;
         if feed.root_project_id != j.root_project_id || feed.group_id != j.group_id {
+            bail!("unexpected answer from the home server");
+        }
+        // "More" must move forward, or it never ends.
+        if feed.more && feed.rev <= since {
             bail!("unexpected answer from the home server");
         }
         apply(state, j, &feed).await?;
@@ -1052,8 +1162,8 @@ async fn apply(state: &AppState, j: &Join, feed: &Feed) -> anyhow::Result<()> {
         .bind(&feed.group_id)
         .fetch_optional(&mut *tx)
         .await?;
-    if clash == Some(None) {
-        bail!("the shared group clashes with one of this server's");
+    if clash.is_some_and(|home| home.as_deref() != Some(j.home_url.as_str())) {
+        bail!("the shared group clashes with one of this server's, or another server's");
     }
     let before: HashSet<String> =
         sqlx::query_scalar("SELECT user_id FROM group_members WHERE group_id = ?")
@@ -1159,12 +1269,12 @@ async fn apply(state: &AppState, j: &Join, feed: &Feed) -> anyhow::Result<()> {
         } else {
             // Anything else hangs under a project of this copy.
             let parent = p.parent_id.clone().filter(|parent| *parent != p.id);
-            if !held(&mut tx, root, parent.as_deref().unwrap_or_default()).await? {
+            if !held(&mut tx, j, parent.as_deref().unwrap_or_default()).await? {
                 continue;
             }
         }
         if !ours(&p.owner_user_id, &p.owner_group_id, group)
-            || !may_write(&mut tx, "projects", &p.id, root, group).await?
+            || !may_write(&mut tx, "projects", &p.id, j, group).await?
         {
             continue;
         }
@@ -1187,8 +1297,8 @@ async fn apply(state: &AppState, j: &Join, feed: &Feed) -> anyhow::Result<()> {
             s.task_type_id = crate::routes::tasks::DEFAULT_TASK_TYPE.into();
         }
         if !ours(&s.owner_user_id, &s.owner_group_id, group)
-            || !held(&mut tx, root, s.project_id.as_deref().unwrap_or_default()).await?
-            || !may_write(&mut tx, "series", &s.id, root, group).await?
+            || !held(&mut tx, j, s.project_id.as_deref().unwrap_or_default()).await?
+            || !may_write(&mut tx, "series", &s.id, j, group).await?
         {
             continue;
         }
@@ -1221,8 +1331,8 @@ async fn apply(state: &AppState, j: &Join, feed: &Feed) -> anyhow::Result<()> {
             }
         }
         if !ours(&t.owner_user_id, &t.owner_group_id, group)
-            || !held(&mut tx, root, t.project_id.as_deref().unwrap_or_default()).await?
-            || !may_write(&mut tx, "tasks", &t.id, root, group).await?
+            || !held(&mut tx, j, t.project_id.as_deref().unwrap_or_default()).await?
+            || !may_write(&mut tx, "tasks", &t.id, j, group).await?
         {
             continue;
         }
@@ -1271,13 +1381,16 @@ fn ours(user: &Option<String>, group: &Option<String>, mirrored: &str) -> bool {
     user.is_none() && group.as_deref() == Some(mirrored)
 }
 
-/// The item is part of this shared project's copy here (held by a join of it).
-async fn held(conn: &mut SqliteConnection, root: &str, id: &str) -> sqlx::Result<bool> {
+/// The item is part of this shared project's copy here: held by a join of the same project
+/// from the same home server (another server can't claim it by naming the same ids).
+async fn held(conn: &mut SqliteConnection, j: &Join, id: &str) -> sqlx::Result<bool> {
     sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM fed_items f JOIN fed_joins j ON j.id = f.join_id WHERE f.item_id = ? AND j.root_project_id = ?)",
+        "SELECT EXISTS(SELECT 1 FROM fed_items f JOIN fed_joins j ON j.id = f.join_id
+         WHERE f.item_id = ? AND j.root_project_id = ? AND j.home_url = ?)",
     )
     .bind(id)
-    .bind(root)
+    .bind(&j.root_project_id)
+    .bind(&j.home_url)
     .fetch_one(conn)
     .await
 }
@@ -1289,7 +1402,7 @@ async fn may_write(
     conn: &mut SqliteConnection,
     table: &str,
     id: &str,
-    root: &str,
+    j: &Join,
     group: &str,
 ) -> sqlx::Result<bool> {
     let existing: Option<(Option<String>, Option<String>)> = sqlx::query_as(&format!(
@@ -1301,7 +1414,7 @@ async fn may_write(
     Ok(match existing {
         None => true,
         Some((g, deleted)) => {
-            held(conn, root, id).await? || (deleted.is_some() && g.as_deref() == Some(group))
+            held(conn, j, id).await? || (deleted.is_some() && g.as_deref() == Some(group))
         }
     })
 }
