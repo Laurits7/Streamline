@@ -8,6 +8,10 @@
   plan, focus); text that matches nothing can go straight to the inbox. Keyboard shortcuts:
   n new task, j/k and x/t/f on the selected task, g then a letter to go to a page, ? for
   the list.
+- Week view (Week in the sidebar, or g w): a planner with a column per day, every planned
+  task, each day's load, and drag and drop between days and from the unplanned list; or a
+  calendar of the week on an hour grid with events, timed tasks and time blocks, where tasks
+  drag to another day or time (D-94).
 
 ## 1.3.0 (2026-10-14)
 

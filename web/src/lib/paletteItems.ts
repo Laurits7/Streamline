@@ -12,6 +12,7 @@ const PAGES: [string, string][] = [
   ['Today', '/'],
   ['Inbox', '/inbox'],
   ['All tasks', '/tasks'],
+  ['Week', '/week'],
   ['Agenda', '/agenda'],
   ['Projects', '/projects'],
   ['Routines', '/routines'],

@@ -7,6 +7,7 @@
   const sections = [
     ['start', 'Getting started'],
     ['keys', 'Search and keyboard shortcuts'],
+    ['week', 'The week'],
     ['today', 'The Today view'],
     ['planning', 'Planning your day'],
     ['blocks', 'Time blocks, overlaps and suggested times'],
@@ -69,6 +70,18 @@
       open. <kbd>g</kbd> then a letter goes to a page (<kbd>g t</kbd> Today, <kbd>g i</kbd> Inbox, <kbd>g p</kbd> plan
       the day…). <kbd>?</kbd> lists them all.
     </p>
+  </section>
+
+  <section id="week">
+    <h2><Icon name="columns" size={18} /> The week</h2>
+    <p>
+      <a href="/week">Week</a> (or <kbd>g w</kbd>) shows seven days at once, in one of two ways (the switch at the top;
+      it's remembered):
+    </p>
+    <ul>
+      <li><strong>Planner</strong>: a column per day with every planned task and how full the day is (planned time against free time, red when overbooked). Drag tasks between days, or in from the <em>Unplanned</em> list on the left; add a task straight to a day at the bottom of its column. A task with a time keeps it when moved.</li>
+      <li><strong>Calendar</strong>: the days on an hour grid with your calendar events, tasks with a time and time blocks. Drag a task to another day or time; click anything to open it. Tasks without a time are counted under each day.</li>
+    </ul>
   </section>
 
   <section id="today">

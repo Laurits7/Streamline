@@ -17,6 +17,7 @@ export const GO: Record<string, { to: string; label: string }> = {
   i: { to: '/inbox', label: 'Inbox' },
   l: { to: '/tasks', label: 'All tasks' },
   p: { to: 'plan', label: 'Plan the day' },
+  w: { to: '/week', label: 'Week' },
   a: { to: '/agenda', label: 'Agenda' },
   o: { to: '/projects', label: 'Projects' },
   r: { to: '/routines', label: 'Routines' },

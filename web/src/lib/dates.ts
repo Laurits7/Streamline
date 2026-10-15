@@ -43,3 +43,9 @@ export function nowHHMM(timeZone: string): string {
     new Date(),
   )
 }
+
+/** First day of the week containing `date` (weekStart: 1 = Monday … 7 = Sunday). */
+export function weekOf(date: string, weekStart = 1): string {
+  const iso = ((new Date(date + 'T00:00:00Z').getUTCDay() + 6) % 7) + 1
+  return addDays(date, -((iso + 7 - weekStart) % 7))
+}

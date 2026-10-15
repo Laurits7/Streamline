@@ -207,7 +207,7 @@
     route.name === 'tasks' ? 'view:all' : route.name === 'inbox' ? 'view:inbox' : route.name === 'project' ? `view:project:${route.id}` : null,
   )
   const wideView = $derived(!!viewKey && store.pref<{ view?: string }>(viewKey, {}).view !== undefined && store.pref<{ view?: string }>(viewKey, {}).view !== 'list')
-  const isDayRoute = $derived(route.name === 'today' || route.name === 'day' || route.name === 'plan' || wideView)
+  const isDayRoute = $derived(route.name === 'today' || route.name === 'day' || route.name === 'plan' || route.name === 'week' || wideView)
 
   // Navigation links double as drop targets for tasks.
   const toProject = (projectId: string | null) => ({
@@ -268,6 +268,7 @@
         ><Icon name="search" size={16} /> Search <kbd>{mac ? '⌘K' : 'Ctrl K'}</kbd></button>
       <nav aria-label="Main">
         <a href="/" class="drop-zone" draggable="false" aria-current={todayActive} use:droppable={toToday}><Icon name="sun" /> Today</a>
+        <a href="/week" draggable="false" aria-current={active('week')}><Icon name="columns" /> Week</a>
         <a href="/agenda" draggable="false" aria-current={active('agenda')}><Icon name="calendar" /> Agenda</a>
         <a href="/inbox" class="drop-zone" draggable="false" aria-current={active('inbox')} use:droppable={toProject(null)}><Icon name="inbox" /> Inbox</a>
         <a href="/tasks" draggable="false" aria-current={active('tasks')}><Icon name="list" /> All tasks</a>
@@ -330,6 +331,8 @@
         {#await import('./views/Trends.svelte') then m}<m.default />{/await}
       {:else if route.name === 'occasions'}
         {#await import('./views/Occasions.svelte') then m}<m.default />{/await}
+      {:else if route.name === 'week'}
+        {#await import('./views/Week.svelte') then m}<m.default start={route.start} />{/await}
       {:else if route.name === 'agenda'}
         {#await import('./views/Agenda.svelte') then m}<m.default start={route.start} />{/await}
       {:else if route.name === 'routines'}

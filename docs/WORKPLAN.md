@@ -696,6 +696,12 @@ then the gate.
       chosen item (open, plan today or tomorrow, focus, complete); single-key shortcuts
       outside text fields (n new task, / search, g t Today, g i Inbox, g p Plan, j/k move,
       x complete, ? lists them); pure ranking in `web/src/lib` with tests; help and CHANGELOG.
+- [x] **10.2b Week view** (D-94): `/week` with two modes, remembered: a *planner* (7 day
+      columns with every planned task, each day's load against free time, drag tasks between
+      days and in from an unplanned list, add to a day) and a *calendar* (7 days on an hour
+      grid with events, timed tasks and time blocks; drag to another day or time). The
+      overlap layout moves from the timeline into a tested function both use; sidebar entry,
+      `g w`, the palette; help and CHANGELOG.
 - [ ] **10.3 Inbox triage**: process the inbox one item at a time with one-key decisions (do
       now, today, tomorrow, pick a project, schedule, waiting, delete, skip), progress and
       undo; tests; help and CHANGELOG.
