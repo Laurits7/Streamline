@@ -705,7 +705,7 @@ then the gate.
 - [x] **10.3 Inbox triage**: process the inbox one item at a time with one-key decisions (do
       now, today, tomorrow, pick a project, schedule, waiting, delete, skip), progress and
       undo; tests; help and CHANGELOG.
-- [ ] **10.4 Weekly review**: a guided review: last week's numbers, overdue and stale tasks,
+- [x] **10.4 Weekly review**: a guided review: last week's numbers, overdue and stale tasks,
       waiting items, projects without a next step, ideas to start or drop, then plan next
       week; the goal review folds in; remembers when it was last done and reminds on the
       chosen day; tests; help and CHANGELOG.

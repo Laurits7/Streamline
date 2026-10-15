@@ -63,7 +63,7 @@
 <header class="head">
   <h1>Goals</h1>
   <div class="row">
-    {#if store.goalReviewDue()}<a class="btn primary" href="/goals/review"><Icon name="check" size={16} /> Review now</a>{:else}<a class="btn" href="/goals/review">Review</a>{/if}
+    {#if store.goalReviewDue()}<a class="btn primary" href="/review"><Icon name="check" size={16} /> Review now</a>{:else}<a class="btn" href="/review">Review</a>{/if}
     <select
       aria-label="How often to review"
       value={store.me?.review_cadence ?? 'weekly'}

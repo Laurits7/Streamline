@@ -451,7 +451,7 @@
       set the progress by hand.
     </p>
     <ul>
-      <li>Once a week (or month; choose on the Goals page) the Today view invites you to a short <strong>review</strong>: where each goal stands, a note on each, and your reflection. Notes are kept with the goal.</li>
+      <li>Once a week (or month; choose on the Goals page) the Today view invites you to the <a href="/review">review</a>, a short walk through six steps: the week in numbers; <strong>loose ends</strong> (overdue tasks, ones carried over again and again, and ones untouched for three weeks) to plan or let go; what you're <strong>waiting</strong> for; <strong>projects</strong> with nothing to do next (add a next step or archive them) and ideas to start or drop; a note on each <strong>goal</strong>; and a look at the coming week, with the week planner one click away. Finishing records it until the next one. Notes are kept with the goal.</li>
       <li>Goals are yours unless you share one with a group, like a project.</li>
     </ul>
   </section>

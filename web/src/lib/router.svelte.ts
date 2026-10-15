@@ -41,7 +41,7 @@ export type Route =
   | { name: 'summary'; date: string | null }
   | { name: 'trends' }
   | { name: 'goals' }
-  | { name: 'goal-review' }
+  | { name: 'review' }
   | { name: 'focus' }
   | { name: 'projects' }
   | { name: 'project'; id: string }
@@ -68,7 +68,8 @@ export function match(path: string): Route {
   if ((m = p.match(/^\/summary\/(\d{4}-\d{2}-\d{2})$/))) return { name: 'summary', date: m[1] }
   if (p === '/trends') return { name: 'trends' }
   if (p === '/goals') return { name: 'goals' }
-  if (p === '/goals/review') return { name: 'goal-review' }
+  // The goals review is part of the weekly review now (10.4); its old address still works.
+  if (p === '/review' || p === '/goals/review') return { name: 'review' }
   if (p === '/focus') return { name: 'focus' }
   if (p === '/projects') return { name: 'projects' }
   if ((m = p.match(/^\/projects\/([0-9A-Za-z]+)$/))) return { name: 'project', id: m[1] }

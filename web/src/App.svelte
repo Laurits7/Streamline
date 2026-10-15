@@ -279,7 +279,7 @@
         <h2 class="group">Reflect</h2>
         <a href="/summary" draggable="false" aria-current={active('summary')}><Icon name="book" /> Summary & journal</a>
         <a href="/trends" draggable="false" aria-current={active('trends')}><Icon name="chart" /> Trends</a>
-        <a href="/goals" draggable="false" aria-current={active('goals') ?? active('goal-review')}><Icon name="flag" /> Goals</a>
+        <a href="/goals" draggable="false" aria-current={active('goals')}><Icon name="flag" /> Goals</a>
         <a href="/occasions" draggable="false" aria-current={active('occasions')}><Icon name="gift" /> Namedays & birthdays</a>
         <h2 class="group"><a class="group-link" href="/projects" draggable="false" aria-current={active('projects')}>Projects <Icon name="right" size={12} /></a></h2>
         <div class="projects">
@@ -327,8 +327,8 @@
         {#await import('./views/Summary.svelte') then m}<m.default date={route.date} />{/await}
       {:else if route.name === 'goals'}
         {#await import('./views/Goals.svelte') then m}<m.default />{/await}
-      {:else if route.name === 'goal-review'}
-        {#await import('./views/GoalReview.svelte') then m}<m.default />{/await}
+      {:else if route.name === 'review'}
+        {#await import('./views/Review.svelte') then m}<m.default />{/await}
       {:else if route.name === 'trends'}
         {#await import('./views/Trends.svelte') then m}<m.default />{/await}
       {:else if route.name === 'occasions'}

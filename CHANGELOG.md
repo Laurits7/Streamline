@@ -15,6 +15,9 @@
 - Process the inbox: one item at a time, oldest first, with one key per decision (done, do
   now, today, tomorrow, another day, to a project, waiting, won't do, skip), estimates on
   the way, and undo.
+- Weekly review (the Today banner, or /review): the week in numbers, loose ends (overdue,
+  carried over, forgotten) to plan or drop, waiting items, projects with no next step and
+  ideas, goal notes, then a look at the coming week. It replaces the separate goals review.
 
 ## 1.3.0 (2026-10-14)
 
