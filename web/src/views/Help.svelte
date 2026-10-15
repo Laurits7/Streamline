@@ -452,6 +452,7 @@
       <li><strong>Projects</strong>: rules like <code>acme/*</code> → <em>Work</em> put a repository's tasks into a project; the first matching rule decides, anything else goes to the inbox.</li>
       <li>Streamline checks every 10 minutes (or press <em>Check now</em>). Once an issue is closed or merged, or is no longer assigned to you, its task is completed by itself.</li>
       <li>Read-only: completing the task doesn't close anything there. The token is stored encrypted and never sent back to the browser; if it stops working, Settings shows the error and the tasks stay as they were.</li>
+      <li>Removing an account removes its open tasks too; finished ones stay in your history.</li>
     </ul>
   </section>
 

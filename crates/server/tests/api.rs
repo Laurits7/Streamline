@@ -7103,14 +7103,16 @@ async fn github_items_become_tasks_and_complete_upstream() {
         .count();
     assert_eq!(open, 2);
 
-    // Removing the account keeps its tasks.
+    // Removing the account removes its open tasks; finished ones stay as history.
     let (s, _, _) = t
         .req("DELETE", &format!("/api/v1/forges/{id}"), Some(&anna), None)
         .await;
     assert_eq!(s, StatusCode::NO_CONTENT);
     let (_, v, _) = t.req("GET", "/api/v1/forges", Some(&anna), None).await;
     assert_eq!(v, json!([]));
-    assert_eq!(forge_tasks(&t, &anna).await.len(), 3);
+    let left = forge_tasks(&t, &anna).await;
+    assert_eq!(left.len(), 1, "{left:?}");
+    assert_eq!(left[0]["status"], "done");
 }
 
 #[tokio::test]

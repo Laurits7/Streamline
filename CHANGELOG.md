@@ -33,7 +33,8 @@
 - Tasks from GitHub, GitLab and Gitea/Forgejo: connect accounts with an access token; issues
   and pull/merge requests assigned to you, review requests and mentions (each can be switched
   off) arrive as tasks with a link, in the project a repository rule names or the inbox, and
-  complete themselves once closed, merged or no longer yours. Read-only (D-97, D-99).
+  complete themselves once closed, merged or no longer yours; removing the account removes
+  its open tasks. Read-only (D-97, D-99).
 
 ## 1.3.0 (2026-10-14)
 

@@ -246,14 +246,38 @@ pub async fn sync_now(
     Ok(Json(ForgeAccountView::from(&synced)))
 }
 
-/// Remove an account and its token. Tasks it brought in stay, as ordinary tasks.
-#[utoipa::path(delete, path = "/forges/{id}", tag = "forges", summary = "Remove an account (its tasks stay)", params(("id" = String, Path, description = "ULID")), responses((status = 204, description = "Done"), (status = 404, description = "Not found"), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
+/// Remove an account, its token and the open tasks it brought in. Finished ones stay, as
+/// history.
+#[utoipa::path(delete, path = "/forges/{id}", tag = "forges", summary = "Remove an account and its open tasks", params(("id" = String, Path, description = "ULID")), responses((status = 204, description = "Done"), (status = 404, description = "Not found"), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
 pub async fn delete(
     State(state): State<AppState>,
     user: AuthUser,
     Path(id): Path<String>,
 ) -> ApiResult<StatusCode> {
     let a = load(&state, &user, &id).await?;
+    let open: Vec<String> = sqlx::query_scalar(
+        "SELECT t.id FROM forge_items f JOIN tasks t ON t.id = f.task_id
+         WHERE f.account_id = ? AND t.status = 'open' AND t.deleted_at IS NULL",
+    )
+    .bind(&a.id)
+    .fetch_all(&state.db.read)
+    .await?;
+    for task_id in open {
+        // The usual delete (day plans, dependents, live updates). One that's no longer
+        // yours to see (e.g. you left the project's group) is left alone.
+        let as_user = AuthUser {
+            user: user.user.clone(),
+            session_hash: None,
+            token_hash: None,
+            groups: user.groups.clone(),
+        };
+        match crate::routes::tasks::delete(State(state.clone()), as_user, Path(task_id.clone()))
+            .await
+        {
+            Ok(_) | Err(AppError::NotFound) => {}
+            Err(e) => return Err(e),
+        }
+    }
     let mut tx = state.db.write.begin().await?;
     sqlx::query("DELETE FROM forge_items WHERE account_id = ?")
         .bind(&a.id)

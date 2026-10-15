@@ -81,7 +81,7 @@
     run(a.id, async () => void replace(await api.patch<ForgeAccountView>(`/forges/${a.id}`, body)))
   const sync = (a: ForgeAccountView) => run(a.id, async () => void replace(await api.post<ForgeAccountView>(`/forges/${a.id}/sync`)))
   async function remove(a: ForgeAccountView) {
-    if (!confirm(`Remove ${a.login} on ${kindName(a.kind)}? The tasks it brought in stay, as ordinary tasks.`)) return
+    if (!confirm(`Remove ${a.login} on ${kindName(a.kind)}? Its open tasks are removed too; finished ones stay in your history.`)) return
     await run(a.id, async () => {
       await api.del(`/forges/${a.id}`)
       accounts = accounts.filter((x) => x.id !== a.id)
