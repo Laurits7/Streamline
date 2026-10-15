@@ -137,6 +137,8 @@ pub async fn run_for_user(state: &AppState, user: &User) -> anyhow::Result<()> {
          JOIN task_types tt ON tt.id = t.task_type_id
          WHERE e.user_id = ?1 AND e.deleted_at IS NULL AND e.date < ?2
            AND t.status = 'open' AND t.deleted_at IS NULL
+           -- ongoing tasks aren't carried: they show every day of their period (D-102)
+           AND t.ongoing = 0
            -- only tasks the user can still see (not ones from a group they left)
            AND (t.owner_user_id = ?1 OR t.owner_group_id IN (SELECT group_id FROM group_members WHERE user_id = ?1))
            -- ideas' tasks are left alone (D-72)

@@ -50,6 +50,7 @@
     <h2>Getting started</h2>
     <ol>
       <li>Capture everything on your mind in the <a href="/inbox">Inbox</a>. Type and press Enter; don't worry about sorting yet.</li>
+      <li>While typing a task you can also add its <em>Steps</em> (one per line; they become its checklist), or add it right away <em>as done</em> (to log something you did), <em>as waiting</em> for results from somewhere, or <em>as ongoing</em>.</li>
       <li>Create a few <a href="/projects">projects</a> (e.g. “House”, “Work”, “Garden”) and drag inbox tasks onto them.</li>
       <li>Each day, open <a href="/">Today</a>, pull in what you want to do, put fixed things on the timeline, and tick tasks off.</li>
     </ol>
@@ -197,6 +198,14 @@
       <em>Waiting</em> column. At the check-back time you get a reminder and the task comes back at the top of Up next
       with <em>Check back</em>: mark it done, wait more, or go back to work on it. Without a time it waits until you
       change it.
+    </p>
+    <p>
+      <strong>Ongoing tasks.</strong> Some things aren't done in one go but kept at over a while: reading a book,
+      practising the piano this month, a course. Add them <em>as ongoing</em>, or turn on <em>Ongoing</em> in a task.
+      They show every day of their period under <em>Ongoing</em> on Today, and the round button means <em>worked on it
+      today</em> rather than done; the task counts the days (in total, this week and in a row). Give it a start and an
+      end date if you like; it's never carried over or missed. When you're through, press <em>Finish</em> in the task;
+      once its end date has passed it asks you to finish it or give it more time.
     </p>
     <p>
       <strong>Multi-step chores</strong> (on the <a href="/routines">Routines</a> page) do this for you. Laundry is a

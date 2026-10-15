@@ -20,6 +20,7 @@
   import { toast } from '../lib/toast.svelte'
   import { ui } from '../lib/ui.svelte'
   import { localParts } from '../lib/waiting'
+  import { onFor } from '../lib/ongoing'
 
   let { date: dateProp = null }: { date?: string | null } = $props()
   const date = $derived(dateProp ?? store.today)
@@ -64,6 +65,7 @@
         (t) =>
           t.status === 'open' &&
           !t.window_end &&
+          !t.ongoing &&
           t.due_date &&
           t.due_date <= date &&
           !plannedIds.has(t.id) &&
@@ -73,6 +75,17 @@
       .sort((a, b) => (a.due_date! < b.due_date! ? -1 : 1)),
   )
 
+  // Ongoing tasks (D-102) on for this day, and (today) ones whose period is over.
+  const ongoing = $derived(
+    [...store.tasks.values()]
+      .filter(
+        (t) =>
+          !plannedIds.has(t.id) &&
+          !store.inIdea(t) &&
+          (onFor(t, date) || (isToday && t.ongoing && t.status === 'open' && !t.deleted_at && !!t.due_date && t.due_date < date)),
+      )
+      .sort((a, b) => a.title.localeCompare(b.title)),
+  )
   const planned = $derived(store.isPlanned(date))
   const doneCount = $derived(closed.filter((i) => i.task.status === 'done').length)
   const minutesLeft = $derived(open.reduce((s, i) => s + (i.entry.duration_min ?? i.task.estimate_min ?? 0), 0))
@@ -277,7 +290,8 @@
 
     <QuickAdd
       placeholder={isToday ? 'Add a task for today…' : `Add a task for ${dayLabel(date, store.today).toLowerCase()}…`}
-      onadd={(title) => store.createTask({ title, day: date })}
+      tasks
+      onadd={(title, extra) => store.createTask({ title, ...(extra.ongoing ? {} : { day: date }), ...extra })}
       ondefault={(id, kinds) => store.createFromDefault(id, { day: date }, kinds)} />
 
     {#if !wide}{@render timeline()}{/if}
@@ -304,6 +318,13 @@
         </div>
       {/each}
     </div>
+
+    {#if ongoing.length}
+      <h2 class="section-title" title="Kept at over a period: tick the ones you worked on {isToday ? 'today' : 'this day'}"><Icon name="repeat" size={14} /> Ongoing</h2>
+      <div class="card list">
+        {#each ongoing as t (t.id)}<TaskRow task={t} showProject planDate={date} />{/each}
+      </div>
+    {/if}
 
     {#if checkBacks.length > 1}
       <h2 class="section-title"><Icon name="hourglass" size={14} /> Check back</h2>

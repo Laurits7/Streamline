@@ -13,6 +13,7 @@ pub mod health;
 pub mod marks;
 pub mod merge;
 pub mod occasions;
+pub mod ongoing;
 pub mod order;
 pub mod planner;
 pub mod planning;

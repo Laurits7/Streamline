@@ -39,6 +39,12 @@
   lets someone with their own Streamline join a project shared with your group. Their server
   keeps a copy and sends their changes to yours, which checks them; while yours is down, their
   copy is read-only. Join and leave in Settings → Projects from other servers (D-69, D-100).
+- Quick-add does more: type the task's steps (one per line, they become its checklist), or add
+  it as already done, as waiting for results (say what for and when to check back), or as
+  ongoing (D-103).
+- Ongoing tasks, for things you keep at over a period like reading a book: they show every day
+  of their period under Ongoing, are ticked as "worked on it today" rather than done, count the
+  days you worked on them, are never carried over or missed, and are finished by hand (D-102).
 
 ## 1.3.0 (2026-10-14)
 

@@ -9,6 +9,7 @@
   import Check from './Check.svelte'
   import Icon from './Icon.svelte'
   import { checkBackDue, checkBackLabel, isWaiting } from '../waiting'
+  import { progress, summary, workedOn } from '../ongoing'
 
   let {
     task,
@@ -35,7 +36,10 @@
   const plannedEntry = $derived(planButton ? store.entryForTask(task.id) : null)
   const target = $derived(planDate ?? store.today)
   const plannedHere = $derived(plannedEntry?.date === target)
-  const overdue = $derived(task.status === 'open' && !!task.due_date && task.due_date < store.today)
+  // Ongoing tasks (D-102): the tick says "worked on it" for the day shown, not "done".
+  const ongoing = $derived(task.ongoing && task.status === 'open')
+  const prog = $derived(ongoing ? progress(task, store.today, store.me?.week_start ?? 1) : null)
+  const overdue = $derived(task.status === 'open' && !ongoing && !!task.due_date && task.due_date < store.today)
   const closed = $derived(task.status !== 'open')
   const waitingOn = $derived(
     task.blocked ? task.depends_on.map((id) => store.tasks.get(id)).filter((d) => d && d.status === 'open') : [],
@@ -69,7 +73,12 @@
       <Icon name="grip" size={16} />
     </button>
   {/if}
-  {#if task.status === 'open' || task.status === 'done'}
+  {#if ongoing}
+    <span data-nodrag class="check-wrap ongoing" title={workedOn(task, target) ? 'Worked on it' : 'Mark as worked on'}><Check
+      done={workedOn(task, target)}
+      onclick={() => store.markWorked(task.id, target, !workedOn(task, target))}
+      label={workedOn(task, target) ? `Unmark working on ${task.title}` : `Worked on ${task.title}`} /></span>
+  {:else if task.status === 'open' || task.status === 'done'}
     <span data-nodrag class="check-wrap"><Check
       done={task.status === 'done'}
       onclick={() => store.toggleDone(task.id)}
@@ -116,7 +125,11 @@
       {#if task.event_id && store.events.get(task.event_id)}
         <span class="evchip" title="For this calendar event"><Icon name="calendar" size={12} />{store.events.get(task.event_id)?.title}</span>
       {/if}
-      {#if task.due_date}<span class:overdue><Icon name="calendar" size={12} />{shortDate(task.due_date, store.today)}</span>{/if}
+      {#if prog}
+        <span class="tag ongoing-tag" class:warn={prog.over} title="Ongoing: kept at over a period, finished by hand"
+          ><Icon name="repeat" size={11} />{prog.over ? 'Period over · finish it?' : `Ongoing · ${summary(prog)}`}</span>
+      {/if}
+      {#if task.due_date}<span class:overdue><Icon name="calendar" size={12} />{ongoing ? 'until ' : ''}{shortDate(task.due_date, store.today)}</span>{/if}
       {#if task.estimate_min}<span><Icon name="clock" size={12} />{fmtMinutes(task.estimate_min)}</span>{/if}
       {#if task.difficulty}<span class="diff" title="Difficulty">{'●'.repeat(task.difficulty)}{'○'.repeat(3 - task.difficulty)}</span>{/if}
       {#if (task.importance ?? 0) >= 2}<span class="tag accent">Important</span>{/if}
@@ -200,6 +213,9 @@
     font-weight: 650;
     color: var(--accent);
     margin-right: 6px;
+  }
+  .ongoing :global(.check) {
+    border-style: dashed;
   }
   .meta {
     display: flex;

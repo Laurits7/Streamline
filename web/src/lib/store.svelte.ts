@@ -51,6 +51,7 @@ import { toast } from './toast.svelte'
 import { ulid } from './ulid'
 import { pickSub, pickTop, type Shape } from './marks'
 import { checkBackDue, isWaiting } from './waiting'
+import { setWorked } from './ongoing'
 import { statusAfter } from './checklist'
 import { factorFor, learn, realistic, suggestion } from './estimates'
 import { nowHHMM } from './dates'
@@ -122,6 +123,8 @@ export type TaskPatch = Partial<
     | 'event_id'
     | 'wait_min'
     | 'checklist'
+    | 'ongoing'
+    | 'start_date'
   >
 >
 export type EntryPatch = Partial<Pick<DayEntry, 'date' | 'position' | 'start_time' | 'duration_min'>>
@@ -792,6 +795,9 @@ class Store {
       waiting_note: '',
       waiting_by: null,
       checklist: input.checklist ?? [],
+      ongoing: input.ongoing ?? false,
+      start_date: input.start_date ?? (input.ongoing ? this.today : null),
+      worked_days: [],
       created_at: ts,
       updated_at: ts,
       deleted_at: null,
@@ -827,6 +833,7 @@ class Store {
         const t = await api.post<Task>('/tasks', {
           ...rest,
           place_id: task.place_id,
+          start_date: task.start_date,
           id,
           project_id: projectId,
           position: task.position,
@@ -844,7 +851,8 @@ class Store {
     if (!cur) return
     // Ticking the last step completes the task, unticking one reopens it (D-80); the
     // server does the same, this only shows it right away.
-    if (patch.checklist && !patch.status) {
+    // (Not for ongoing tasks: they're finished by hand, D-102.)
+    if (patch.checklist && !patch.status && !(patch.ongoing ?? cur.ongoing)) {
       const status = statusAfter(cur.checklist, patch.checklist, cur.status)
       if (status) patch = { ...patch, status }
     }
@@ -1307,6 +1315,26 @@ class Store {
           updated_at: now(),
         }),
       async () => [['task', await api.patch<Task>(`/tasks/${id}`, { in_progress: inProgress })]],
+    )
+  }
+
+  // ---- ongoing tasks (D-102) ----------------------------------------------------
+
+  /** Mark (or unmark) that an ongoing task was worked on on `day`. */
+  markWorked(id: string, day: string, worked: boolean) {
+    const cur = this.tasks.get(id)
+    if (!cur) return
+    const ts = now()
+    this.optimistic(
+      [['task', id]],
+      () =>
+        this.tasks.set(id, {
+          ...cur,
+          worked_days: setWorked(cur.worked_days, day, worked),
+          started_at: cur.started_at ?? (worked ? ts : null),
+          updated_at: ts,
+        }),
+      async () => [['task', await api.patch<Task>(`/tasks/${id}`, { worked: { date: day, worked } })]],
     )
   }
 

@@ -7214,3 +7214,116 @@ async fn gitlab_and_gitea_items() {
         .await;
     assert_eq!(s, StatusCode::BAD_REQUEST);
 }
+
+#[tokio::test]
+async fn ongoing_tasks_are_worked_on_not_carried() {
+    let t = setup().await;
+    let admin = t.admin().await;
+    let (_, v, _) = t.req("GET", "/api/v1/today", Some(&admin), None).await;
+    let today = v["date"].as_str().unwrap().to_string();
+    let (s, task, _) = t
+        .req(
+            "POST",
+            "/api/v1/tasks",
+            Some(&admin),
+            Some(json!({"title": "Keep reading Dune", "ongoing": true, "start_date": today, "day": today,
+                "checklist": [{"id": "a", "text": "Part one", "done": false}]})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{task}");
+    assert_eq!(task["ongoing"], true);
+    let id = task["id"].as_str().unwrap().to_string();
+    let path = format!("/api/v1/tasks/{id}");
+
+    // Worked on it today (twice is still once), then on another day; unmark one.
+    for _ in 0..2 {
+        let (s, v, _) = t
+            .req(
+                "PATCH",
+                &path,
+                Some(&admin),
+                Some(json!({"worked": {"date": today, "worked": true}})),
+            )
+            .await;
+        assert_eq!(s, StatusCode::OK, "{v}");
+    }
+    let (_, v, _) = t
+        .req(
+            "PATCH",
+            &path,
+            Some(&admin),
+            Some(json!({"worked": {"date": "2026-01-02", "worked": true}})),
+        )
+        .await;
+    assert_eq!(v["worked_days"], json!(["2026-01-02", today]));
+    assert_eq!(v["status"], "open");
+    assert!(v["started_at"].is_string());
+    let (_, v, _) = t
+        .req(
+            "PATCH",
+            &path,
+            Some(&admin),
+            Some(json!({"worked": {"date": "2026-01-02", "worked": false}})),
+        )
+        .await;
+    assert_eq!(v["worked_days"], json!([today]));
+    let (s, _, _) = t
+        .req(
+            "PATCH",
+            &path,
+            Some(&admin),
+            Some(json!({"worked": {"date": "tomorrow", "worked": true}})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+
+    // Ticking its last step doesn't finish it; finishing is by hand.
+    let (_, v, _) = t
+        .req(
+            "PATCH",
+            &path,
+            Some(&admin),
+            Some(json!({"checklist": [{"id": "a", "text": "Part one", "done": true}]})),
+        )
+        .await;
+    assert_eq!(v["status"], "open");
+
+    // At day end it isn't carried over (no carry count); it shows every day anyway.
+    sqlx::query("UPDATE day_entries SET date = date(?, '-2 day')")
+        .bind(&today)
+        .execute(&t.state.db.write)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE users SET last_rollover_date = NULL")
+        .execute(&t.state.db.write)
+        .await
+        .unwrap();
+    let (_, day, _) = t
+        .req("GET", &format!("/api/v1/days/{today}"), Some(&admin), None)
+        .await;
+    assert_eq!(day["entries"].as_array().unwrap().len(), 0);
+    let (_, v, _) = t.req("GET", &path, Some(&admin), None).await;
+    assert_eq!(v["carry_count"], 0);
+    assert_eq!(v["status"], "open");
+
+    let (_, v, _) = t
+        .req(
+            "PATCH",
+            &path,
+            Some(&admin),
+            Some(json!({"status": "done"})),
+        )
+        .await;
+    assert_eq!(v["status"], "done");
+    // Turning it back into a normal task.
+    let (_, v, _) = t
+        .req(
+            "PATCH",
+            &path,
+            Some(&admin),
+            Some(json!({"ongoing": false, "start_date": null})),
+        )
+        .await;
+    assert_eq!(v["ongoing"], false);
+    assert!(v["start_date"].is_null());
+}

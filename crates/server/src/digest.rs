@@ -74,6 +74,8 @@ pub async fn gather(state: &AppState, user: &User, day: NaiveDate) -> anyhow::Re
     let due: Vec<(String, String)> = sqlx::query_as(&format!(
         "SELECT t.title, t.due_date FROM tasks t
           WHERE {visible} AND t.deleted_at IS NULL AND t.status = 'open' AND t.due_date IS NOT NULL AND t.due_date <= ?2
+            -- an ongoing task's end date is mentioned on its last day only (D-102)
+            AND (t.ongoing = 0 OR t.due_date = ?2)
             AND NOT EXISTS (SELECT 1 FROM day_entries e WHERE e.task_id = t.id AND e.date = ?2 AND e.deleted_at IS NULL)
           ORDER BY t.due_date LIMIT 20"
     ))

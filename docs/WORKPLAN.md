@@ -722,6 +722,10 @@ then the gate.
 - [x] **10.6 Morning digest**: one message each morning (time per user, off by default)
       through push or ntfy: today's plan, fixed times, what's due, waiting items to check;
       tests for the content; help and CHANGELOG.
+- [x] **10.8 Quick-add extras** (owner request, D-103): steps typed in while adding; add as
+      done, as waiting, or as ongoing.
+- [x] **10.9 Ongoing tasks** (owner request, D-102): kept at over a period, "worked on it" per
+      day, never carried or missed, finished by hand; domain + web logic tested.
 - [ ] **10.7 Phase gate** (Part D) for v1.4.
 
 ---

@@ -243,6 +243,17 @@ pub struct Task {
     #[ts(as = "Vec<ChecklistItem>")]
     #[schema(value_type = Vec<ChecklistItem>)]
     pub checklist: sqlx::types::Json<Vec<ChecklistItem>>,
+    /// Kept at over a period rather than done in one go (D-102): marked "worked on it" per
+    /// day, finished by hand. Its period runs from `start_date` (or creation) to `due_date`.
+    #[serde(default)]
+    pub ongoing: bool,
+    #[serde(default)]
+    pub start_date: Option<String>,
+    /// Days it was worked on (`YYYY-MM-DD`, sorted).
+    #[ts(type = "Array<string>")]
+    #[schema(value_type = Vec<String>)]
+    #[serde(default)]
+    pub worked_days: sqlx::types::Json<Vec<String>>,
     pub created_at: String,
     pub updated_at: String,
     pub deleted_at: Option<String>,
@@ -712,9 +723,9 @@ pub async fn upsert_task(conn: &mut SqliteConnection, t: &Task) -> sqlx::Result<
            due_date, estimate_min, difficulty, importance, urgency, actual_min, task_type_id, carry_count, started_at, completed_at,
            completed_by, ext_source, ext_id, ext_url, place_id, event_id, also_project_ids, depends_on, blocked, wait_min, ready_at,
            workflow_instance_id, workflow_step, workflow_steps, series_id, occurrence_key, occurrence_date, window_end,
-           waiting_since, check_back_at, waiting_note, waiting_by, checklist,
+           waiting_since, check_back_at, waiting_note, waiting_by, checklist, ongoing, start_date, worked_days,
            created_at, updated_at, deleted_at, rev)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
          ON CONFLICT(id) DO UPDATE SET owner_user_id=excluded.owner_user_id, owner_group_id=excluded.owner_group_id,
            assignee_user_id=excluded.assignee_user_id, project_id=excluded.project_id, title=excluded.title,
            notes=excluded.notes, status=excluded.status, position=excluded.position, due_date=excluded.due_date,
@@ -729,6 +740,7 @@ pub async fn upsert_task(conn: &mut SqliteConnection, t: &Task) -> sqlx::Result<
            occurrence_date=excluded.occurrence_date, window_end=excluded.window_end,
            waiting_since=excluded.waiting_since, check_back_at=excluded.check_back_at,
            waiting_note=excluded.waiting_note, waiting_by=excluded.waiting_by, checklist=excluded.checklist,
+           ongoing=excluded.ongoing, start_date=excluded.start_date, worked_days=excluded.worked_days,
            updated_at=excluded.updated_at, deleted_at=excluded.deleted_at, rev=excluded.rev",
     )
     .bind(&t.id).bind(&t.owner_user_id).bind(&t.owner_group_id).bind(&t.assignee_user_id).bind(&t.project_id)
@@ -738,6 +750,7 @@ pub async fn upsert_task(conn: &mut SqliteConnection, t: &Task) -> sqlx::Result<
     .bind(&t.ext_url).bind(&t.place_id).bind(&t.event_id).bind(&t.also_project_ids).bind(&t.depends_on).bind(t.blocked)
     .bind(t.wait_min).bind(&t.ready_at).bind(&t.workflow_instance_id).bind(t.workflow_step).bind(t.workflow_steps).bind(&t.series_id).bind(&t.occurrence_key).bind(&t.occurrence_date).bind(&t.window_end)
     .bind(&t.waiting_since).bind(&t.check_back_at).bind(&t.waiting_note).bind(&t.waiting_by).bind(&t.checklist)
+    .bind(t.ongoing).bind(&t.start_date).bind(&t.worked_days)
     .bind(&t.created_at).bind(&t.updated_at).bind(&t.deleted_at).bind(t.rev)
     .execute(conn)
     .await
