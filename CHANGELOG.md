@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased (1.4.0)
+## 1.4.0 (2026-10-16)
 
 - README badges: build status, latest release, licence, image, and what CI enforces.
 - Search and commands: Ctrl+K (⌘K), "/" or the Search button finds tasks (also by notes and
