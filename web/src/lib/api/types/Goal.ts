@@ -4,7 +4,19 @@ import type { Milestone } from "./Milestone";
 /**
  * A long-term goal (SPEC §6.10).
  */
-export type Goal = { id: string, owner_user_id: string | null, owner_group_id: string | null, title: string, description: string, target_date: string | null, status: 'active' | 'paused' | 'achieved' | 'dropped', 
+export type Goal = { id: string, owner_user_id: string | null, owner_group_id: string | null, title: string, description: string, 
+/**
+ * Outcomes: the target date. Habits: when the period ends (`null` = for good).
+ */
+target_date: string | null, 
+/**
+ * `outcome` (reached once: milestones, linked work) or `habit` (kept day by day; D-105).
+ */
+kind: 'outcome' | 'habit', 
+/**
+ * Habits: when the period starts (`null` = from its creation).
+ */
+start_date: string | null, status: 'active' | 'paused' | 'achieved' | 'dropped', 
 /**
  * 0–1, set by hand; `null` = derived from milestones and linked work.
  */

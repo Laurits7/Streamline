@@ -43,7 +43,7 @@
 
 <TaskViews scope={{ kind: 'all' }}>
   {#snippet list()}
-    <QuickAdd placeholder="Add to inbox…" onadd={(title) => store.createTask({ title })} ondefault={(id, kinds) => store.createFromDefault(id, {}, kinds)} />
+    <QuickAdd placeholder="Add to inbox…" tasks onadd={(title, extra) => store.createTask({ title, ...extra })} ondefault={(id, kinds) => store.createFromDefault(id, {}, kinds)} />
     <input class="search" type="text" bind:value={q} placeholder="Filter tasks…" aria-label="Filter tasks" />
     <div class="groups">
     {#each sections.filter((s) => s.tasks.length || s.id === null) as s (s.id ?? 'inbox')}

@@ -32,14 +32,19 @@ export type Route =
   | { name: 'day'; date: string }
   | { name: 'plan'; date: string }
   | { name: 'agenda'; start: string | null }
+  | { name: 'week'; start: string | null }
   | { name: 'inbox' }
+  | { name: 'triage' }
+  | { name: 'print'; date: string }
+  | { name: 'reconcile'; token: string }
+  | { name: 'join' }
   | { name: 'tasks' }
   | { name: 'routines' }
   | { name: 'occasions' }
   | { name: 'summary'; date: string | null }
   | { name: 'trends' }
   | { name: 'goals' }
-  | { name: 'goal-review' }
+  | { name: 'review' }
   | { name: 'focus' }
   | { name: 'projects' }
   | { name: 'project'; id: string }
@@ -55,7 +60,13 @@ export function match(path: string): Route {
   if ((m = p.match(/^\/plan\/(\d{4}-\d{2}-\d{2})$/))) return { name: 'plan', date: m[1] }
   if (p === '/agenda') return { name: 'agenda', start: null }
   if ((m = p.match(/^\/agenda\/(\d{4}-\d{2}-\d{2})$/))) return { name: 'agenda', start: m[1] }
+  if (p === '/week') return { name: 'week', start: null }
+  if ((m = p.match(/^\/week\/(\d{4}-\d{2}-\d{2})$/))) return { name: 'week', start: m[1] }
   if (p === '/inbox') return { name: 'inbox' }
+  if (p === '/inbox/process') return { name: 'triage' }
+  if ((m = p.match(/^\/print\/(\d{4}-\d{2}-\d{2})$/))) return { name: 'print', date: m[1] }
+  if ((m = p.match(/^\/r\/([0-9A-Za-z_-]+)$/))) return { name: 'reconcile', token: m[1] }
+  if (/^\/join\/[0-9A-Za-z_-]+$/.test(p)) return { name: 'join' }
   if (p === '/tasks') return { name: 'tasks' }
   if (p === '/routines') return { name: 'routines' }
   if (p === '/occasions') return { name: 'occasions' }
@@ -63,7 +74,8 @@ export function match(path: string): Route {
   if ((m = p.match(/^\/summary\/(\d{4}-\d{2}-\d{2})$/))) return { name: 'summary', date: m[1] }
   if (p === '/trends') return { name: 'trends' }
   if (p === '/goals') return { name: 'goals' }
-  if (p === '/goals/review') return { name: 'goal-review' }
+  // The goals review is part of the weekly review now (10.4); its old address still works.
+  if (p === '/review' || p === '/goals/review') return { name: 'review' }
   if (p === '/focus') return { name: 'focus' }
   if (p === '/projects') return { name: 'projects' }
   if ((m = p.match(/^\/projects\/([0-9A-Za-z]+)$/))) return { name: 'project', id: m[1] }

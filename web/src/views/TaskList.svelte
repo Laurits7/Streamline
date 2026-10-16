@@ -1,8 +1,10 @@
 <script lang="ts">
+  import { triageQueue } from '../lib/triage'
   // Inbox (projectId = null) or a single project's todo list.
   import ProjectMark from '../lib/components/ProjectMark.svelte'
   import Icon from '../lib/components/Icon.svelte'
   import QuickAdd from '../lib/components/QuickAdd.svelte'
+  import RemoteSharing from '../lib/components/RemoteSharing.svelte'
   import TaskRow from '../lib/components/TaskRow.svelte'
   import TaskViews from '../lib/components/TaskViews.svelte'
   import { router } from '../lib/router.svelte'
@@ -30,6 +32,14 @@
   )
   let showDone = $state(false)
   let menu = $state(false)
+  let sharingRemote = $state(false)
+  // Joined from another server (Phase 8): where from, and whether it can be changed now.
+  const remote = $derived(projectId ? store.remoteFor(projectId) : null)
+  const remoteHost = $derived(remote ? new URL(remote.home_url).host : '')
+  const canShareRemote = $derived(
+    !!project && !remote && !project.parent_id && !!project.owner_group_id &&
+      (store.groups.get(project.owner_group_id)?.members.some((m) => m.user_id === store.me?.id && m.role === 'owner') || !!store.me?.is_admin),
+  )
   let editingAbout = $state(false)
   let aboutDraft = $state('')
 
@@ -90,6 +100,8 @@
     store.moveToProject(item.taskId, target, keyAt(others, index))
   }
   let subIdea = $state(false)
+  // Inbox items that still need a decision (10.3).
+  const toProcess = $derived(projectId ? 0 : triageQueue(store.tasks.values(), (id) => !!store.entryForTask(id)).length)
 </script>
 
 {#if projectId && !project}
@@ -104,7 +116,8 @@
       {/if}
       <h1>
         {#if project}<ProjectMark {project} size={14} />{project.name}{#if project.status === 'idea'}<span class="idea-tag big">Idea</span>{/if}{:else}Inbox{/if}
-        {#if project?.owner_group_id}<span class="shared" title="Shared with {store.groupName(project.owner_group_id)}"><Icon name="users" size={16} /> {store.groupName(project.owner_group_id)}</span>{/if}
+        {#if remote}<span class="shared" title="Shared with you from {remote.home_url}"><Icon name="users" size={16} /> From {remoteHost}</span>
+        {:else if project?.owner_group_id}<span class="shared" title="Shared with {store.groupName(project.owner_group_id)}"><Icon name="users" size={16} /> {store.groupName(project.owner_group_id)}</span>{/if}
       </h1>
       <p class="muted">
         {[
@@ -116,6 +129,10 @@
           .join(' · ')}
       </p>
     </div>
+    {#if !projectId && toProcess}
+      <a class="btn primary" href="/inbox/process" title="Decide on each inbox item, one at a time"
+        ><Icon name="bolt" size={16} /> Process {toProcess}</a>
+    {/if}
     {#if project}
       <div class="menu-wrap">
         <button class="icon-btn" onclick={() => (menu = !menu)} aria-label="Project actions" aria-expanded={menu}><Icon name="more" /></button>
@@ -159,7 +176,10 @@
                 {/each}
               </select>
             </label>
-            {#if store.myGroups().length && !project.parent_id}
+            {#if canShareRemote}
+              <button role="menuitem" onclick={() => ((sharingRemote = true), (menu = false))}><Icon name="users" size={16} /> People on other servers…</button>
+            {/if}
+            {#if store.myGroups().length && !project.parent_id && !remote}
               <label class="move">
                 <span>Shared with</span>
                 <select
@@ -191,7 +211,9 @@
               <Icon name="bulb" size={16} /> {project.status === 'idea' ? 'Activate' : 'Move to ideas'}
             </button>
             <button role="menuitem" onclick={archive}><Icon name="archive" size={16} /> {project.archived_at ? 'Unarchive' : 'Archive'}</button>
-            <button role="menuitem" class="danger" onclick={remove}><Icon name="trash" size={16} /> Delete</button>
+            {#if !(remote && remote.root_project_id === projectId)}
+              <button role="menuitem" class="danger" onclick={remove}><Icon name="trash" size={16} /> Delete</button>
+            {/if}
           </div>
         {/if}
       </div>
@@ -199,6 +221,15 @@
   </header>
 
   {#if project}
+    {#if remote?.status === 'error'}
+      <div class="idea-note remote-down" role="status">
+        <Icon name="users" size={18} />
+        <p>
+          {remoteHost}, where this project is shared from, can't be reached right now, so it's read-only here until it's back.
+          {#if remote.last_sync_at}Showing it as of {new Date(remote.last_sync_at).toLocaleString(store.me?.locale || undefined, { dateStyle: 'medium', timeStyle: 'short' })}.{/if}
+        </p>
+      </div>
+    {/if}
     {#if project.status === 'idea'}
       <div class="idea-note">
         <Icon name="bulb" size={18} />
@@ -256,7 +287,7 @@
 
   <TaskViews scope={projectId ? { kind: 'project', id: projectId } : { kind: 'inbox' }}>
     {#snippet list()}
-    <QuickAdd placeholder={project ? `Add to ${project.name}…` : 'Add to inbox…'} onadd={(title) => store.createTask({ title, project_id: projectId })}
+    <QuickAdd placeholder={project ? `Add to ${project.name}…` : 'Add to inbox…'} tasks onadd={(title, extra) => store.createTask({ title, project_id: projectId, ...extra })}
       ondefault={(id, kinds) => store.createFromDefault(id, { project_id: projectId }, kinds)} />
 
     <div
@@ -331,6 +362,10 @@
     {/if}
     {/snippet}
   </TaskViews>
+{/if}
+
+{#if sharingRemote && projectId}
+  <RemoteSharing {projectId} onclose={() => (sharingRemote = false)} />
 {/if}
 
 <style>
@@ -546,6 +581,10 @@
     border-radius: var(--radius);
     background: var(--surface-2);
     color: var(--muted);
+  }
+  .remote-down {
+    border-style: solid;
+    border-color: var(--warn, var(--border));
   }
   .idea-note p {
     flex: 1;

@@ -1,5 +1,55 @@
 # Changelog
 
+## Unreleased (1.4.0)
+
+- README badges: build status, latest release, licence, image, and what CI enforces.
+- Search and commands: Ctrl+K (⌘K), "/" or the Search button finds tasks (also by notes and
+  checklist steps), projects, routines, journal days and pages, and acts on a task (complete,
+  plan, focus); text that matches nothing can go straight to the inbox. Keyboard shortcuts:
+  n new task, j/k and x/t/f on the selected task, g then a letter to go to a page, ? for
+  the list.
+- Week view (Week in the sidebar, or g w): a planner with a column per day, every planned
+  task, each day's load, and drag and drop between days and from the unplanned list; or a
+  calendar of the week on an hour grid with events, timed tasks and time blocks, where tasks
+  drag to another day or time (D-94).
+- Process the inbox: one item at a time, oldest first, with one key per decision (done, do
+  now, today, tomorrow, another day, to a project, waiting, won't do, skip), estimates on
+  the way, and undo.
+- Weekly review (the Today banner, or /review): the week in numbers, loose ends (overdue,
+  carried over, forgotten) to plan or drop, waiting items, projects with no next step and
+  ideas, goal notes, then a look at the coming week. It replaces the separate goals review.
+- Better estimates: learned from the focus time spent on finished tasks (per project, type of
+  task, or overall). The task sheet suggests a realistic estimate when yours are usually off,
+  Trends shows how accurate they are, and "Plan with realistic times" (Settings) counts the
+  day's load that way.
+- Morning digest (Settings → Notifications, off until you pick a time): one message each
+  morning with things at set times, the plan, what's due and waiting items to check on,
+  through push, ntfy or in the app; Preview shows today's.
+- Print the day: an A4 sheet with tick boxes, steps, short codes and a QR code; scanning it
+  on any phone (no sign-in, 48 hours, only that sheet's tasks) ticks off what was done on
+  paper (D-14).
+- Your tasks in your calendar: tasks with a time can be written to one of your CalDAV
+  calendars as busy time (titles optional), kept in step with your plan (D-98).
+- Tasks from GitHub, GitLab and Gitea/Forgejo: connect accounts with an access token; issues
+  and pull/merge requests assigned to you, review requests and mentions (each can be switched
+  off) arrive as tasks with a link, in the project a repository rule names or the inbox, and
+  complete themselves once closed, merged or no longer yours; removing the account removes
+  its open tasks. Read-only (D-97, D-99).
+- Share projects with people on other Streamline servers: an invite link (single use, 7 days)
+  lets someone with their own Streamline join a project shared with your group. Their server
+  keeps a copy and sends their changes to yours, which checks them; while yours is down, their
+  copy is read-only. Join and leave in Settings → Projects from other servers (D-69, D-100).
+- Quick-add does more: type the task's steps (one per line, they become its checklist), or add
+  it as already done, as waiting for results (say what for and when to check back), or as
+  ongoing (D-103).
+- Ongoing tasks, for things you keep at over a period like reading a book: they show every day
+  of their period under Ongoing, are ticked as "worked on it today" rather than done, count the
+  days you worked on them, are never carried over or missed, and are finished by hand (D-102).
+- Habit goals: a goal can be a habit you keep up ("eat less junk"), from a start date and for
+  good or until a date. Each day the Track card (and the reflection) asks "Did you manage?":
+  yes, partly or no, with a note. The Goals page shows the week, the streak and the share of
+  good days; the weekly review shows each habit's week and asks for your verdict (D-105).
+
 ## 1.3.0 (2026-10-14)
 
 - Checklists complete their task: ticking the last step completes it (with Undo), and

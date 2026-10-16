@@ -3015,6 +3015,21 @@ async fn dav_handler(
                 )
             })
             .collect()),
+        // Calendar write-back (7.7): store and remove events.
+        ("PUT", p, _) if p.starts_with("/dav/anna/work/") => {
+            d.ctag += 1;
+            let etag = format!("\"w{}\"", d.ctag);
+            d.objects.insert(p.to_string(), (etag, body));
+            StatusCode::CREATED.into_response()
+        }
+        ("DELETE", p, _) => {
+            if d.objects.remove(p).is_some() {
+                d.ctag += 1;
+                StatusCode::NO_CONTENT.into_response()
+            } else {
+                StatusCode::NOT_FOUND.into_response()
+            }
+        }
         _ => StatusCode::NOT_FOUND.into_response(),
     }
 }
@@ -6258,4 +6273,1206 @@ async fn step_log_only_shows_tasks_still_visible() {
         )
         .await;
     assert_eq!(steps(log), 0);
+}
+
+#[tokio::test]
+async fn morning_digest() {
+    // 10.6: off by default; a time turns it on; the preview shows the day ahead; the job
+    // sends it once a day within two hours of the time.
+    let t = setup().await;
+    let admin = t.admin().await;
+    let (_, me, _) = t.req("GET", "/api/v1/me", Some(&admin), None).await;
+    assert!(me["digest_time"].is_null(), "off by default");
+    let (s, _, _) = t
+        .req(
+            "PATCH",
+            "/api/v1/me",
+            Some(&admin),
+            Some(json!({"digest_time": "7:30am"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+
+    let today = today_of(&t, &admin).await;
+    let d = ymd(today);
+    let mk = |body: Value| t.req("POST", "/api/v1/tasks", Some(&admin), Some(body));
+    let (_, a, _) = mk(json!({"title": "Laundry"})).await;
+    let (_, b, _) = mk(json!({"title": "Dentist"})).await;
+    mk(json!({"title": "Pay bill", "due_date": ymd(today - chrono::Duration::days(2))})).await;
+    let (_, w, _) = mk(json!({"title": "Parcel"})).await;
+    t.req(
+        "POST",
+        &format!("/api/v1/days/{d}/entries"),
+        Some(&admin),
+        Some(json!({"task_id": a["id"]})),
+    )
+    .await;
+    t.req(
+        "POST",
+        &format!("/api/v1/days/{d}/entries"),
+        Some(&admin),
+        Some(json!({"task_id": b["id"], "start_time": "09:30"})),
+    )
+    .await;
+    let soon = (chrono::Utc::now() + chrono::Duration::hours(1))
+        .to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    t.req(
+        "PATCH",
+        &format!("/api/v1/tasks/{}", w["id"].as_str().unwrap()),
+        Some(&admin),
+        Some(json!({"waiting": true, "check_back_at": soon})),
+    )
+    .await;
+
+    let (s, p, _) = t.req("GET", "/api/v1/me/digest", Some(&admin), None).await;
+    assert_eq!(s, StatusCode::OK, "{p}");
+    assert_eq!(p["title"], "Good morning: 3 things today");
+    let body = p["body"].as_str().unwrap();
+    for part in [
+        "At set times: 09:30 Dentist",
+        "Planned: Laundry",
+        "Due: Pay bill (overdue)",
+    ] {
+        assert!(body.contains(part), "{body}");
+    }
+
+    // The job: a time that has just passed sends once; one hours ago doesn't.
+    let last = || async {
+        sqlx::query_scalar::<_, Option<String>>(
+            "SELECT last_digest_date FROM users WHERE username = 'admin'",
+        )
+        .fetch_one(&t.state.db.read)
+        .await
+        .unwrap()
+    };
+    let hhmm = |offset_min: i64| {
+        (chrono::Utc::now() - chrono::Duration::minutes(offset_min))
+            .format("%H:%M")
+            .to_string()
+    };
+    t.req(
+        "PATCH",
+        "/api/v1/me",
+        Some(&admin),
+        Some(json!({"digest_time": hhmm(300)})),
+    )
+    .await;
+    streamline::digest::run_all(&t.state).await.unwrap();
+    assert_eq!(last().await, None, "five hours late: skipped");
+    let (_, me, _) = t
+        .req(
+            "PATCH",
+            "/api/v1/me",
+            Some(&admin),
+            Some(json!({"digest_time": hhmm(5)})),
+        )
+        .await;
+    assert!(me["digest_time"].is_string());
+    streamline::digest::run_all(&t.state).await.unwrap();
+    let first = last().await;
+    assert!(first.is_some(), "sent");
+    streamline::digest::run_all(&t.state).await.unwrap();
+    assert_eq!(last().await, first, "once a day");
+    let (_, me, _) = t
+        .req(
+            "PATCH",
+            "/api/v1/me",
+            Some(&admin),
+            Some(json!({"digest_time": null})),
+        )
+        .await;
+    assert!(me["digest_time"].is_null());
+}
+
+#[tokio::test]
+async fn printed_sheet_and_reconcile_link() {
+    // 7.3, D-14: print a day; the QR link completes only that sheet's open items, without
+    // signing in, for 48 hours; completions are marked as coming from paper.
+    let t = setup().await;
+    let admin = t.admin().await;
+    let d = ymd(today_of(&t, &admin).await);
+    let mk = |title: &str| {
+        t.req(
+            "POST",
+            "/api/v1/tasks",
+            Some(&admin),
+            Some(json!({"title": title, "day": d})),
+        )
+    };
+    let (_, a, _) = mk("Laundry").await;
+    let (_, b, _) = mk("Dishes").await;
+    let (_, other, _) = t
+        .req(
+            "POST",
+            "/api/v1/tasks",
+            Some(&admin),
+            Some(json!({"title": "Not printed"})),
+        )
+        .await;
+
+    let (s, sheet, _) = t
+        .req(
+            "POST",
+            "/api/v1/print/sheets",
+            Some(&admin),
+            Some(json!({"date": d})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{sheet}");
+    assert_eq!(sheet["items"].as_array().unwrap().len(), 2);
+    let url = sheet["url"].as_str().unwrap();
+    assert!(url.starts_with("http://localhost:3000/r/"), "{url}");
+    assert!(sheet["qr_svg"].as_str().unwrap().starts_with("<?xml"));
+    let token = url.rsplit('/').next().unwrap();
+
+    // No sign-in needed to read it.
+    let (s, r, _) = t
+        .req("GET", &format!("/api/v1/reconcile/{token}"), None, None)
+        .await;
+    assert_eq!(s, StatusCode::OK, "{r}");
+    let titles: Vec<&str> = r["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|i| i["title"].as_str().unwrap())
+        .collect();
+    assert_eq!(titles, vec!["Laundry", "Dishes"]);
+    let code_a = r["items"][0]["code"].as_str().unwrap().to_string();
+
+    // Completing: only codes on the sheet count.
+    let (s, r, _) = t
+        .req(
+            "POST",
+            &format!("/api/v1/reconcile/{token}"),
+            None,
+            Some(json!({"codes": [code_a, "NOPE"]})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{r}");
+    assert_eq!(
+        (
+            r["items"][0]["done"].as_bool(),
+            r["items"][1]["done"].as_bool()
+        ),
+        (Some(true), Some(false))
+    );
+    let status = |id: &Value| {
+        let id = id["id"].as_str().unwrap().to_string();
+        let t = &t;
+        let admin = admin.clone();
+        async move {
+            t.req("GET", &format!("/api/v1/tasks/{id}"), Some(&admin), None)
+                .await
+                .1["status"]
+                .clone()
+        }
+    };
+    assert_eq!(status(&a).await, "done");
+    assert_eq!(status(&b).await, "open");
+    assert_eq!(status(&other).await, "open");
+    let source: Option<String> =
+        sqlx::query_scalar("SELECT data FROM task_events WHERE task_id = ? AND kind = 'completed'")
+            .bind(a["id"].as_str().unwrap())
+            .fetch_one(&t.state.db.read)
+            .await
+            .unwrap();
+    assert_eq!(source.as_deref(), Some(r#"{"source":"print"}"#));
+
+    // Wrong or expired links don't work.
+    let (s, _, _) = t
+        .req("GET", "/api/v1/reconcile/not-a-token", None, None)
+        .await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+    sqlx::query("UPDATE print_sheets SET expires_at = '2000-01-01T00:00:00.000Z'")
+        .execute(&t.state.db.write)
+        .await
+        .unwrap();
+    let (s, _, _) = t
+        .req(
+            "POST",
+            &format!("/api/v1/reconcile/{token}"),
+            None,
+            Some(json!({"codes": []})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn calendar_write_back() {
+    // 7.7, D-98: timed tasks go to the chosen calendar as busy events, follow changes, are
+    // taken back when unscheduled or when write-back is turned off, and aren't read back in.
+    let t = setup().await;
+    let admin = t.admin().await;
+    let anna = t.user(&admin, "anna").await;
+    let (url, dav) = mock_dav().await;
+    let (s, v, _) = t
+        .req(
+            "PUT",
+            "/api/v1/calendar/account",
+            Some(&anna),
+            Some(json!({"url": url, "username": "anna", "password": "secret"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    let (_, sync, _) = t
+        .req("GET", "/api/v1/sync?since=0", Some(&anna), None)
+        .await;
+    let cal = sync["calendars"][0]["id"].as_str().unwrap().to_string();
+
+    let d = ymd(today_of(&t, &anna).await);
+    let (_, task, _) = t
+        .req(
+            "POST",
+            "/api/v1/tasks",
+            Some(&anna),
+            Some(json!({"title": "Call plumber", "estimate_min": 45})),
+        )
+        .await;
+    let (_, entry, _) = t
+        .req(
+            "POST",
+            &format!("/api/v1/days/{d}/entries"),
+            Some(&anna),
+            Some(json!({"task_id": task["id"], "start_time": "10:00"})),
+        )
+        .await;
+    let entry_path = format!("/api/v1/day-entries/{}", entry["id"].as_str().unwrap());
+    let written = || {
+        let d = dav.lock().unwrap();
+        d.objects
+            .iter()
+            .filter(|(h, _)| h.contains("streamline-"))
+            .map(|(_, (_, ics))| ics.clone())
+            .collect::<Vec<_>>()
+    };
+
+    // Off by default: nothing written.
+    streamline::writeback::run_all(&t.state).await.unwrap();
+    assert!(written().is_empty());
+    let (s, _, _) = t
+        .req(
+            "PATCH",
+            "/api/v1/calendar/account",
+            Some(&anna),
+            Some(json!({"write_calendar_id": "nope"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    let (_, v, _) = t
+        .req(
+            "PATCH",
+            "/api/v1/calendar/account",
+            Some(&anna),
+            Some(json!({"write_calendar_id": cal})),
+        )
+        .await;
+    assert_eq!(v["write_calendar_id"], cal.as_str());
+    streamline::writeback::run_all(&t.state).await.unwrap();
+    let w = written();
+    assert_eq!(w.len(), 1);
+    assert!(
+        w[0].contains("SUMMARY:Call plumber\r\n") && w[0].contains("UID:streamline-entry-"),
+        "{}",
+        w[0]
+    );
+
+    // Not read back in as a calendar event.
+    t.req("POST", "/api/v1/calendar/sync", Some(&anna), None)
+        .await;
+    let (_, sync, _) = t
+        .req("GET", "/api/v1/sync?since=0", Some(&anna), None)
+        .await;
+    assert!(
+        !sync["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|e| e["title"] == "Call plumber"),
+        "{}",
+        sync["events"]
+    );
+
+    // Nothing changed: nothing sent again.
+    let before = dav.lock().unwrap().requests.len();
+    streamline::writeback::run_all(&t.state).await.unwrap();
+    assert_eq!(dav.lock().unwrap().requests.len(), before);
+
+    // Moved: rewritten; titles off: "Busy".
+    t.req(
+        "PATCH",
+        &entry_path,
+        Some(&anna),
+        Some(json!({"start_time": "15:30"})),
+    )
+    .await;
+    t.req(
+        "PATCH",
+        "/api/v1/calendar/account",
+        Some(&anna),
+        Some(json!({"write_titles": false})),
+    )
+    .await;
+    streamline::writeback::run_all(&t.state).await.unwrap();
+    let w = written();
+    assert_eq!(w.len(), 1);
+    assert!(w[0].contains("SUMMARY:Busy\r\n"), "{}", w[0]);
+    assert!(!w[0].contains("T100000"), "moved away from 10:00: {}", w[0]);
+
+    // Unscheduled: taken back.
+    t.req(
+        "PATCH",
+        &entry_path,
+        Some(&anna),
+        Some(json!({"start_time": null})),
+    )
+    .await;
+    streamline::writeback::run_all(&t.state).await.unwrap();
+    assert!(written().is_empty());
+
+    // Scheduled again, then write-back off: taken back too.
+    t.req(
+        "PATCH",
+        &entry_path,
+        Some(&anna),
+        Some(json!({"start_time": "11:00"})),
+    )
+    .await;
+    streamline::writeback::run_all(&t.state).await.unwrap();
+    assert_eq!(written().len(), 1);
+    t.req(
+        "PATCH",
+        "/api/v1/calendar/account",
+        Some(&anna),
+        Some(json!({"write_calendar_id": null})),
+    )
+    .await;
+    streamline::writeback::run_all(&t.state).await.unwrap();
+    assert!(written().is_empty());
+}
+
+// ----- Tasks from GitHub, GitLab and Gitea (7.6): a mock forge with recorded answers -----
+
+/// What the mock forge currently shows. Answers follow the shapes the real APIs send
+/// (trimmed to the fields that matter plus a few neighbours).
+#[derive(Default)]
+struct ForgeMock {
+    /// GitHub: (repo, number, title, is_pr, reasons as `q` qualifiers it matches).
+    github: Vec<(&'static str, u64, &'static str, bool, Vec<&'static str>)>,
+    incomplete: bool,
+    requests: Vec<String>,
+}
+
+type ForgeState = std::sync::Arc<std::sync::Mutex<ForgeMock>>;
+
+async fn forge_handler(
+    axum::extract::State(f): axum::extract::State<ForgeState>,
+    uri: axum::http::Uri,
+    headers: axum::http::HeaderMap,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    let mut f = f.lock().unwrap();
+    let path = uri.path().to_string();
+    let query: std::collections::HashMap<String, String> =
+        reqwest::Url::parse(&format!("http://mock{uri}"))
+            .unwrap()
+            .query_pairs()
+            .into_owned()
+            .collect();
+    f.requests.push(uri.to_string());
+    let auth = |h: &str| {
+        headers
+            .get(h)
+            .and_then(|v| v.to_str().ok())
+            .map(String::from)
+    };
+    let json = |v: Value| Json(v).into_response();
+    use axum::Json;
+    match path.as_str() {
+        // ---- GitHub Enterprise layout (/api/v3) ----
+        p if p.starts_with("/api/v3/") => {
+            if auth("authorization").as_deref() != Some("Bearer ghp_test") {
+                return (StatusCode::UNAUTHORIZED, Json(json!({"message": "Bad credentials", "documentation_url": "https://docs.github.com/rest", "status": "401"}))).into_response();
+            }
+            match p {
+                "/api/v3/user" => {
+                    json(json!({"login": "anna", "id": 1, "type": "User", "site_admin": false}))
+                }
+                "/api/v3/search/issues" => {
+                    let q = query.get("q").cloned().unwrap_or_default();
+                    let is_issue = q.contains("is:issue");
+                    let is_pr = q.contains("is:pr");
+                    let reason = ["assignee:", "user-review-requested:", "mentions:"]
+                        .into_iter()
+                        .find(|r| q.contains(r))
+                        .unwrap();
+                    let items: Vec<Value> = f
+                        .github
+                        .iter()
+                        .filter(|(_, _, _, pr, reasons)| {
+                            (!is_issue || !pr) && (!is_pr || *pr) && reasons.contains(&reason)
+                        })
+                        .map(|(repo, n, title, pr, _)| {
+                            let mut v = json!({
+                                "url": format!("https://ghe.test/api/v3/repos/{repo}/issues/{n}"),
+                                "repository_url": format!("https://ghe.test/api/v3/repos/{repo}"),
+                                "html_url": format!("https://ghe.test/{repo}/{}/{n}", if *pr { "pull" } else { "issues" }),
+                                "number": n, "title": title, "state": "open", "locked": false,
+                                "user": {"login": "someone"}, "labels": [], "comments": 0,
+                                "created_at": "2026-10-01T10:00:00Z", "updated_at": "2026-10-10T10:00:00Z",
+                            });
+                            if *pr {
+                                v["pull_request"] = json!({"url": format!("https://ghe.test/api/v3/repos/{repo}/pulls/{n}"), "merged_at": null});
+                            }
+                            v
+                        })
+                        .collect();
+                    json(
+                        json!({"total_count": items.len(), "incomplete_results": f.incomplete, "items": items}),
+                    )
+                }
+                _ => StatusCode::NOT_FOUND.into_response(),
+            }
+        }
+        // ---- GitLab (/api/v4) ----
+        p if p.starts_with("/api/v4/") => {
+            if auth("private-token").as_deref() != Some("glpat-test") {
+                return (
+                    StatusCode::UNAUTHORIZED,
+                    Json(json!({"message": "401 Unauthorized"})),
+                )
+                    .into_response();
+            }
+            let issue = |iid: u64, full: &str, title: &str, mr: bool| {
+                let (proj, _) = full.rsplit_once(['#', '!']).unwrap();
+                json!({
+                    "id": 1000 + iid, "iid": iid, "project_id": 42, "title": title, "state": "opened",
+                    "web_url": format!("https://gitlab.test/{proj}/-/{}/{iid}", if mr { "merge_requests" } else { "issues" }),
+                    "references": {"short": full.trim_start_matches(proj), "relative": full.trim_start_matches(proj), "full": full},
+                    "author": {"username": "someone"}, "labels": [],
+                })
+            };
+            match (
+                p,
+                query.get("scope").map(String::as_str),
+                query.get("action").map(String::as_str),
+            ) {
+                ("/api/v4/user", _, _) => {
+                    json(json!({"id": 7, "username": "anna", "name": "Anna", "state": "active"}))
+                }
+                ("/api/v4/issues", Some("assigned_to_me"), _) => {
+                    json(json!([issue(4, "grp/sub/app#4", "Crash on start", false)]))
+                }
+                ("/api/v4/merge_requests", Some("assigned_to_me"), _) => json(json!([])),
+                ("/api/v4/merge_requests", Some("all"), _)
+                    if query.get("reviewer_username").map(String::as_str) == Some("anna") =>
+                {
+                    json(json!([issue(2, "grp/sub/app!2", "Faster build", true)]))
+                }
+                ("/api/v4/todos", _, Some("mentioned")) => json(json!([
+                    {"id": 1, "action_name": "mentioned", "target_type": "Issue", "state": "pending",
+                     "project": {"path_with_namespace": "grp/other"}, "target": issue(9, "grp/other#9", "Question for Anna", false)},
+                    {"id": 2, "action_name": "mentioned", "target_type": "Issue", "state": "pending",
+                     "project": {"path_with_namespace": "grp/other"}, "target": {"state": "closed", "iid": 8, "title": "Old", "references": {"full": "grp/other#8"}}},
+                    {"id": 3, "action_name": "mentioned", "target_type": "Commit", "state": "pending", "target": {"id": "abc"}},
+                ])),
+                ("/api/v4/todos", _, Some("directly_addressed")) => json(json!([])),
+                _ => StatusCode::NOT_FOUND.into_response(),
+            }
+        }
+        // ---- Gitea / Forgejo (/api/v1) ----
+        p if p.starts_with("/api/v1/") => {
+            if auth("authorization").as_deref() != Some("token gitea-test") {
+                return (
+                    StatusCode::UNAUTHORIZED,
+                    Json(json!({"message": "token is required"})),
+                )
+                    .into_response();
+            }
+            match p {
+                "/api/v1/user" => json(json!({"id": 3, "login": "anna", "full_name": "Anna"})),
+                "/api/v1/repos/issues/search" => {
+                    let assigned_issues = query.get("type").map(String::as_str) == Some("issues")
+                        && query.get("assigned").map(String::as_str) == Some("true");
+                    json(if assigned_issues {
+                        json!([{"id": 55, "number": 5, "title": "Write notes", "state": "open",
+                                "html_url": "https://codeberg.test/anna/notes/issues/5", "pull_request": null,
+                                "repository": {"id": 9, "name": "notes", "owner": "anna", "full_name": "anna/notes"}}])
+                    } else {
+                        json!([])
+                    })
+                }
+                _ => StatusCode::NOT_FOUND.into_response(),
+            }
+        }
+        _ => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+async fn mock_forge() -> (String, ForgeState) {
+    let f = ForgeState::default();
+    let app = Router::new().fallback(forge_handler).with_state(f.clone());
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    (format!("http://{addr}"), f)
+}
+
+async fn forge_tasks(t: &T, auth: &str) -> Vec<Value> {
+    let (_, v, _) = t.req("GET", "/api/v1/tasks", Some(auth), None).await;
+    v.as_array()
+        .unwrap()
+        .iter()
+        .filter(|t| t["ext_source"] == "forge")
+        .cloned()
+        .collect()
+}
+
+fn by_url<'a>(tasks: &'a [Value], url_end: &str) -> &'a Value {
+    tasks
+        .iter()
+        .find(|t| t["ext_url"].as_str().unwrap().ends_with(url_end))
+        .unwrap_or_else(|| panic!("no task for {url_end}"))
+}
+
+#[tokio::test]
+async fn github_items_become_tasks_and_complete_upstream() {
+    let t = setup().await;
+    let admin = t.admin().await;
+    let anna = t.user(&admin, "anna").await;
+    let bob = t.user(&admin, "bob").await;
+    let (url, f) = mock_forge().await;
+    {
+        let mut m = f.lock().unwrap();
+        m.github = vec![
+            (
+                "acme/web",
+                1,
+                "Fix the header",
+                false,
+                vec!["assignee:", "mentions:"],
+            ),
+            (
+                "acme/api",
+                7,
+                "Add rate limits",
+                true,
+                vec!["user-review-requested:"],
+            ),
+            (
+                "me/dotfiles",
+                3,
+                "Did you see this?",
+                false,
+                vec!["mentions:"],
+            ),
+        ];
+    }
+    let (_, project, _) = t
+        .req(
+            "POST",
+            "/api/v1/projects",
+            Some(&anna),
+            Some(json!({"name": "Work"})),
+        )
+        .await;
+    let work = project["id"].as_str().unwrap();
+
+    // A wrong token is reported, not saved.
+    let (s, v, _) = t
+        .req(
+            "POST",
+            "/api/v1/forges/test",
+            Some(&anna),
+            Some(json!({"kind": "github", "url": url, "token": "nope"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(v["ok"], false);
+    assert!(v["error"].as_str().unwrap().contains("refused"), "{v}");
+    let (s, _, _) = t
+        .req(
+            "POST",
+            "/api/v1/forges",
+            Some(&anna),
+            Some(json!({"kind": "github", "url": url, "token": "nope"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    let (_, v, _) = t
+        .req(
+            "POST",
+            "/api/v1/forges/test",
+            Some(&anna),
+            Some(json!({"kind": "github", "url": url, "token": "ghp_test"})),
+        )
+        .await;
+    assert_eq!(v["login"], "anna");
+
+    // Connect: everything that's anna's arrives in the inbox, once per item.
+    let (s, acc, _) = t
+        .req(
+            "POST",
+            "/api/v1/forges",
+            Some(&anna),
+            Some(json!({"kind": "github", "url": format!("{url}/"), "token": "ghp_test"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{acc}");
+    assert_eq!(acc["status"], "ok", "{acc}");
+    assert_eq!(acc["login"], "anna");
+    assert_eq!(acc["url"], url.as_str());
+    assert!(acc.get("token").is_none() && acc.get("secret").is_none());
+    let id = acc["id"].as_str().unwrap().to_string();
+    let tasks = forge_tasks(&t, &anna).await;
+    assert_eq!(tasks.len(), 3);
+    let header = by_url(&tasks, "/acme/web/issues/1");
+    assert_eq!(header["title"], "Fix the header");
+    assert_eq!(header["project_id"], Value::Null);
+    assert!(
+        header["notes"]
+            .as_str()
+            .unwrap()
+            .contains("acme/web#1 on GitHub: assigned issue, you were mentioned")
+    );
+    assert_eq!(
+        by_url(&tasks, "/acme/api/pull/7")["title"],
+        "Review: Add rate limits"
+    );
+    // Only anna's: other people see nothing of it.
+    assert!(forge_tasks(&t, &bob).await.is_empty());
+    let (s, _, _) = t
+        .req(
+            "POST",
+            &format!("/api/v1/forges/{id}/sync"),
+            Some(&bob),
+            None,
+        )
+        .await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+
+    // Polling again changes nothing.
+    t.req(
+        "POST",
+        &format!("/api/v1/forges/{id}/sync"),
+        Some(&anna),
+        None,
+    )
+    .await;
+    assert_eq!(forge_tasks(&t, &anna).await.len(), 3);
+
+    // Repository rules: new acme items go to the project.
+    let (s, v, _) = t
+        .req(
+            "PATCH",
+            &format!("/api/v1/forges/{id}"),
+            Some(&anna),
+            Some(json!({"rules": [{"repo": "acme/*", "project_id": work}]})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    let (s, _, _) = t
+        .req(
+            "PATCH",
+            &format!("/api/v1/forges/{id}"),
+            Some(&anna),
+            Some(json!({"rules": [{"repo": "x/*", "project_id": "nope"}]})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    f.lock()
+        .unwrap()
+        .github
+        .push(("acme/web", 2, "Footer too", false, vec!["assignee:"]));
+    t.req(
+        "POST",
+        &format!("/api/v1/forges/{id}/sync"),
+        Some(&anna),
+        None,
+    )
+    .await;
+    let tasks = forge_tasks(&t, &anna).await;
+    assert_eq!(by_url(&tasks, "/acme/web/issues/2")["project_id"], work);
+
+    // Closed upstream (gone from every list): the task is done. A cut-off answer
+    // completes nothing.
+    f.lock().unwrap().github.retain(|i| i.1 != 1);
+    f.lock().unwrap().incomplete = true;
+    t.req(
+        "POST",
+        &format!("/api/v1/forges/{id}/sync"),
+        Some(&anna),
+        None,
+    )
+    .await;
+    assert_eq!(
+        by_url(&forge_tasks(&t, &anna).await, "/acme/web/issues/1")["status"],
+        "open"
+    );
+    f.lock().unwrap().incomplete = false;
+    t.req(
+        "POST",
+        &format!("/api/v1/forges/{id}/sync"),
+        Some(&anna),
+        None,
+    )
+    .await;
+    let tasks = forge_tasks(&t, &anna).await;
+    assert_eq!(by_url(&tasks, "/acme/web/issues/1")["status"], "done");
+    assert_eq!(by_url(&tasks, "/acme/api/pull/7")["status"], "open");
+
+    // Mentions switched off: the mention-only task isn't "done", it just stays.
+    let (_, v, _) = t
+        .req(
+            "PATCH",
+            &format!("/api/v1/forges/{id}"),
+            Some(&anna),
+            Some(json!({"mentions": false})),
+        )
+        .await;
+    assert_eq!(v["mentions"], false);
+    t.req(
+        "POST",
+        &format!("/api/v1/forges/{id}/sync"),
+        Some(&anna),
+        None,
+    )
+    .await;
+    assert!(
+        !f.lock()
+            .unwrap()
+            .requests
+            .last()
+            .unwrap()
+            .contains("mentions")
+    );
+    assert_eq!(
+        by_url(&forge_tasks(&t, &anna).await, "/me/dotfiles/issues/3")["status"],
+        "open"
+    );
+
+    // A deleted task isn't brought back.
+    let review = by_url(&forge_tasks(&t, &anna).await, "/acme/api/pull/7")["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let (s, _, _) = t
+        .req(
+            "DELETE",
+            &format!("/api/v1/tasks/{review}"),
+            Some(&anna),
+            None,
+        )
+        .await;
+    assert!(s.is_success());
+    t.req(
+        "POST",
+        &format!("/api/v1/forges/{id}/sync"),
+        Some(&anna),
+        None,
+    )
+    .await;
+    assert!(
+        forge_tasks(&t, &anna)
+            .await
+            .iter()
+            .all(|t| !t["ext_url"].as_str().unwrap().ends_with("/pull/7"))
+    );
+
+    // A token that stops working shows as an error; tasks stay as they were.
+    sqlx::query("UPDATE forge_accounts SET secret = ? WHERE id = ?")
+        .bind(t.state.secrets.encrypt("revoked"))
+        .bind(&id)
+        .execute(&t.state.db.write)
+        .await
+        .unwrap();
+    let (_, v, _) = t
+        .req(
+            "POST",
+            &format!("/api/v1/forges/{id}/sync"),
+            Some(&anna),
+            None,
+        )
+        .await;
+    assert_eq!(v["status"], "error");
+    assert!(v["last_error"].as_str().unwrap().contains("refused"));
+    let open = forge_tasks(&t, &anna)
+        .await
+        .iter()
+        .filter(|t| t["status"] == "open")
+        .count();
+    assert_eq!(open, 2);
+
+    // Removing the account removes its open tasks; finished ones stay as history.
+    let (s, _, _) = t
+        .req("DELETE", &format!("/api/v1/forges/{id}"), Some(&anna), None)
+        .await;
+    assert_eq!(s, StatusCode::NO_CONTENT);
+    let (_, v, _) = t.req("GET", "/api/v1/forges", Some(&anna), None).await;
+    assert_eq!(v, json!([]));
+    let left = forge_tasks(&t, &anna).await;
+    assert_eq!(left.len(), 1, "{left:?}");
+    assert_eq!(left[0]["status"], "done");
+}
+
+#[tokio::test]
+async fn gitlab_and_gitea_items() {
+    let t = setup().await;
+    let admin = t.admin().await;
+    let anna = t.user(&admin, "anna").await;
+    let (url, _f) = mock_forge().await;
+    let (_, project, _) = t
+        .req(
+            "POST",
+            "/api/v1/projects",
+            Some(&anna),
+            Some(json!({"name": "App"})),
+        )
+        .await;
+    let app = project["id"].as_str().unwrap();
+
+    let (s, acc, _) = t
+        .req(
+            "POST",
+            "/api/v1/forges",
+            Some(&anna),
+            Some(json!({"kind": "gitlab", "url": url, "token": "glpat-test"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{acc}");
+    assert_eq!(acc["status"], "ok", "{acc}");
+    let id = acc["id"].as_str().unwrap();
+    t.req(
+        "PATCH",
+        &format!("/api/v1/forges/{id}"),
+        Some(&anna),
+        Some(json!({"rules": [{"repo": "grp/*", "project_id": app}]})),
+    )
+    .await;
+    // The rule only applies to what arrives later; the first items are in the inbox.
+    let tasks = forge_tasks(&t, &anna).await;
+    assert_eq!(tasks.len(), 3, "{tasks:?}");
+    assert_eq!(
+        by_url(&tasks, "/grp/sub/app/-/issues/4")["title"],
+        "Crash on start"
+    );
+    assert_eq!(
+        by_url(&tasks, "/grp/sub/app/-/merge_requests/2")["title"],
+        "Review: Faster build"
+    );
+    let q = by_url(&tasks, "/grp/other/-/issues/9");
+    assert!(
+        q["notes"]
+            .as_str()
+            .unwrap()
+            .starts_with("grp/other#9 on GitLab: you were mentioned")
+    );
+
+    // Connecting the same account twice is refused.
+    let (s, _, _) = t
+        .req(
+            "POST",
+            "/api/v1/forges",
+            Some(&anna),
+            Some(json!({"kind": "gitlab", "url": url, "token": "glpat-test"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+
+    let (s, acc, _) = t
+        .req(
+            "POST",
+            "/api/v1/forges",
+            Some(&anna),
+            Some(json!({"kind": "gitea", "url": url, "token": "gitea-test"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{acc}");
+    assert_eq!(acc["status"], "ok", "{acc}");
+    let tasks = forge_tasks(&t, &anna).await;
+    let notes = by_url(&tasks, "/anna/notes/issues/5");
+    assert_eq!(notes["title"], "Write notes");
+    assert!(notes["ext_id"].as_str().unwrap().ends_with(":anna/notes#5"));
+
+    // Gitea needs an address; link-local ones are refused.
+    let (s, _, _) = t
+        .req(
+            "POST",
+            "/api/v1/forges/test",
+            Some(&anna),
+            Some(json!({"kind": "gitea", "url": "", "token": "x"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    let (s, _, _) = t
+        .req(
+            "POST",
+            "/api/v1/forges/test",
+            Some(&anna),
+            Some(json!({"kind": "gitea", "url": "http://169.254.169.254", "token": "x"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn ongoing_tasks_are_worked_on_not_carried() {
+    let t = setup().await;
+    let admin = t.admin().await;
+    let (_, v, _) = t.req("GET", "/api/v1/today", Some(&admin), None).await;
+    let today = v["date"].as_str().unwrap().to_string();
+    let (s, task, _) = t
+        .req(
+            "POST",
+            "/api/v1/tasks",
+            Some(&admin),
+            Some(json!({"title": "Keep reading Dune", "ongoing": true, "start_date": today, "day": today,
+                "checklist": [{"id": "a", "text": "Part one", "done": false}]})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{task}");
+    assert_eq!(task["ongoing"], true);
+    let id = task["id"].as_str().unwrap().to_string();
+    let path = format!("/api/v1/tasks/{id}");
+
+    // Worked on it today (twice is still once), then on another day; unmark one.
+    for _ in 0..2 {
+        let (s, v, _) = t
+            .req(
+                "PATCH",
+                &path,
+                Some(&admin),
+                Some(json!({"worked": {"date": today, "worked": true}})),
+            )
+            .await;
+        assert_eq!(s, StatusCode::OK, "{v}");
+    }
+    let (_, v, _) = t
+        .req(
+            "PATCH",
+            &path,
+            Some(&admin),
+            Some(json!({"worked": {"date": "2026-01-02", "worked": true}})),
+        )
+        .await;
+    assert_eq!(v["worked_days"], json!(["2026-01-02", today]));
+    assert_eq!(v["status"], "open");
+    assert!(v["started_at"].is_string());
+    let (_, v, _) = t
+        .req(
+            "PATCH",
+            &path,
+            Some(&admin),
+            Some(json!({"worked": {"date": "2026-01-02", "worked": false}})),
+        )
+        .await;
+    assert_eq!(v["worked_days"], json!([today]));
+    let (s, _, _) = t
+        .req(
+            "PATCH",
+            &path,
+            Some(&admin),
+            Some(json!({"worked": {"date": "tomorrow", "worked": true}})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+
+    // Ticking its last step doesn't finish it; finishing is by hand.
+    let (_, v, _) = t
+        .req(
+            "PATCH",
+            &path,
+            Some(&admin),
+            Some(json!({"checklist": [{"id": "a", "text": "Part one", "done": true}]})),
+        )
+        .await;
+    assert_eq!(v["status"], "open");
+
+    // At day end it isn't carried over (no carry count); it shows every day anyway.
+    sqlx::query("UPDATE day_entries SET date = date(?, '-2 day')")
+        .bind(&today)
+        .execute(&t.state.db.write)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE users SET last_rollover_date = NULL")
+        .execute(&t.state.db.write)
+        .await
+        .unwrap();
+    let (_, day, _) = t
+        .req("GET", &format!("/api/v1/days/{today}"), Some(&admin), None)
+        .await;
+    assert_eq!(day["entries"].as_array().unwrap().len(), 0);
+    let (_, v, _) = t.req("GET", &path, Some(&admin), None).await;
+    assert_eq!(v["carry_count"], 0);
+    assert_eq!(v["status"], "open");
+
+    let (_, v, _) = t
+        .req(
+            "PATCH",
+            &path,
+            Some(&admin),
+            Some(json!({"status": "done"})),
+        )
+        .await;
+    assert_eq!(v["status"], "done");
+    // Turning it back into a normal task.
+    let (_, v, _) = t
+        .req(
+            "PATCH",
+            &path,
+            Some(&admin),
+            Some(json!({"ongoing": false, "start_date": null})),
+        )
+        .await;
+    assert_eq!(v["ongoing"], false);
+    assert!(v["start_date"].is_null());
+}
+
+#[tokio::test]
+async fn habit_goals_are_answered_per_day_and_reviewed() {
+    let t = setup().await;
+    let admin = t.admin().await;
+    let bob = t.user(&admin, "bob").await;
+    let (_, v, _) = t.req("GET", "/api/v1/today", Some(&admin), None).await;
+    let today = v["date"].as_str().unwrap().to_string();
+    let day = |n: i64| {
+        (chrono::NaiveDate::parse_from_str(&today, "%Y-%m-%d").unwrap() - chrono::Duration::days(n))
+            .format("%Y-%m-%d")
+            .to_string()
+    };
+    let (s, g, _) = t
+        .req(
+            "POST",
+            "/api/v1/goals",
+            Some(&admin),
+            Some(json!({"title": "Eat less junk", "kind": "habit", "start_date": day(10)})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{g}");
+    assert_eq!(g["kind"], "habit");
+    let id = g["id"].as_str().unwrap().to_string();
+    let (_, outcome, _) = t
+        .req(
+            "POST",
+            "/api/v1/goals",
+            Some(&admin),
+            Some(json!({"title": "Run a 10k"})),
+        )
+        .await;
+    assert_eq!(outcome["kind"], "outcome");
+    assert!(outcome["start_date"].is_null());
+
+    for (n, r) in [(3, "yes"), (2, "yes"), (1, "partly"), (0, "no")] {
+        let (s, c, _) = t
+            .req(
+                "PUT",
+                &format!("/api/v1/goals/{id}/checks/{}", day(n)),
+                Some(&admin),
+                Some(
+                    json!({"result": r, "note": if r == "no" { "chips at the party" } else { "" }}),
+                ),
+            )
+            .await;
+        assert_eq!(s, StatusCode::OK, "{c}");
+    }
+    // Answering again changes the day's answer.
+    let (_, c, _) = t
+        .req(
+            "PUT",
+            &format!("/api/v1/goals/{id}/checks/{}", day(0)),
+            Some(&admin),
+            Some(json!({"result": "yes"})),
+        )
+        .await;
+    assert_eq!(c["result"], "yes");
+    let (s, _, _) = t
+        .req(
+            "PUT",
+            &format!("/api/v1/goals/{id}/checks/{}", day(0)),
+            Some(&admin),
+            Some(json!({"result": "maybe"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    let (s, _, _) = t
+        .req(
+            "PUT",
+            &format!(
+                "/api/v1/goals/{}/checks/{}",
+                outcome["id"].as_str().unwrap(),
+                day(0)
+            ),
+            Some(&admin),
+            Some(json!({"result": "yes"})),
+        )
+        .await;
+    assert_eq!(
+        s,
+        StatusCode::BAD_REQUEST,
+        "outcomes aren't answered per day"
+    );
+    let (s, _, _) = t
+        .req(
+            "PUT",
+            &format!("/api/v1/goals/{id}/checks/{}", day(0)),
+            Some(&bob),
+            Some(json!({"result": "yes"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::NOT_FOUND, "someone else's habit");
+
+    // Progress: share of good days (partly = half), the streak of yeses up to today.
+    let (_, all, _) = t
+        .req("GET", "/api/v1/goals/progress", Some(&admin), None)
+        .await;
+    let p = all
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["goal_id"] == id.as_str())
+        .unwrap();
+    assert_eq!(p["habit"]["yes"], 3);
+    assert_eq!(p["habit"]["partly"], 1);
+    assert_eq!(p["habit"]["streak"], 1);
+    assert_eq!(p["habit"]["unanswered"], 7);
+    assert!((p["progress"].as_f64().unwrap() - 3.5 / 4.0).abs() < 1e-9);
+
+    // Clearing a day; the answers sync to the user's devices only.
+    let (s, _, _) = t
+        .req(
+            "DELETE",
+            &format!("/api/v1/goals/{id}/checks/{}", day(3)),
+            Some(&admin),
+            None,
+        )
+        .await;
+    assert_eq!(s, StatusCode::NO_CONTENT);
+    let (_, v, _) = t.req("GET", "/api/v1/sync", Some(&admin), None).await;
+    assert_eq!(v["habit_checks"].as_array().unwrap().len(), 3);
+    let (_, v, _) = t.req("GET", "/api/v1/sync", Some(&bob), None).await;
+    assert_eq!(v["habit_checks"], json!([]));
+
+    // The weekly review keeps a verdict per habit.
+    let (s, _, _) = t
+        .req("POST", "/api/v1/goals/review", Some(&admin), Some(json!({"notes": [{"goal_id": id, "note": "better than last week", "verdict": "partly"}]})))
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    let (_, reviews, _) = t
+        .req(
+            "GET",
+            &format!("/api/v1/goals/{id}/reviews"),
+            Some(&admin),
+            None,
+        )
+        .await;
+    assert_eq!(reviews[0]["verdict"], "partly");
+    let (s, _, _) = t
+        .req(
+            "POST",
+            "/api/v1/goals/review",
+            Some(&admin),
+            Some(json!({"notes": [{"goal_id": id, "verdict": "great"}]})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
 }

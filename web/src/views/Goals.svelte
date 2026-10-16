@@ -5,7 +5,8 @@
   import type { GoalReview } from '../lib/api/types/GoalReview'
   import { api } from '../lib/api/client'
   import Icon from '../lib/components/Icon.svelte'
-  import { longDate } from '../lib/dates'
+  import { longDate, weekOf } from '../lib/dates'
+  import { stripSummary, weekStrip } from '../lib/habits'
   import { store } from '../lib/store.svelte'
   import { ulid } from '../lib/ulid'
 
@@ -20,6 +21,10 @@
   let showClosed = $state(false)
   let open = $state<string | null>(null)
   let newTitle = $state('')
+  /** A goal is an outcome (reached once) or a habit (kept day by day; D-105). */
+  let newKind = $state<'outcome' | 'habit'>('outcome')
+  const thisWeek = $derived(weekOf(store.today, store.me?.week_start ?? 1))
+  const verdictMark = { yes: '✓', partly: '~', no: '✗' } as const
   let history = $state<GoalReview[]>([])
   $effect(() => {
     const id = open
@@ -34,7 +39,7 @@
   function add(e: Event) {
     e.preventDefault()
     if (!newTitle.trim()) return
-    store.createGoal(newTitle.trim())
+    store.createGoal(newTitle.trim(), null, newKind)
     newTitle = ''
   }
   const setMs = (g: Goal, i: number, patch: Partial<Goal['milestones'][number]> | null) =>
@@ -63,7 +68,7 @@
 <header class="head">
   <h1>Goals</h1>
   <div class="row">
-    {#if store.goalReviewDue()}<a class="btn primary" href="/goals/review"><Icon name="check" size={16} /> Review now</a>{:else}<a class="btn" href="/goals/review">Review</a>{/if}
+    {#if store.goalReviewDue()}<a class="btn primary" href="/review"><Icon name="check" size={16} /> Review now</a>{:else}<a class="btn" href="/review">Review</a>{/if}
     <select
       aria-label="How often to review"
       value={store.me?.review_cadence ?? 'weekly'}
@@ -81,18 +86,33 @@
   <article class="card goal" class:open={open === g.id}>
     <button class="summary" onclick={() => (open = open === g.id ? null : g.id)} aria-expanded={open === g.id}>
       <span class="title">{g.title}{#if g.owner_group_id}<span class="muted small"> · {store.groups.get(g.owner_group_id)?.name ?? 'shared'}</span>{/if}</span>
-      <span class="meta muted small">
-        {#if g.target_date}by {longDate(g.target_date)} · {/if}{g.milestones.filter((m) => m.done).length}/{g.milestones.length} milestones{#if prog && prog.tasks}{` · ${prog.tasks_done}/${prog.tasks} tasks`}{/if}{#if g.progress_override !== null}{' · set by hand'}{/if}
-      </span>
-      <span class="progress" aria-label="{p ?? 0}% done"><span style:width="{p ?? 0}%"></span></span>
+      {#if g.kind === 'habit'}
+        {@const strip = weekStrip(g, store.habitChecks.values(), thisWeek, store.today)}
+        <span class="meta muted small">
+          Habit{g.start_date ? ` since ${longDate(g.start_date)}` : ''}{g.target_date ? `, until ${longDate(g.target_date)}` : ''} · this week {stripSummary(strip)}{#if prog?.habit?.streak && prog.habit.streak > 1}{` · ${prog.habit.streak} days in a row`}{/if}
+        </span>
+        <span class="strip" aria-hidden="true">
+          {#each strip as d (d.date)}<i class={d.answer ?? ''} class:off={!d.inPeriod || d.future}></i>{/each}
+        </span>
+      {:else}
+        <span class="meta muted small">
+          {#if g.target_date}by {longDate(g.target_date)} · {/if}{g.milestones.filter((m) => m.done).length}/{g.milestones.length} milestones{#if prog && prog.tasks}{` · ${prog.tasks_done}/${prog.tasks} tasks`}{/if}{#if g.progress_override !== null}{' · set by hand'}{/if}
+        </span>
+      {/if}
+      <span class="progress" aria-label={g.kind === 'habit' ? `${p ?? 0}% good days in the last four weeks` : `${p ?? 0}% done`}><span style:width="{p ?? 0}%"></span></span>
       <span class="pct">{p === null ? '–' : `${p}%`}</span>
     </button>
     {#if open === g.id}
       <div class="detail">
         <label><span>Title</span><input type="text" value={g.title} onchange={(e) => store.updateGoal(g.id, { title: (e.currentTarget as HTMLInputElement).value })} /></label>
-        <label><span>Why it matters / what done looks like</span><textarea rows="3" value={g.description} onchange={(e) => store.updateGoal(g.id, { description: (e.currentTarget as HTMLTextAreaElement).value })}></textarea></label>
+        <label><span>{g.kind === 'habit' ? 'Why, and what counts as a good day' : 'Why it matters / what done looks like'}</span><textarea rows="3" value={g.description} onchange={(e) => store.updateGoal(g.id, { description: (e.currentTarget as HTMLTextAreaElement).value })}></textarea></label>
         <div class="grid3">
-          <label><span>Target date</span><input type="date" value={g.target_date ?? ''} onchange={(e) => store.updateGoal(g.id, { target_date: (e.currentTarget as HTMLInputElement).value || null })} /></label>
+          {#if g.kind === 'habit'}
+            <label><span>From</span><input type="date" value={g.start_date ?? ''} onchange={(e) => store.updateGoal(g.id, { start_date: (e.currentTarget as HTMLInputElement).value || null })} /></label>
+            <label><span>Until (empty: for good)</span><input type="date" value={g.target_date ?? ''} onchange={(e) => store.updateGoal(g.id, { target_date: (e.currentTarget as HTMLInputElement).value || null })} /></label>
+          {:else}
+            <label><span>Target date</span><input type="date" value={g.target_date ?? ''} onchange={(e) => store.updateGoal(g.id, { target_date: (e.currentTarget as HTMLInputElement).value || null })} /></label>
+          {/if}
           <label>
             <span>Status</span>
             <select value={g.status} onchange={(e) => store.updateGoal(g.id, { status: (e.currentTarget as HTMLSelectElement).value as 'active' })}>
@@ -111,6 +131,14 @@
           </label>
         </div>
 
+        {#if g.kind === 'habit'}
+          {@const h = prog?.habit}
+          <h3>How it's going</h3>
+          <p class="muted small">
+            Answer it each day in the reflection (Today's Track card, Summary &amp; journal, or the evening planning): yes, partly or no.
+            {#if h}Last four weeks: {h.yes} good, {h.partly} partly, {h.no} not, {h.unanswered} not answered{p !== null ? ` (${p}% good days, partly counts half)` : ''}.{/if}
+          </p>
+        {:else}
         <h3>Milestones</h3>
         {#each g.milestones as m, i (m.id)}
           <div class="ms">
@@ -156,7 +184,9 @@
             {/each}
           </ul>
         {/if}
+        {/if}
 
+        {#if g.kind !== 'habit'}
         <h3>Progress</h3>
         <label class="check">
           <input type="checkbox" checked={g.progress_override !== null} onchange={(e) => store.updateGoal(g.id, { progress_override: (e.currentTarget as HTMLInputElement).checked ? (prog?.derived ?? 0) : null })} />
@@ -165,12 +195,13 @@
         {#if g.progress_override !== null}
           <input type="range" min="0" max="100" step="5" value={Math.round(g.progress_override * 100)} aria-label="Progress" onchange={(e) => store.updateGoal(g.id, { progress_override: Number((e.currentTarget as HTMLInputElement).value) / 100 })} />
         {/if}
+        {/if}
 
         {#if history.length}
           <h3>Review notes</h3>
           <ul class="history">
             {#each history as h (h.id)}
-              <li><span class="muted small">{longDate(h.date)}{h.progress !== null ? ` · ${Math.round(h.progress * 100)}%` : ''}</span> {h.note || '—'}</li>
+              <li><span class="muted small">{longDate(h.date)}{h.progress !== null ? ` · ${Math.round(h.progress * 100)}%` : ''}</span>{#if h.verdict}<span class="verdict {h.verdict}" title="The week: {h.verdict}">{verdictMark[h.verdict as 'yes']}</span>{/if} {h.note || '—'}</li>
             {/each}
           </ul>
         {/if}
@@ -181,8 +212,12 @@
 {/snippet}
 
 <form class="row new" onsubmit={add}>
-  <input type="text" bind:value={newTitle} placeholder="A new goal, e.g. Run a half marathon" aria-label="New goal" />
-  <button class="btn primary" type="submit">Add goal</button>
+  <div class="kinds" role="radiogroup" aria-label="Kind of goal">
+    <button type="button" class="chip" class:on={newKind === 'outcome'} role="radio" aria-checked={newKind === 'outcome'} onclick={() => (newKind = 'outcome')} title="Something to reach once, with milestones and linked work">Goal</button>
+    <button type="button" class="chip" class:on={newKind === 'habit'} role="radio" aria-checked={newKind === 'habit'} onclick={() => (newKind = 'habit')} title="Something to keep doing (or not doing), answered day by day">Habit</button>
+  </div>
+  <input type="text" bind:value={newTitle} placeholder={newKind === 'habit' ? 'A habit, e.g. Eat less junk' : 'A new goal, e.g. Run a half marathon'} aria-label={newKind === 'habit' ? 'New habit' : 'New goal'} />
+  <button class="btn primary" type="submit">{newKind === 'habit' ? 'Add habit' : 'Add goal'}</button>
 </form>
 
 <div class="cards">{#each active as g (g.id)}{@render card(g)}{:else}<p class="muted">No active goals yet. Add one above, then link projects and tasks so everyday work counts towards it.</p>{/each}</div>
@@ -224,7 +259,48 @@
     margin-bottom: 14px;
   }
   .new input {
-    flex: 1;
+    flex: 1 1 200px;
+  }
+  .kinds {
+    display: flex;
+    gap: 6px;
+  }
+  .strip {
+    grid-column: 1 / 2;
+    display: flex;
+    gap: 3px;
+  }
+  .strip i {
+    width: 12px;
+    height: 12px;
+    border-radius: 3px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+  }
+  .strip i.yes {
+    background: var(--success, #16a34a);
+    border-color: transparent;
+  }
+  .strip i.partly {
+    background: var(--warn, #d97706);
+    border-color: transparent;
+  }
+  .strip i.no {
+    background: var(--danger);
+    border-color: transparent;
+  }
+  .strip i.off {
+    opacity: 0.35;
+  }
+  .verdict {
+    margin-left: 6px;
+    font-weight: 700;
+  }
+  .verdict.yes {
+    color: var(--success, #16a34a);
+  }
+  .verdict.no {
+    color: var(--danger);
   }
   .cards {
     display: grid;

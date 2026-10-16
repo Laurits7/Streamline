@@ -1,17 +1,21 @@
 <script lang="ts">
   import DefaultTasks from '../lib/components/DefaultTasks.svelte'
+  import ForgeAccounts from '../lib/components/ForgeAccounts.svelte'
+  import RemoteProjects from '../lib/components/RemoteProjects.svelte'
   import { api, ApiError } from '../lib/api/client'
   import type { ApiToken } from '../lib/api/types/ApiToken'
   import type { Backup } from '../lib/api/types/Backup'
   import type { DayTemplate } from '../lib/api/types/DayTemplate'
   import type { TemplateBlock } from '../lib/api/types/TemplateBlock'
   import type { Me } from '../lib/api/types/Me'
+  import type { CalendarAccountView } from '../lib/api/types/CalendarAccountView'
+  import type { DigestPreview } from '../lib/api/types/DigestPreview'
   import type { UserSummary } from '../lib/api/types/UserSummary'
   import Icon from '../lib/components/Icon.svelte'
   import PlaceSwitcher from '../lib/components/PlaceSwitcher.svelte'
   import { desktop, invoke, type DesktopStatus } from '../lib/desktop'
   import { disablePush, enablePush, pushBlocker, pushEnabled } from '../lib/pwa'
-  import { store } from '../lib/store.svelte'
+  import { REALISTIC_PREF, store } from '../lib/store.svelte'
   import { toast } from '../lib/toast.svelte'
   import { ui } from '../lib/ui.svelte'
 
@@ -306,6 +310,23 @@
     loadTokens()
     loadUsers()
   })
+  // The morning digest (10.6): what today's would say.
+  let digestPreview = $state<DigestPreview | null>(null)
+  async function previewDigest() {
+    try {
+      digestPreview = await api.get<DigestPreview>('/me/digest')
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : 'Could not load the preview', 'error')
+    }
+  }
+  // Calendar write-back (7.7).
+  async function setWriteBack(patch: { write_calendar_id?: string | null; write_titles?: boolean }) {
+    try {
+      store.calendarAccount = await api.patch<CalendarAccountView>('/calendar/account', patch)
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : 'Could not save', 'error')
+    }
+  }
 </script>
 
 <h1>Settings</h1>
@@ -395,6 +416,13 @@
     You get one reminder at the planning time (in the app; phone notifications come later), and Today shows a
     banner until the day is planned. “My day” is the time counted as free when planning.
   </p>
+  <label class="check plain">
+    <input type="checkbox" checked={store.pref(REALISTIC_PREF, false)} onchange={(e) => store.setPref(REALISTIC_PREF, (e.currentTarget as HTMLInputElement).checked)} />
+    Plan with realistic times: count each estimate as long as such tasks usually take you
+  </label>
+  <p class="help muted">
+    Learned from the focus time on finished tasks{store.estimateModel.overall ? ` (${store.estimateModel.overall.n} so far; they take ${store.estimateModel.overall.factor.toFixed(1)}× the estimate)` : '; it needs a few finished tasks with an estimate and focus time first'}. See Trends.
+  </p>
 </section>
 
 <section class="card" id="notifications">
@@ -417,6 +445,16 @@
   {#each KINDS as [kind, label] (kind)}
     <label class="check plain"><input type="checkbox" checked={!me.notify_off.includes(kind)} onchange={(e) => toggleKind(kind, (e.currentTarget as HTMLInputElement).checked)} /> {label}</label>
   {/each}
+  <div class="digest">
+    <label>
+      <span>Morning digest: one message with the day ahead (empty = off)</span>
+      <input type="time" value={me.digest_time ?? ''} aria-label="Morning digest time" onchange={(e) => store.updateMe({ digest_time: (e.currentTarget as HTMLInputElement).value || null })} />
+    </label>
+    <button class="btn small" onclick={previewDigest}>Preview</button>
+  </div>
+  {#if digestPreview}
+    <div class="digest-preview card"><strong>{digestPreview.title}</strong><pre>{digestPreview.body}</pre></div>
+  {/if}
   <label class="ntfy">
     <span>Also send to ntfy (optional, works without HTTPS): your topic's address</span>
     <input type="url" value={me.ntfy_url ?? ''} placeholder="https://ntfy.sh/your-secret-topic" onchange={(e) => store.updateMe({ ntfy_url: (e.currentTarget as HTMLInputElement).value })} />
@@ -674,12 +712,35 @@
           onchange={(e) => store.updateCalendar(c.id, { user_color: (e.currentTarget as HTMLInputElement).value })} />
       </div>
     {/each}
+    <div class="writeback">
+      <label>
+        <span>Show my tasks with a time in this calendar (as busy)</span>
+        <select value={a.write_calendar_id ?? ''} onchange={(e) => setWriteBack({ write_calendar_id: (e.currentTarget as HTMLSelectElement).value || null })}>
+          <option value="">Don't write to my calendar</option>
+          {#each calendars as c (c.id)}<option value={c.id}>{c.name}</option>{/each}
+        </select>
+      </label>
+      {#if a.write_calendar_id}
+        <label class="check plain">
+          <input type="checkbox" checked={a.write_titles} onchange={(e) => setWriteBack({ write_titles: (e.currentTarget as HTMLInputElement).checked })} />
+          Use task titles (otherwise they show as “Busy”)
+        </label>
+      {/if}
+      <p class="help muted">
+        From yesterday to two weeks ahead, kept up to date within a minute; turning it off removes them again. A separate
+        calendar (say “Streamline”, made in your calendar app) keeps them apart from your own events.
+      </p>
+    </div>
     <div class="row">
       <button class="btn small" onclick={syncCal} disabled={!!calBusy}>{calBusy === 'sync' ? 'Syncing…' : 'Sync now'}</button>
       <button class="btn small danger" onclick={disconnectCal}>Disconnect</button>
     </div>
   {/if}
 </section>
+
+<ForgeAccounts />
+
+<RemoteProjects />
 
 <section class="card">
   <h2>Focus timer</h2>
@@ -820,6 +881,48 @@
 </div>
 
 <style>
+  .writeback {
+    margin: 12px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .writeback label:not(.check) {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .writeback label span {
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .digest {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    margin-top: 12px;
+    flex-wrap: wrap;
+  }
+  .digest label {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .digest label span {
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .digest-preview {
+    margin-top: 8px;
+    padding: 10px 12px;
+    font-size: 14px;
+  }
+  .digest-preview pre {
+    margin: 4px 0 0;
+    font: inherit;
+    white-space: pre-wrap;
+    color: var(--muted);
+  }
   /* Wide screens: two columns of sections instead of very long form fields. */
   @media (min-width: 1280px) {
     .settings-grid {

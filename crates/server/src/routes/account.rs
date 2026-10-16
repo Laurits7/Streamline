@@ -92,11 +92,12 @@ pub async fn login(
         format!("ip:{}", auth::client_ip(&state, &headers, addr.ip())),
     ];
     auth::check_throttle(&state, &keys).await?;
-    let user: Option<User> =
-        sqlx::query_as("SELECT * FROM users WHERE username = ? AND deleted_at IS NULL")
-            .bind(&username)
-            .fetch_optional(&state.db.read)
-            .await?;
+    let user: Option<User> = sqlx::query_as(
+        "SELECT * FROM users WHERE username = ? AND deleted_at IS NULL AND home IS NULL",
+    )
+    .bind(&username)
+    .fetch_optional(&state.db.read)
+    .await?;
     let ok =
         auth::verify_password_async(c.password, user.as_ref().map(|u| u.password_hash.clone()))
             .await;
@@ -162,6 +163,9 @@ pub struct PatchMe {
     notify_off: Option<Vec<String>>,
     /// ntfy topic URL, or empty to stop using ntfy.
     ntfy_url: Option<String>,
+    /// Morning digest time (HH:MM), or `null` to turn it off (10.6).
+    #[serde(default, deserialize_with = "crate::util::double_option")]
+    digest_time: Option<Option<String>>,
 }
 
 #[utoipa::path(patch, path = "/me", tag = "account", summary = "Update profile and preferences", request_body = PatchMe, responses((status = 200, body = Me), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
@@ -190,6 +194,14 @@ pub async fn patch_me(
             ));
         }
         u.ntfy_url = (!v.is_empty()).then_some(v);
+    }
+    if let Some(v) = p.digest_time {
+        if let Some(t) = &v
+            && streamline_domain::time::parse_hhmm(t).is_none()
+        {
+            return Err(bad("digest_time must be HH:MM"));
+        }
+        u.digest_time = v;
     }
     if let Some(v) = p.review_cadence {
         if streamline_domain::goals::Cadence::parse(&v).is_none() {
@@ -292,7 +304,7 @@ pub async fn patch_me(
     let mut tx = state.db.write.begin().await?;
     let rev = crate::db::next_rev(&mut tx).await?;
     sqlx::query(
-        "UPDATE users SET display_name = ?, timezone = ?, day_end = ?, locale = ?, week_start = ?, plan_mode = ?, plan_time_evening = ?, plan_time_morning = ?, day_window_start = ?, day_window_end = ?, focus_work_min = ?, focus_short_break_min = ?, focus_long_break_min = ?, focus_long_every = ?, unit_system = ?, review_cadence = ?, notify_off = ?, ntfy_url = ?, updated_at = ?, rev = ? WHERE id = ?",
+        "UPDATE users SET display_name = ?, timezone = ?, day_end = ?, locale = ?, week_start = ?, plan_mode = ?, plan_time_evening = ?, plan_time_morning = ?, day_window_start = ?, day_window_end = ?, focus_work_min = ?, focus_short_break_min = ?, focus_long_break_min = ?, focus_long_every = ?, unit_system = ?, review_cadence = ?, notify_off = ?, ntfy_url = ?, digest_time = ?, updated_at = ?, rev = ? WHERE id = ?",
     )
         .bind(&u.display_name)
         .bind(&u.timezone)
@@ -312,6 +324,7 @@ pub async fn patch_me(
     .bind(&u.review_cadence)
     .bind(&u.notify_off)
     .bind(&u.ntfy_url)
+    .bind(&u.digest_time)
         .bind(now())
         .bind(rev)
         .bind(&u.id)
@@ -494,10 +507,11 @@ pub(crate) fn require_admin(user: &AuthUser) -> ApiResult<()> {
 #[utoipa::path(get, path = "/users", tag = "users", summary = "List users (admin)", responses((status = 200, body = Vec<Me>), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
 pub async fn list_users(State(state): State<AppState>, user: AuthUser) -> ApiResult<Json<Vec<Me>>> {
     require_admin(&user)?;
-    let users: Vec<User> =
-        sqlx::query_as("SELECT * FROM users WHERE deleted_at IS NULL ORDER BY username")
-            .fetch_all(&state.db.read)
-            .await?;
+    let users: Vec<User> = sqlx::query_as(
+        "SELECT * FROM users WHERE deleted_at IS NULL AND home IS NULL ORDER BY username",
+    )
+    .fetch_all(&state.db.read)
+    .await?;
     Ok(Json(users.iter().map(Me::from).collect()))
 }
 

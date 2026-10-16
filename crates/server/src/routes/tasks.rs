@@ -190,6 +190,11 @@ pub struct CreateTask {
     /// Steps inside the task (D-71).
     #[serde(default)]
     checklist: Vec<ChecklistItem>,
+    /// Kept at over a period rather than done in one go (D-102).
+    #[serde(default)]
+    ongoing: bool,
+    /// When an ongoing task's period starts (`YYYY-MM-DD`; default: now).
+    start_date: Option<String>,
 }
 
 #[utoipa::path(post, path = "/tasks", tag = "tasks", summary = "Create a task (optionally planned into a day)", request_body = CreateTask, responses((status = 200, body = Task), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
@@ -206,6 +211,9 @@ pub async fn create(
         parse_date(d)?;
     }
     if let Some(d) = &c.day {
+        parse_date(d)?;
+    }
+    if let Some(d) = &c.start_date {
         parse_date(d)?;
     }
     if let Some(p) = &c.position {
@@ -239,7 +247,7 @@ pub async fn create(
         Some(p) => crate::ownership::project_owner(&mut tx, p)
             .await?
             .unwrap_or_else(|| crate::ownership::Owner::me(&user)),
-        None => crate::ownership::chosen(&user, c.owner_group_id.as_deref())?,
+        None => crate::ownership::chosen(&state, &user, c.owner_group_id.as_deref()).await?,
     };
     check_task_type(&mut tx, &user, &task_type_id).await?;
     crate::routes::places::check_place(&mut tx, &user, &c.place_id).await?;
@@ -312,6 +320,9 @@ pub async fn create(
         waiting_note: String::new(),
         waiting_by: None,
         checklist: sqlx::types::Json(checklist),
+        ongoing: c.ongoing,
+        start_date: c.start_date,
+        worked_days: sqlx::types::Json(vec![]),
         created_at: ts.clone(),
         updated_at: ts.clone(),
         deleted_at: None,
@@ -398,10 +409,24 @@ pub struct PatchTask {
     waiting_note: Option<String>,
     /// Steps inside the task (replaces the list; D-71).
     checklist: Option<Vec<ChecklistItem>>,
+    /// Kept at over a period rather than done in one go (D-102).
+    ongoing: Option<bool>,
+    /// When an ongoing task's period starts (`YYYY-MM-DD`); `null` = from its creation.
+    #[serde(default, deserialize_with = "double_option")]
+    start_date: Option<Option<String>>,
+    /// Mark (or unmark) a day an ongoing task was worked on.
+    worked: Option<WorkedDay>,
     /// An offline edit's base values and time (D-79).
     #[serde(flatten)]
     #[allow(dead_code)]
     merge: crate::merge::MergeBase,
+}
+
+#[derive(Deserialize, utoipa::ToSchema)]
+pub struct WorkedDay {
+    /// `YYYY-MM-DD`.
+    date: String,
+    worked: bool,
 }
 
 /// A check-back time as the server stores timestamps (UTC, milliseconds).
@@ -523,7 +548,7 @@ pub async fn patch(
                 "this task is shared through its project; move it out of the project to share it separately",
             ));
         }
-        let o = crate::ownership::chosen(&user, g.as_deref())?;
+        let o = crate::ownership::chosen(&state, &user, g.as_deref()).await?;
         t.owner_user_id = o.user;
         t.owner_group_id = o.group;
     }
@@ -567,8 +592,30 @@ pub async fn patch(
             });
         checklist_status =
             streamline_domain::checklist::status_after(&dom(&t.checklist), &dom(&new), &t.status)
-                .map(String::from);
+                .map(String::from)
+                // Ongoing tasks are finished by hand, not by their last step (D-102).
+                .filter(|_| !t.ongoing && c.ongoing != Some(true));
         t.checklist = sqlx::types::Json(new);
+    }
+    if let Some(v) = c.ongoing {
+        t.ongoing = v;
+    }
+    if let Some(v) = c.start_date {
+        if let Some(d) = &v {
+            parse_date(d)?;
+        }
+        t.start_date = v;
+    }
+    if let Some(w) = c.worked {
+        let day = parse_date(&w.date)?;
+        t.worked_days = sqlx::types::Json(streamline_domain::ongoing::set_worked(
+            &t.worked_days,
+            day,
+            w.worked,
+        ));
+        if w.worked && t.started_at.is_none() {
+            t.started_at = Some(now());
+        }
     }
     if let Some(v) = c.position {
         check_position(&v)?;

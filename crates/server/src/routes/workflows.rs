@@ -279,6 +279,13 @@ pub async fn start(
             .await
             .map_err(|_| bad("unknown project"))?;
     }
+    if let Some(p) = c.project_id.as_ref().or(w.project_id.as_ref())
+        && crate::federation::is_replica_project(&state, p).await
+    {
+        return Err(bad(
+            "workflows can't be started in a project shared from another server yet; add its steps as tasks",
+        ));
+    }
     let opts = RunOptions {
         project_id: c.project_id,
         day: c.day,

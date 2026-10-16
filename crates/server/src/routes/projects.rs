@@ -286,7 +286,7 @@ pub async fn create(
         }
         return Err(AppError::Conflict("id already in use".into()));
     }
-    let mut owner = crate::ownership::chosen(&user, c.owner_group_id.as_deref())?;
+    let mut owner = crate::ownership::chosen(&state, &user, c.owner_group_id.as_deref()).await?;
     let mut parent = None;
     if let Some(parent_id) = &c.parent_id {
         let p = check_parent(&mut tx, &user, None, parent_id).await?;
@@ -419,7 +419,7 @@ pub async fn patch(
                 "subprojects are shared together with their top-level project",
             ));
         }
-        new_owner = Some(crate::ownership::chosen(&user, g.as_deref())?);
+        new_owner = Some(crate::ownership::chosen(&state, &user, g.as_deref()).await?);
     } else if let Some(parent) = &p.parent_id {
         let o = crate::ownership::project_owner(&mut tx, parent).await?;
         new_owner = o.filter(|o| *o != Owner::of_project(&p));

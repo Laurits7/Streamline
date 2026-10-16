@@ -131,7 +131,8 @@ pub async fn materialize_series(
             let people: Vec<String> = match (&s.owner_user_id, &s.owner_group_id) {
                 (Some(u), _) => vec![u.clone()],
                 (None, Some(g)) => {
-                    sqlx::query_scalar("SELECT user_id FROM group_members WHERE group_id = ?")
+                    // Only people of this server: day plans stay on each person's server.
+                    sqlx::query_scalar("SELECT m.user_id FROM group_members m JOIN users u ON u.id = m.user_id WHERE m.group_id = ? AND u.home IS NULL")
                         .bind(g)
                         .fetch_all(&mut *conn)
                         .await?
@@ -229,6 +230,9 @@ async fn occurrence_task(
             &s.checklist,
             streamline_domain::checklist::fresh,
         )),
+        ongoing: false,
+        start_date: None,
+        worked_days: sqlx::types::Json(vec![]),
         created_at: ts.clone(),
         updated_at: ts,
         deleted_at: None,
@@ -306,7 +310,8 @@ pub async fn materialize_user(state: &AppState, user: &User) -> anyhow::Result<(
     let today = today_for(user);
     let to = today + Duration::days(1);
     let series: Vec<Series> = sqlx::query_as(
-        "SELECT * FROM series WHERE (owner_user_id = ?1 OR owner_group_id IN (SELECT group_id FROM group_members WHERE user_id = ?1)) AND deleted_at IS NULL AND (materialized_through IS NULL OR materialized_through < ?2)",
+        "SELECT * FROM series WHERE (owner_user_id = ?1 OR owner_group_id IN (SELECT group_id FROM group_members WHERE user_id = ?1)) AND deleted_at IS NULL AND (materialized_through IS NULL OR materialized_through < ?2)
+           AND id NOT IN (SELECT item_id FROM fed_items)",
     )
     .bind(&user.id)
     .bind(fmt(to))
@@ -369,7 +374,7 @@ pub async fn materialize_day(state: &AppState, user: &User, day: NaiveDate) -> a
 
 pub async fn materialize_all(state: &AppState) -> anyhow::Result<()> {
     let users: Vec<User> = sqlx::query_as(
-        "SELECT * FROM users WHERE deleted_at IS NULL AND (id IN (SELECT owner_user_id FROM series WHERE deleted_at IS NULL)
+        "SELECT * FROM users WHERE deleted_at IS NULL AND home IS NULL AND (id IN (SELECT owner_user_id FROM series WHERE deleted_at IS NULL)
            OR id IN (SELECT m.user_id FROM group_members m JOIN series s ON s.owner_group_id = m.group_id AND s.deleted_at IS NULL))",
     )
     .fetch_all(&state.db.read)

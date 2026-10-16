@@ -9,6 +9,7 @@
   import { fmtMinutes } from '../dates'
   import { announce } from '../announce.svelte'
   import { timeRange, type DayEvent } from '../calendar'
+  import { layoutLanes, type Slot } from '../lanes'
   import { dnd, draggable, droppable, type DragItem } from '../dnd.svelte'
   import { store } from '../store.svelte'
   import { ui } from '../ui.svelte'
@@ -80,7 +81,6 @@
   let preview = $state<{ start: number; dur: number } | null>(null)
   let resizing = $state<{ id: string; dur: number } | null>(null)
 
-  type Slot = { start: number; dur: number; lane: number; lanes: number }
   type Block = Item & Slot
   type EventBlock = DayEvent & Slot
   const layout = $derived.by(() => {
@@ -92,28 +92,7 @@
       lanes: 1,
     }))
     const evs: EventBlock[] = events.map((d) => ({ ...d, lane: 0, lanes: 1 }))
-    const bs: Slot[] = [...evs, ...tasks].sort((a, b) => a.start - b.start || b.dur - a.dur)
-    // Side-by-side lanes for overlapping blocks, per cluster of overlaps.
-    let cluster: Slot[] = []
-    let clusterEnd = -1
-    const close = () => {
-      const n = Math.max(1, ...cluster.map((b) => b.lane + 1))
-      cluster.forEach((b) => (b.lanes = n))
-    }
-    for (const b of bs) {
-      if (b.start >= clusterEnd && cluster.length) {
-        close()
-        cluster = []
-      }
-      const laneEnds: number[] = []
-      for (const c of cluster) laneEnds[c.lane] = Math.max(laneEnds[c.lane] ?? 0, c.start + Math.max(c.dur, SNAP))
-      let lane = 0
-      while (laneEnds[lane] !== undefined && laneEnds[lane] > b.start) lane++
-      b.lane = lane
-      cluster.push(b)
-      clusterEnd = Math.max(clusterEnd, b.start + Math.max(b.dur, SNAP))
-    }
-    if (cluster.length) close()
+    layoutLanes<Slot>([...evs, ...tasks])
     return { tasks, evs }
   })
   const blocks = $derived(layout.tasks)

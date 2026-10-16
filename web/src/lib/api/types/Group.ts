@@ -4,4 +4,9 @@ import type { GroupMember } from "./GroupMember";
 /**
  * A group of users (e.g. "Family") with its members (SPEC §6.4).
  */
-export type Group = { id: string, name: string, created_by: string | null, members: Array<GroupMember>, created_at: string, updated_at: string, deleted_at: string | null, rev: number, };
+export type Group = { id: string, name: string, created_by: string | null, members: Array<GroupMember>, created_at: string, updated_at: string, deleted_at: string | null, rev: number, 
+/**
+ * Set for a group mirrored from another server (Phase 8): that server's address. It's
+ * managed there and can't own anything made here.
+ */
+home: string | null, };

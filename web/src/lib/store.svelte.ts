@@ -10,6 +10,7 @@ import type { CalendarEvent } from './api/types/CalendarEvent'
 import type { EventProject } from './api/types/EventProject'
 import type { DayEntry } from './api/types/DayEntry'
 import type { Goal } from './api/types/Goal'
+import type { HabitCheck } from './api/types/HabitCheck'
 import type { GoalProgress } from './api/types/GoalProgress'
 import type { DayRecord } from './api/types/DayRecord'
 import type { MetricDefinition } from './api/types/MetricDefinition'
@@ -33,6 +34,7 @@ import type { Place } from './api/types/Place'
 import type { Project } from './api/types/Project'
 import type { Series } from './api/types/Series'
 import type { Group } from './api/types/Group'
+import type { JoinView } from './api/types/JoinView'
 import type { UserSummary } from './api/types/UserSummary'
 import type { WorkflowTemplate } from './api/types/WorkflowTemplate'
 import type { TaskTemplate } from './api/types/TaskTemplate'
@@ -50,7 +52,11 @@ import { toast } from './toast.svelte'
 import { ulid } from './ulid'
 import { pickSub, pickTop, type Shape } from './marks'
 import { checkBackDue, isWaiting } from './waiting'
+import { setWorked } from './ongoing'
 import { statusAfter } from './checklist'
+import { factorFor, learn, realistic, suggestion } from './estimates'
+import { nowHHMM } from './dates'
+import { dayLoad, type DayLoad } from './planning'
 import { DesktopEvents, desktop } from './desktop'
 import { allDefaults, matchDefaults, tasksFor, type DefaultMatch } from './defaults'
 
@@ -76,6 +82,7 @@ type Kind =
   | 'metric'
   | 'metric_entry'
   | 'goal'
+  | 'habit_check'
 type Entity =
   | Task
   | Project
@@ -98,6 +105,7 @@ type Entity =
   | MetricDefinition
   | MetricEntry
   | Goal
+  | HabitCheck
 
 export type TaskPatch = Partial<
   Pick<
@@ -118,6 +126,8 @@ export type TaskPatch = Partial<
     | 'event_id'
     | 'wait_min'
     | 'checklist'
+    | 'ongoing'
+    | 'start_date'
   >
 >
 export type EntryPatch = Partial<Pick<DayEntry, 'date' | 'position' | 'start_time' | 'duration_min'>>
@@ -152,6 +162,10 @@ const IDLE_TIMER: FocusTimer = {
 /** Focus options (D-82): off by default, the last choice is the next default. */
 export type FocusOptions = Pick<FocusTimer, 'mute' | 'screens'>
 const FOCUS_OPTIONS_PREF = 'focusOptions'
+/** Count planned time with realistic durations (10.5). */
+export const REALISTIC_PREF = 'realisticLoad'
+/** Tasks whose estimate was set from a suggestion. */
+const ESTIMATED_PREF = 'estimated'
 const byPosition = (a: { position: string }, b: { position: string }) =>
   a.position < b.position ? -1 : a.position > b.position ? 1 : 0
 
@@ -186,9 +200,13 @@ class Store {
   /** Calendar events (by calendar + UID) assigned to projects. */
   eventProjects = new SvelteMap<string, EventProject>()
   calendarAccount = $state<CalendarAccountView | null>(null)
+  /** Projects joined on other servers (Phase 8), by join id. */
+  remoteProjects = new SvelteMap<string, JoinView>()
   people = new SvelteMap<string, Person>()
   dayTemplates = new SvelteMap<string, DayTemplate>()
   dayRecords = new SvelteMap<string, DayRecord>()
+  /** Your day answers for habit goals (D-105), by id. */
+  habitChecks = new SvelteMap<string, HabitCheck>()
   healthDays = new SvelteMap<string, HealthDay>()
   metrics = new SvelteMap<string, MetricDefinition>()
   metricEntries = new SvelteMap<string, MetricEntry>()
@@ -255,10 +273,12 @@ class Store {
     this.events.clear()
     this.eventProjects.clear()
     this.calendarAccount = null
+    this.remoteProjects.clear()
     this.people.clear()
     this.dayTemplates.clear()
     this.timeBlocks.clear()
     this.dayRecords.clear()
+    this.habitChecks.clear()
     this.healthDays.clear()
     this.metrics.clear()
     this.metricEntries.clear()
@@ -335,6 +355,7 @@ class Store {
       this.dayTemplates.clear()
       this.timeBlocks.clear()
       this.dayRecords.clear()
+    this.habitChecks.clear()
       this.healthDays.clear()
       this.metrics.clear()
       this.metricEntries.clear()
@@ -343,6 +364,8 @@ class Store {
     this.occasionTemplates.clear()
     for (const x of r.occasion_templates) this.occasionTemplates.set(x.kind, x)
     this.calendarAccount = r.calendar_account
+    this.remoteProjects.clear()
+    for (const j of r.remote_projects) this.remoteProjects.set(j.id, j)
     // Groups always come complete.
     this.groups.clear()
     for (const g of r.groups) this.groups.set(g.id, g)
@@ -371,6 +394,7 @@ class Store {
     for (const x of r.time_blocks) this.applyRemote('time_block', x)
     for (const x of r.day_records) this.applyRemote('day_record', x)
     for (const x of r.health_days) this.applyRemote('health_day', x)
+    for (const x of r.habit_checks) this.applyRemote('habit_check', x)
     for (const x of r.metrics) this.applyRemote('metric', x)
     for (const x of r.metric_entries) this.applyRemote('metric_entry', x)
     for (const x of r.goals) this.applyRemote('goal', x)
@@ -404,6 +428,11 @@ class Store {
         if (g.deleted_at || !g.members.some((m) => m.user_id === this.me?.id) && !this.me?.is_admin) this.groups.delete(g.id)
         else this.groups.set(g.id, g)
       } else if (c.kind === 'calendar_account') this.calendarAccount = c.data as CalendarAccountView | null
+      else if (c.kind === 'remote_project') {
+        const j = c.data as JoinView & { deleted?: boolean }
+        if (j.deleted) this.remoteProjects.delete(j.id)
+        else this.remoteProjects.set(j.id, j)
+      }
       else if (c.kind === 'namedays') {
         if (this.namedays) this.loadNamedays(true).catch(() => {})
       } else if (c.kind === 'occasion_template') {
@@ -426,7 +455,8 @@ class Store {
         c.kind === 'health_day' ||
         c.kind === 'metric' ||
         c.kind === 'metric_entry' ||
-        c.kind === 'goal'
+        c.kind === 'goal' ||
+        c.kind === 'habit_check'
       )
         this.applyRemote(c.kind, c.data as Entity)
       else if (c.kind === 'task' || c.kind === 'project' || c.kind === 'day_entry' || c.kind === 'day_plan')
@@ -471,6 +501,7 @@ class Store {
       metric: this.metrics,
       metric_entry: this.metricEntries,
       goal: this.goals,
+      habit_check: this.habitChecks,
     }
     return maps[kind] as SvelteMap<string, Entity>
   }
@@ -525,6 +556,42 @@ class Store {
       return
     }
     for (const [k, e] of results ?? []) this.applyRemote(k, e)
+  }
+
+  /** How long tasks really take compared with their estimates (10.5). */
+  estimateModel = $derived.by(() => learn(this.tasks.values()))
+
+  /**
+   * The suggested estimate for a task (10.5), unless one was applied to it already: applying
+   * again would scale an estimate that's realistic already.
+   */
+  estimateSuggestion(task: Task) {
+    if (this.pref<string[]>(ESTIMATED_PREF, []).includes(task.id)) return null
+    return suggestion(this.estimateModel, task)
+  }
+
+  /** Apply a suggested estimate and remember it (the last 300). */
+  useSuggestedEstimate(id: string, minutes: number) {
+    this.updateTask(id, { estimate_min: minutes })
+    this.setPref(ESTIMATED_PREF, [...this.pref<string[]>(ESTIMATED_PREF, []).filter((x) => x !== id), id].slice(-300))
+  }
+
+  /**
+   * A day's planned time against its free time. With "plan with realistic times" on, each
+   * estimate counts as long as such tasks usually take (10.5).
+   */
+  dayLoadFor(date: string, now?: string): DayLoad {
+    const realisticOn = this.pref<boolean>(REALISTIC_PREF, false)
+    const model = this.estimateModel
+    const get = (id: string) => {
+      const t = this.tasks.get(id)
+      if (!realisticOn || !t?.estimate_min) return t
+      const f = factorFor(model, t)
+      return f ? { ...t, estimate_min: realistic(t.estimate_min, f.factor) } : t
+    }
+    if (!this.me) return { planned: 0, free: 0, scheduled: 0, unestimated: 0 }
+    const at = now ?? (date === this.today ? nowHHMM(this.me.timezone) : undefined)
+    return dayLoad(this.me, this.dayEntries(date), get, at, this.dayBusy(date))
   }
 
   /** A record's name for messages: its title, name or date. */
@@ -738,6 +805,9 @@ class Store {
       waiting_note: '',
       waiting_by: null,
       checklist: input.checklist ?? [],
+      ongoing: input.ongoing ?? false,
+      start_date: input.start_date ?? (input.ongoing ? this.today : null),
+      worked_days: [],
       created_at: ts,
       updated_at: ts,
       deleted_at: null,
@@ -773,6 +843,7 @@ class Store {
         const t = await api.post<Task>('/tasks', {
           ...rest,
           place_id: task.place_id,
+          start_date: task.start_date,
           id,
           project_id: projectId,
           position: task.position,
@@ -790,7 +861,8 @@ class Store {
     if (!cur) return
     // Ticking the last step completes the task, unticking one reopens it (D-80); the
     // server does the same, this only shows it right away.
-    if (patch.checklist && !patch.status) {
+    // (Not for ongoing tasks: they're finished by hand, D-102.)
+    if (patch.checklist && !patch.status && !(patch.ongoing ?? cur.ongoing)) {
       const status = statusAfter(cur.checklist, patch.checklist, cur.status)
       if (status) patch = { ...patch, status }
     }
@@ -1256,6 +1328,26 @@ class Store {
     )
   }
 
+  // ---- ongoing tasks (D-102) ----------------------------------------------------
+
+  /** Mark (or unmark) that an ongoing task was worked on on `day`. */
+  markWorked(id: string, day: string, worked: boolean) {
+    const cur = this.tasks.get(id)
+    if (!cur) return
+    const ts = now()
+    this.optimistic(
+      [['task', id]],
+      () =>
+        this.tasks.set(id, {
+          ...cur,
+          worked_days: setWorked(cur.worked_days, day, worked),
+          started_at: cur.started_at ?? (worked ? ts : null),
+          updated_at: ts,
+        }),
+      async () => [['task', await api.patch<Task>(`/tasks/${id}`, { worked: { date: day, worked } })]],
+    )
+  }
+
   // ---- waiting for results (D-70) ---------------------------------------------
 
   /** Mark a task as waiting for results, with an optional check-back time (ISO) and note. */
@@ -1338,10 +1430,21 @@ class Store {
   // ---- groups ----------------------------------------------------------------
 
   /** Groups I'm a member of (admins also see others in `groups`, for managing them). */
+  /** Groups of this server I'm in (not ones mirrored from another server: those can't own things here). */
   myGroups(): Group[] {
     return [...this.groups.values()]
-      .filter((g) => g.members.some((m) => m.user_id === this.me?.id))
+      .filter((g) => !g.home && g.members.some((m) => m.user_id === this.me?.id))
       .sort((a, b) => a.name.localeCompare(b.name))
+  }
+
+  /** If the project (or the project it's in) was joined from another server: that join. */
+  remoteFor(projectId: string | null | undefined): JoinView | null {
+    let p = projectId ? this.projects.get(projectId) : undefined
+    for (let i = 0; p && i < 50; i++) {
+      for (const j of this.remoteProjects.values()) if (j.root_project_id === p.id) return j
+      p = p.parent_id ? this.projects.get(p.parent_id) : undefined
+    }
+    return null
   }
 
   groupName(id: string | null | undefined): string {
@@ -1965,7 +2068,7 @@ class Store {
     return reviewDue(this.me.review_cadence as Cadence, this.me.last_review_date, this.today, this.me.week_start)
   }
 
-  createGoal(title: string, groupId: string | null = null) {
+  createGoal(title: string, groupId: string | null = null, kind: 'outcome' | 'habit' = 'outcome') {
     const id = ulid()
     const ts = now()
     const g: Goal = {
@@ -1975,6 +2078,8 @@ class Store {
       title,
       description: '',
       target_date: null,
+      kind,
+      start_date: kind === 'habit' ? this.today : null,
       status: 'active',
       progress_override: null,
       milestones: [],
@@ -1989,13 +2094,13 @@ class Store {
     return this.optimistic(
       [['goal', id]],
       () => this.goals.set(id, g),
-      async () => [['goal', await api.post<Goal>('/goals', { id, title, owner_group_id: groupId })]],
+      async () => [['goal', await api.post<Goal>('/goals', { id, title, owner_group_id: groupId, kind, start_date: g.start_date })]],
     ).then(() => this.loadGoalProgress())
   }
 
   updateGoal(
     id: string,
-    patch: Partial<Pick<Goal, 'title' | 'description' | 'target_date' | 'status' | 'progress_override' | 'milestones' | 'project_ids' | 'task_ids' | 'owner_group_id'>>,
+    patch: Partial<Pick<Goal, 'title' | 'description' | 'target_date' | 'start_date' | 'kind' | 'status' | 'progress_override' | 'milestones' | 'project_ids' | 'task_ids' | 'owner_group_id'>>,
   ) {
     const cur = this.goals.get(id)
     if (!cur) return
@@ -2017,7 +2122,60 @@ class Store {
     )
   }
 
-  async submitReview(notes: { goal_id: string; note: string }[]) {
+  // ---- habit goals (D-105) ----------------------------------------------------
+
+  /** Active habits that apply on `day` (its period includes it). */
+  habitsFor(day: string): Goal[] {
+    return this.goalList().filter(
+      (g) => g.kind === 'habit' && g.status === 'active' && (!g.start_date || g.start_date <= day) && (!g.target_date || day <= g.target_date),
+    )
+  }
+
+  habitCheck(goalId: string, day: string): HabitCheck | undefined {
+    for (const c of this.habitChecks.values()) if (c.goal_id === goalId && c.date === day && !c.deleted_at) return c
+  }
+
+  /** Say how a habit went on a day; the same answer again clears it. */
+  answerHabit(goalId: string, day: string, result: HabitCheck['result'], note?: string) {
+    const cur = this.habitCheck(goalId, day)
+    if (cur && cur.result === result && note === undefined) {
+      return this.optimistic(
+        [['habit_check', cur.id]],
+        () => this.habitChecks.delete(cur.id),
+        async () => {
+          await api.del(`/goals/${goalId}/checks/${day}`)
+          return []
+        },
+      ).then(() => this.loadGoalProgress())
+    }
+    const ts = now()
+    const local: HabitCheck = {
+      id: cur?.id ?? ulid(),
+      goal_id: goalId,
+      user_id: this.me?.id ?? '',
+      date: day,
+      result,
+      note: note ?? cur?.note ?? '',
+      created_at: cur?.created_at ?? ts,
+      updated_at: ts,
+      deleted_at: null,
+      rev: cur?.rev ?? 0,
+    }
+    return this.optimistic(
+      [['habit_check', local.id]],
+      () => {
+        if (cur && cur.id !== local.id) this.habitChecks.delete(cur.id)
+        this.habitChecks.set(local.id, local)
+      },
+      async () => {
+        const saved = await api.put<HabitCheck>(`/goals/${goalId}/checks/${day}`, { result, note: local.note })
+        if (saved.id !== local.id) this.habitChecks.delete(local.id)
+        return [['habit_check', saved]]
+      },
+    ).then(() => this.loadGoalProgress())
+  }
+
+  async submitReview(notes: { goal_id: string; note: string; verdict?: HabitCheck['result'] | null }[]) {
     this.me = await api.post<Me>('/goals/review', { notes })
   }
 
@@ -2299,6 +2457,7 @@ class Store {
         | 'review_cadence'
         | 'notify_off'
         | 'ntfy_url'
+        | 'digest_time'
       >
     >,
   ) {

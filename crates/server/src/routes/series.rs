@@ -208,7 +208,7 @@ pub async fn create(
 ) -> ApiResult<Json<Series>> {
     let today = today_for(&user.user).format("%Y-%m-%d").to_string();
     let ts = now();
-    let mut owner = crate::ownership::chosen(&user, c.owner_group_id.as_deref())?;
+    let mut owner = crate::ownership::chosen(&state, &user, c.owner_group_id.as_deref()).await?;
     if let Some(p) = &c.project_id
         && let Some(o) =
             crate::ownership::project_owner(&mut *state.db.read.acquire().await?, p).await?

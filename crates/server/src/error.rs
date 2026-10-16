@@ -14,6 +14,8 @@ pub enum AppError {
     NotFound,
     Conflict(String),
     TooManyRequests,
+    /// Something this depends on can't be reached (e.g. a shared project's home server).
+    Unavailable(String),
     Internal(anyhow::Error),
 }
 
@@ -51,6 +53,7 @@ impl IntoResponse for AppError {
                 StatusCode::TOO_MANY_REQUESTS,
                 Some("Too many attempts, try again later".into()),
             ),
+            AppError::Unavailable(m) => (StatusCode::SERVICE_UNAVAILABLE, Some(m)),
             AppError::Internal(e) => {
                 tracing::error!("internal error: {e:#}");
                 (StatusCode::INTERNAL_SERVER_ERROR, None)

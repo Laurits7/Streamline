@@ -14,6 +14,9 @@
   import MiniTimer from './lib/components/MiniTimer.svelte'
   import { announce, live } from './lib/announce.svelte'
   import RoutineSheet from './lib/components/RoutineSheet.svelte'
+  import CommandPalette from './lib/components/CommandPalette.svelte'
+  import Sheet from './lib/components/Sheet.svelte'
+  import { keyReader, SHORTCUTS, typing, type KeyAction } from './lib/keys'
   import WorkflowSheet from './lib/components/WorkflowSheet.svelte'
   import StartWorkflowSheet from './lib/components/StartWorkflowSheet.svelte'
   import PlaceTracker from './lib/components/PlaceTracker.svelte'
@@ -26,9 +29,19 @@
   import Login from './views/Login.svelte'
   import { toast } from './lib/toast.svelte'
 
-  let phase = $state<'loading' | 'login' | 'setup' | 'app' | 'error'>('loading')
+  let phase = $state<'loading' | 'login' | 'setup' | 'app' | 'error' | 'reconcile' | 'join'>('loading')
 
   async function boot() {
+    // A printed sheet's QR link opens without signing in (7.3, D-14).
+    if (match(location.pathname).name === 'reconcile') {
+      phase = 'reconcile'
+      return
+    }
+    // An invite to share a project with another server explains itself (Phase 8).
+    if (match(location.pathname).name === 'join') {
+      phase = 'join'
+      return
+    }
     phase = 'loading'
     try {
       await store.start()
@@ -76,6 +89,63 @@
     const planning = n.kind === 'plan_evening' || n.kind === 'plan_morning'
     toast(n.title, 'info', { label: planning ? 'Plan now' : 'Open', run: () => router.go(n.url) })
   }
+
+  // Keyboard shortcuts and the command palette (10.2).
+  const mac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform)
+  $effect(() => {
+    const read = keyReader()
+    const selected = () => (document.activeElement as HTMLElement | null)?.closest<HTMLElement>('[data-task]')?.dataset.task ?? null
+    const perform = (a: KeyAction) => {
+      if (a.kind === 'palette') ui.palette = true
+      else if (a.kind === 'help') ui.shortcuts = true
+      else if (a.kind === 'go') router.go(a.to === 'plan' ? `/plan/${store.today}` : a.to)
+      else if (a.kind === 'new') {
+        const add = document.querySelector<HTMLInputElement>('[data-tour=quickadd] input')
+        if (add) add.focus()
+        else ui.palette = true
+      } else if (a.kind === 'move') {
+        const rows = [...document.querySelectorAll<HTMLElement>('[data-task] .main')].filter((el) => el.offsetParent !== null)
+        if (!rows.length) return
+        const at = rows.findIndex((el) => el === document.activeElement)
+        const next = rows[at < 0 ? 0 : Math.max(0, Math.min(rows.length - 1, at + a.by))]
+        next.focus()
+        next.scrollIntoView({ block: 'nearest' })
+      } else {
+        const id = selected()
+        const t = id ? store.tasks.get(id) : undefined
+        if (!t) return toast('Select a task first: j and k move through the list')
+        if (a.kind === 'complete') {
+          store.toggleDone(t.id)
+          announce(t.status === 'done' ? `Reopened “${t.title}”` : `Completed “${t.title}”`)
+        } else if (a.kind === 'today' && t.status === 'open') {
+          store.plan(t.id, store.today)
+          toast(`“${t.title}” planned for today`)
+        } else if (a.kind === 'focus' && t.status === 'open') {
+          store.focus('start', t.id)
+          router.go('/focus')
+        }
+      }
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (phase !== 'app') return
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        ui.palette = !ui.palette
+        return
+      }
+      if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || typing(e.target)) return
+      // Inbox triage has its own single keys.
+      if (route.name === 'triage') return
+      // Not while a sheet, the palette or the tour is open.
+      if (ui.palette || ui.tour !== null || document.querySelector('[role=dialog][aria-modal=true]')) return
+      const a = read(e.key, Date.now())
+      if (!a) return
+      e.preventDefault()
+      perform(a)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  })
 
   // Desktop app: changes made offline (9.5). The banner counts what's waiting; once it's
   // sent, the app catches up and says if anything clashed or was refused.
@@ -149,7 +219,7 @@
     route.name === 'tasks' ? 'view:all' : route.name === 'inbox' ? 'view:inbox' : route.name === 'project' ? `view:project:${route.id}` : null,
   )
   const wideView = $derived(!!viewKey && store.pref<{ view?: string }>(viewKey, {}).view !== undefined && store.pref<{ view?: string }>(viewKey, {}).view !== 'list')
-  const isDayRoute = $derived(route.name === 'today' || route.name === 'day' || route.name === 'plan' || wideView)
+  const isDayRoute = $derived(route.name === 'today' || route.name === 'day' || route.name === 'plan' || route.name === 'week' || wideView)
 
   // Navigation links double as drop targets for tasks.
   const toProject = (projectId: string | null) => ({
@@ -177,7 +247,11 @@
   })
 </script>
 
-{#if phase === 'loading'}
+{#if phase === 'reconcile'}
+  {#await import('./views/Reconcile.svelte') then m}<m.default token={(route as { token: string }).token} />{/await}
+{:else if phase === 'join'}
+  {#await import('./views/Join.svelte') then m}<m.default />{/await}
+{:else if phase === 'loading'}
   <div class="splash" aria-busy="true"></div>
 {:else if phase === 'error'}
   <div class="splash">
@@ -206,17 +280,20 @@
         Streamline
         <span class="live" class:on={store.live} title={store.live ? 'Live sync connected' : 'Reconnecting…'}></span>
       </div>
+      <button class="search" onclick={() => (ui.palette = true)} title="Search and commands"
+        ><Icon name="search" size={16} /> Search <kbd>{mac ? '⌘K' : 'Ctrl K'}</kbd></button>
       <nav aria-label="Main">
         <a href="/" class="drop-zone" draggable="false" aria-current={todayActive} use:droppable={toToday}><Icon name="sun" /> Today</a>
+        <a href="/week" draggable="false" aria-current={active('week')}><Icon name="columns" /> Week</a>
         <a href="/agenda" draggable="false" aria-current={active('agenda')}><Icon name="calendar" /> Agenda</a>
-        <a href="/inbox" class="drop-zone" draggable="false" aria-current={active('inbox')} use:droppable={toProject(null)}><Icon name="inbox" /> Inbox</a>
+        <a href="/inbox" class="drop-zone" draggable="false" aria-current={active('inbox') ?? active('triage')} use:droppable={toProject(null)}><Icon name="inbox" /> Inbox</a>
         <a href="/tasks" draggable="false" aria-current={active('tasks')}><Icon name="list" /> All tasks</a>
         <a href="/routines" draggable="false" aria-current={active('routines')}><Icon name="repeat" /> Routines</a>
         <a href="/focus" draggable="false"><Icon name="target" /> Focus</a>
         <h2 class="group">Reflect</h2>
         <a href="/summary" draggable="false" aria-current={active('summary')}><Icon name="book" /> Summary & journal</a>
         <a href="/trends" draggable="false" aria-current={active('trends')}><Icon name="chart" /> Trends</a>
-        <a href="/goals" draggable="false" aria-current={active('goals') ?? active('goal-review')}><Icon name="flag" /> Goals</a>
+        <a href="/goals" draggable="false" aria-current={active('goals')}><Icon name="flag" /> Goals</a>
         <a href="/occasions" draggable="false" aria-current={active('occasions')}><Icon name="gift" /> Namedays & birthdays</a>
         <h2 class="group"><a class="group-link" href="/projects" draggable="false" aria-current={active('projects')}>Projects <Icon name="right" size={12} /></a></h2>
         <div class="projects">
@@ -264,12 +341,18 @@
         {#await import('./views/Summary.svelte') then m}<m.default date={route.date} />{/await}
       {:else if route.name === 'goals'}
         {#await import('./views/Goals.svelte') then m}<m.default />{/await}
-      {:else if route.name === 'goal-review'}
-        {#await import('./views/GoalReview.svelte') then m}<m.default />{/await}
+      {:else if route.name === 'review'}
+        {#await import('./views/Review.svelte') then m}<m.default />{/await}
       {:else if route.name === 'trends'}
         {#await import('./views/Trends.svelte') then m}<m.default />{/await}
       {:else if route.name === 'occasions'}
         {#await import('./views/Occasions.svelte') then m}<m.default />{/await}
+      {:else if route.name === 'print'}
+        {#await import('./views/PrintDay.svelte') then m}<m.default date={route.date} />{/await}
+      {:else if route.name === 'triage'}
+        {#await import('./views/Triage.svelte') then m}<m.default />{/await}
+      {:else if route.name === 'week'}
+        {#await import('./views/Week.svelte') then m}<m.default start={route.start} />{/await}
       {:else if route.name === 'agenda'}
         {#await import('./views/Agenda.svelte') then m}<m.default start={route.start} />{/await}
       {:else if route.name === 'routines'}
@@ -293,9 +376,10 @@
 
     <nav class="tabbar" aria-label="Main">
       <a href="/" class="drop-zone" draggable="false" aria-current={todayActive} use:droppable={toToday}><Icon name="sun" size={22} /><span>Today</span></a>
-      <a href="/inbox" class="drop-zone" draggable="false" aria-current={active('inbox')} use:droppable={toProject(null)}><Icon name="inbox" size={22} /><span>Inbox</span></a>
+      <a href="/inbox" class="drop-zone" draggable="false" aria-current={active('inbox') ?? active('triage')} use:droppable={toProject(null)}><Icon name="inbox" size={22} /><span>Inbox</span></a>
       <a href="/agenda" aria-current={active('agenda')}><Icon name="calendar" size={22} /><span>Agenda</span></a>
       <a href="/projects" aria-current={projectsActive}><Icon name="folder" size={22} /><span>Projects</span></a>
+      <button type="button" onclick={() => (ui.palette = true)}><Icon name="search" size={22} /><span>Search</span></button>
       <a href="/settings" aria-current={route.name === 'settings' || route.name === 'help' ? 'page' : undefined}><Icon name="settings" size={22} /><span>Settings</span></a>
     </nav>
   </div>
@@ -304,6 +388,17 @@
   {#if ui.event}<EventSheet id={ui.event} />{/if}
   {#if ui.pullFor}<PullSheet date={ui.pullFor} />{/if}
   {#if ui.routine}{#key ui.routine}<RoutineSheet id={ui.routine} />{/key}{/if}
+  {#if ui.palette}<CommandPalette />{/if}
+  {#if ui.shortcuts}
+    <Sheet title="Keyboard shortcuts" onclose={() => (ui.shortcuts = false)}>
+      <table class="keys">
+        <tbody>
+          {#each SHORTCUTS as [k, what] (k)}<tr><td><kbd>{mac ? k.replace('Ctrl K', '⌘K') : k}</kbd></td><td>{what}</td></tr>{/each}
+        </tbody>
+      </table>
+      <p class="muted small-note">Single keys work when you're not typing in a field. Select a task with j and k, then act on it.</p>
+    </Sheet>
+  {/if}
   {#if ui.workflow}{#key ui.workflow}<WorkflowSheet id={ui.workflow} />{/key}{/if}
   {#if ui.startWorkflow}{#key ui.startWorkflow}<StartWorkflowSheet id={ui.startWorkflow} />{/key}{/if}
 {/if}
@@ -313,6 +408,47 @@
 <div class="sr-only" aria-live="polite">{live.message}</div>
 
 <style>
+  .search {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 10px;
+    padding: 7px 10px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 14px;
+    width: 100%;
+  }
+  .search:hover {
+    border-color: var(--accent);
+    color: var(--text);
+  }
+  .search kbd,
+  .keys kbd {
+    margin-left: auto;
+    font: inherit;
+    font-size: 11px;
+    padding: 1px 6px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+  }
+  .keys {
+    border-collapse: collapse;
+    width: 100%;
+    font-size: 14px;
+  }
+  .keys td {
+    padding: 5px 4px;
+    border-bottom: 1px solid var(--border);
+  }
+  .keys td:first-child {
+    width: 90px;
+    white-space: nowrap;
+  }
+  .small-note {
+    font-size: 13px;
+  }
   .offline {
     background: var(--warn-soft);
     color: var(--warn);
@@ -364,7 +500,8 @@
     -webkit-backdrop-filter: blur(16px);
     border-top: 1px solid var(--border);
   }
-  .tabbar a {
+  .tabbar a,
+  .tabbar button {
     display: flex;
     flex-direction: column;
     align-items: center;

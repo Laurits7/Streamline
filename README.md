@@ -1,13 +1,26 @@
 # Streamline
 
+[![CI](https://github.com/Laurits7/Streamline/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Laurits7/Streamline/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/Laurits7/Streamline)](https://github.com/Laurits7/Streamline/releases/latest)
+[![License: GPL-3.0-or-later](https://img.shields.io/github/license/Laurits7/Streamline)](LICENSE)
+[![Image](https://img.shields.io/badge/image-ghcr.io%2Flaurits7%2Fstreamline-2496ED?logo=docker&logoColor=white)](https://github.com/Laurits7/Streamline/pkgs/container/streamline)
+[![Desktop app](https://img.shields.io/badge/desktop-Linux%20%28.deb%2C%20tarball%29-FCC624?logo=linux&logoColor=black)](#desktop-app-linux)
+
+[![rustfmt](https://img.shields.io/badge/rustfmt-checked-success?logo=rust)](.github/workflows/ci.yml)
+[![clippy](https://img.shields.io/badge/clippy-no%20warnings-success?logo=rust)](.github/workflows/ci.yml)
+[![TypeScript](https://img.shields.io/badge/TypeScript-strict-success?logo=typescript&logoColor=white)](web/tsconfig.app.json)
+[![Bundle](https://img.shields.io/badge/initial%20load-%3C150%20KB%20gzip-success)](.github/workflows/ci.yml)
+
 A self-hosted todo list and day planner for a household. One small container, one data
 folder, and it works from any phone, tablet or computer on your network.
 
-> **Version 1.2.** Everything in [`docs/SPEC.md`](docs/SPEC.md) up to the v1.0 phase is built: day
+> **Version 1.3.** Everything in [`docs/SPEC.md`](docs/SPEC.md) up to the v1.0 phase is built: day
 > planning, routines, multi-step chores, household groups, your calendar, namedays and birthdays,
 > time blocks, journal and tracking, goals, an installable app with notifications, and backups.
-> 1.2 adds waiting for results, checklists and default tasks, project ideas, project marks, a
-> daily health check-in and a guided tour.
+> 1.2 added waiting for results, checklists and default tasks, project ideas, project marks, a
+> daily health check-in and a guided tour. 1.3 adds the [Linux desktop app](#desktop-app-linux)
+> (works offline, or on one computer without a server), checklist steps on the timeline and in
+> the Agenda, default tasks with kinds, and focus options.
 > What changed per phase is in [`CHANGELOG.md`](CHANGELOG.md); decisions are in
 > [`docs/DECISIONS.md`](docs/DECISIONS.md), and later plans in [`docs/WORKPLAN.md`](docs/WORKPLAN.md).
 
@@ -199,6 +212,24 @@ With the prebuilt image: `docker compose pull && docker compose up -d`. Pin a ve
 schedule. Database migrations run automatically on startup; going back to an older version after a
 migration means restoring the backup.
 
+### Sharing a project with someone on another Streamline server
+
+People don't need an account on your server to work on a project with you: if they run their own
+Streamline, share the project from yours. Share a top-level project with a group you own, then
+open the project's menu → **People on other servers** → **Make an invite link**, and send the
+link to that one person. They paste it in their Streamline under **Settings → Projects from
+other servers**. Their server keeps a copy of the project (subprojects, tasks, routines) and
+sends their changes to yours, which checks them as it would for anyone in the group. Day plans,
+journals, tracking and calendars stay on each person's own server.
+
+- Your server must be reachable from theirs (over HTTPS when it's on the internet; see above).
+  Theirs never needs to be reachable: it only connects out to yours.
+- While your server is down, their copy is read-only and says so.
+- Invite links work once, for 7 days. Removing someone (same menu) or taking the project out
+  of the group ends their copy. They can leave from their Settings.
+- To try it on one machine: `docker compose -f docker/docker-compose.two-servers.yml up --build`
+  starts two servers at http://localhost:3001 and http://localhost:3002.
+
 ### Raspberry Pi (arm64)
 
 Two options:
@@ -242,6 +273,9 @@ always-on-top are reliable on X11 and may be ignored by Wayland compositors.
 - Streamline makes outbound requests only to addresses you give it (calendar, ntfy) and to push
   services. Local network addresses are allowed (for a home calendar server); cloud-metadata and
   link-local addresses are refused.
+- Projects shared with another server: the invite link is the credential (single use, 7 days);
+  the other server then holds a per-link key that only reaches that project, and can be cut off
+  at any time. The name and server shown for someone who joined are what their server says.
 - Journal, tracking, day plans and calendar events are visible only to their owner, even inside a
   shared group. A shared item can be taken private or deleted by any member of its group.
 - Keep `data/` private: it holds the database, backups and keys. Use HTTPS when it's reachable

@@ -9,8 +9,11 @@ pub mod calsync;
 pub mod config;
 pub mod db;
 pub mod deps;
+pub mod digest;
 pub mod error;
 pub mod events;
+pub mod federation;
+pub mod forge;
 pub mod jobs;
 pub mod local;
 pub mod merge;
@@ -19,6 +22,7 @@ pub mod net;
 pub mod notify;
 pub mod occasions;
 pub mod ownership;
+pub mod print;
 pub mod push;
 pub mod reminders;
 pub mod rollover;
@@ -31,6 +35,7 @@ pub mod util;
 pub mod visibility;
 pub mod waiting;
 pub mod workflows;
+pub mod writeback;
 
 use std::{collections::HashMap, net::SocketAddr, sync::Arc, time::Instant};
 
@@ -49,6 +54,8 @@ pub struct App {
     pub calendar_lock: Mutex<()>,
     /// Web Push signing key (data/vapid.key).
     pub vapid: push::Vapid,
+    /// The API itself, for running edits forwarded from another server (Phase 8).
+    pub api: std::sync::OnceLock<axum::Router>,
 }
 
 pub type AppState = Arc<App>;
@@ -67,6 +74,7 @@ pub async fn build(config: config::Config) -> anyhow::Result<(axum::Router, AppS
         secrets,
         calendar_lock: Mutex::new(()),
         vapid,
+        api: std::sync::OnceLock::new(),
     });
     auth::bootstrap_admin(&state).await?;
     Ok((routes::router(state.clone()), state))
@@ -85,6 +93,8 @@ pub async fn run() -> anyhow::Result<()> {
     let (app, state) = build(config).await?;
     jobs::spawn(state.clone());
     calsync::spawn(state.clone());
+    forge::spawn(state.clone());
+    federation::spawn(state.clone());
     backup::spawn(state);
     let listener = TcpListener::bind(addr).await?;
     tracing::info!("Streamline listening on http://{addr}");

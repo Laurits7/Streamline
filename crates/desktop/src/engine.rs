@@ -74,6 +74,7 @@ pub fn sync_key(kind: &str) -> Option<&'static str> {
         "metric" => "metrics",
         "metric_entry" => "metric_entries",
         "goal" => "goals",
+        "habit_check" => "habit_checks",
         "occasion_template" => "occasion_templates",
         _ => return None,
     })
@@ -101,6 +102,7 @@ pub fn queueable(method: &str, path: &str) -> bool {
             | ("PUT", ["days", _, "record" | "health"])
             | ("DELETE", ["days", _, "health"])
             | ("POST", ["metrics", _, "entries"])
+            | ("PUT" | "DELETE", ["goals", _, "checks", _])
     )
 }
 

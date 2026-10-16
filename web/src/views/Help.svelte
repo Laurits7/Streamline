@@ -6,6 +6,8 @@
 
   const sections = [
     ['start', 'Getting started'],
+    ['keys', 'Search and keyboard shortcuts'],
+    ['week', 'The week'],
     ['today', 'The Today view'],
     ['planning', 'Planning your day'],
     ['blocks', 'Time blocks, overlaps and suggested times'],
@@ -23,6 +25,8 @@
     ['groups', 'Sharing with your household'],
     ['places', 'Places'],
     ['calendar', 'Your calendar and the agenda'],
+    ['forges', 'Tasks from GitHub, GitLab and others'],
+    ['servers', 'Sharing with other Streamline servers'],
     ['occasions', 'Namedays and birthdays'],
     ['tracking', 'Summary, journal and tracking'],
     ['goals', 'Long-term goals'],
@@ -46,11 +50,41 @@
     <h2>Getting started</h2>
     <ol>
       <li>Capture everything on your mind in the <a href="/inbox">Inbox</a>. Type and press Enter; don't worry about sorting yet.</li>
+      <li>While typing a task you can also add its <em>Steps</em> (one per line; they become its checklist), or add it right away <em>as done</em> (to log something you did), <em>as waiting</em> for results from somewhere, or <em>as ongoing</em>.</li>
       <li>Create a few <a href="/projects">projects</a> (e.g. “House”, “Work”, “Garden”) and drag inbox tasks onto them.</li>
       <li>Each day, open <a href="/">Today</a>, pull in what you want to do, put fixed things on the timeline, and tick tasks off.</li>
     </ol>
     <p>New here? <strong>Take the tour</strong> (the button above, or in Settings) for a two-minute walk through where everything is. It's offered once when you first sign in.</p>
     <p>Tasks live in projects. Planning a day doesn't move them: the day plan is a separate layer on top, so your projects stay tidy.</p>
+  </section>
+
+  <section id="keys">
+    <h2><Icon name="search" size={18} /> Search and keyboard shortcuts</h2>
+    <p>
+      <strong>Search</strong> (in the sidebar, the tab bar on phones, or <kbd>Ctrl K</kbd>, <kbd>⌘K</kbd> on a Mac, or
+      <kbd>/</kbd>) finds tasks by title, notes and checklist steps, projects, routines, journal days and pages, even
+      with letters missing or without accents. <kbd>Enter</kbd> opens what's chosen; on a task, <kbd>Tab</kbd> (or
+      <strong>⋯</strong>) shows what you can do: complete, plan for today or tomorrow, focus on it, go to its project. If
+      nothing fits, it offers to add what you typed to the inbox.
+    </p>
+    <p>
+      Single keys, when you're not typing in a field: <kbd>n</kbd> new task, <kbd>j</kbd>/<kbd>k</kbd> move through the
+      tasks on the page, then <kbd>x</kbd> complete, <kbd>t</kbd> plan for today, <kbd>f</kbd> focus, <kbd>Enter</kbd>
+      open. <kbd>g</kbd> then a letter goes to a page (<kbd>g t</kbd> Today, <kbd>g i</kbd> Inbox, <kbd>g p</kbd> plan
+      the day…). <kbd>?</kbd> lists them all.
+    </p>
+  </section>
+
+  <section id="week">
+    <h2><Icon name="columns" size={18} /> The week</h2>
+    <p>
+      <a href="/week">Week</a> (or <kbd>g w</kbd>) shows seven days at once, in one of two ways (the switch at the top;
+      it's remembered):
+    </p>
+    <ul>
+      <li><strong>Planner</strong>: a column per day with every planned task and how full the day is (planned time against free time, red when overbooked). Drag tasks between days, or in from the <em>Unplanned</em> list on the left; add a task straight to a day at the bottom of its column. A task with a time keeps it when moved.</li>
+      <li><strong>Calendar</strong>: the days on an hour grid with your calendar events, tasks with a time and time blocks. Drag a task to another day or time; click anything to open it. Tasks without a time are counted under each day.</li>
+    </ul>
   </section>
 
   <section id="today">
@@ -73,6 +107,12 @@
       <strong>Activity log</strong>: each day keeps an automatic log of what happened — tasks completed, started,
       added, skipped or missed, focus time and planning — in time order. It's on the day view and in the evening
       review, and <em>Copy as text</em> gives you a summary to reflect on or paste elsewhere.
+    </p>
+    <p>
+      <strong>Print the day</strong> (the list button next to the day's arrows, or <em>Print today</em> in search) makes an A4 sheet:
+      calendar entries, then each task with a box to tick, its steps and a short code, and room for notes. It carries a
+      QR code: scan it with any phone afterwards, no sign-in needed, to tick off what you did on paper. The link only
+      works for that sheet's tasks and for 48 hours; completions are noted as done on paper.
     </p>
   </section>
 
@@ -160,6 +200,14 @@
       change it.
     </p>
     <p>
+      <strong>Ongoing tasks.</strong> Some things aren't done in one go but kept at over a while: reading a book,
+      practising the piano this month, a course. Add them <em>as ongoing</em>, or turn on <em>Ongoing</em> in a task.
+      They show every day of their period under <em>Ongoing</em> on Today, and the round button means <em>worked on it
+      today</em> rather than done; the task counts the days (in total, this week and in a row). Give it a start and an
+      end date if you like; it's never carried over or missed. When you're through, press <em>Finish</em> in the task;
+      once its end date has passed it asks you to finish it or give it more time.
+    </p>
+    <p>
       <strong>Multi-step chores</strong> (on the <a href="/routines">Routines</a> page) do this for you. Laundry is a
       chain: wash → dry → iron → fold, with variants that leave steps out (delicates skip the dryer, towels skip
       ironing). <em>Start</em> it, pick the loads, and each load gets its own chain; only the current step of each shows
@@ -203,6 +251,7 @@
       <li>Focus time is added to the task's <em>time spent</em>, so you can compare it with your estimate. Starting focus also marks the task <em>in progress</em>.</li>
       <li>From the focus view: mark the task done (the next planned task starts), set it <em>waiting for results</em> and move on, snooze it to tomorrow, or jump to the next task.</li>
       <li><strong>Mute speakers while working</strong> and <strong>Timer on every screen</strong> (both under the timer, off until you turn them on; your choice is kept for next time). They need the <a href="#desktop">desktop app</a>, and every computer running it follows them, whichever device started the timer. Speakers are muted only while a focus interval runs and come back as they were for breaks and pauses. The timer can be small in a corner of each monitor (it ignores the mouse), full screen, or full screen only on breaks; it's blue while working and green on breaks. Full screen covers only a running interval: press <em>Esc</em> (or <em>Hide</em>) to put it away until the next one.</li>
+      <li><strong>Better estimates</strong>: Streamline compares each finished task's estimate with the focus time you actually spent on it. Once it has a few, the task sheet says when tasks like this usually take longer (or shorter) and offers a realistic estimate, and <a href="/trends">Trends</a> shows how close your estimates are. Turn on <em>Plan with realistic times</em> in <a href="/settings">Settings → Daily planning</a> to count planned time that way, so days stop overflowing.</li>
     </ul>
   </section>
 
@@ -286,6 +335,14 @@
       <strong>Activate</strong> on its page and everything in it works normally. Moving a project to ideas takes its
       open tasks off your plan from today on. An idea can also sit inside an active project: tick
       <em>Just an idea for now</em> under “Add a subproject…”.
+    </p>
+    <p>
+      <strong>Process the inbox</strong> (the button on the <a href="/inbox">Inbox</a>, when something needs a decision)
+      goes through what's in the inbox one item at a time, oldest first, and you decide with one key: <kbd>x</kbd> done,
+      <kbd>f</kbd> do it now (focus), <kbd>t</kbd> today, <kbd>m</kbd> tomorrow, <kbd>d</kbd> another day, <kbd>p</kbd> to a
+      project (type a few letters, Enter), <kbd>a</kbd> waiting, <kbd>Del</kbd> won't do, <kbd>s</kbd> skip. <kbd>1</kbd>–<kbd>5</kbd>
+      set an estimate on the way, and <kbd>u</kbd> undoes the last decision. Tasks that are planned, waiting or from a
+      routine aren't asked about.
     </p>
   </section>
 
@@ -384,6 +441,44 @@
       <li>Untick a calendar to hide it, or pick another colour. If the server can't be reached, the last known events stay and Settings shows the error.</li>
       <li>Your password is stored encrypted on the server and never sent back to the browser. Other people never see your events: a todo for one of your events in a shared project is visible to the group, but not the event it's for.</li>
     </ul>
+    <p>
+      <strong>Your tasks in your calendar</strong>: in <a href="/settings#calendar">Settings → Calendar</a>, choose a calendar to show
+      your tasks with a time in, as busy time, so others looking at your calendar see you're taken. They follow your
+      plan within a minute (moved, rescheduled or removed), from yesterday to two weeks ahead; titles can be hidden
+      (“Busy”). A separate calendar, say “Streamline”, keeps them apart; turning it off removes them again.
+    </p>
+  </section>
+
+  <section id="forges">
+    <h2><Icon name="inbox" size={18} /> Tasks from GitHub, GitLab and others</h2>
+    <p>
+      In <a href="/settings#forges">Settings → GitHub, GitLab and others</a>, connect an account on GitHub, GitLab
+      (gitlab.com or your own) or Gitea/Forgejo (Codeberg too) with an access token made there; the settings say which
+      kind. Several accounts can be connected at once.
+    </p>
+    <ul>
+      <li>What's yours arrives as tasks: issues and pull/merge requests assigned to you, reviews requested from you, and where you're mentioned. Each can be switched off per account (mentions can be a lot).</li>
+      <li>Each issue or pull request becomes one task, with a link to open it there. Delete a task you don't want and it isn't brought back.</li>
+      <li><strong>Projects</strong>: rules like <code>acme/*</code> → <em>Work</em> put a repository's tasks into a project; the first matching rule decides, anything else goes to the inbox.</li>
+      <li>Streamline checks every 10 minutes (or press <em>Check now</em>). Once an issue is closed or merged, or is no longer assigned to you, its task is completed by itself.</li>
+      <li>Read-only: completing the task doesn't close anything there. The token is stored encrypted and never sent back to the browser; if it stops working, Settings shows the error and the tasks stay as they were.</li>
+      <li>Removing an account removes its open tasks too; finished ones stay in your history.</li>
+    </ul>
+  </section>
+
+  <section id="servers">
+    <h2><Icon name="users" size={18} /> Sharing with other Streamline servers</h2>
+    <p>
+      Someone who runs their own Streamline can work on one of your projects without an account here, and you can join
+      theirs the same way.
+    </p>
+    <ul>
+      <li><strong>Sharing yours:</strong> share a top-level project with a group you own, then in the project's menu choose <em>People on other servers</em> → <em>Make an invite link</em>. Send the link to one person; it works once, for 7 days. They join that group for this project only.</li>
+      <li><strong>Joining theirs:</strong> paste the link you were sent in <a href="/settings#remote-projects">Settings → Projects from other servers</a>. The project appears with your own, marked <em>From</em> their server. Work on it as usual: plan its tasks on your days, tick them off, add tasks, steps and subprojects.</li>
+      <li>Changes go through the project's own server, and arrive on the other side within moments. If that server can't be reached, the project is read-only until it's back, and says so.</li>
+      <li>Your day plans, journal, tracking, calendar and focus time stay on your server. Places, workflows and custom task types aren't shared.</li>
+      <li>The project's owner can remove someone (same menu), and you can leave in Settings; either way their copy disappears.</li>
+    </ul>
   </section>
 
   <section id="tracking">
@@ -412,9 +507,19 @@
       set the progress by hand.
     </p>
     <ul>
-      <li>Once a week (or month; choose on the Goals page) the Today view invites you to a short <strong>review</strong>: where each goal stands, a note on each, and your reflection. Notes are kept with the goal.</li>
+      <li>Once a week (or month; choose on the Goals page) the Today view invites you to the <a href="/review">review</a>, a short walk through six steps: the week in numbers; <strong>loose ends</strong> (overdue tasks, ones carried over again and again, and ones untouched for three weeks) to plan or let go; what you're <strong>waiting</strong> for; <strong>projects</strong> with nothing to do next (add a next step or archive them) and ideas to start or drop; a note on each <strong>goal</strong>; and a look at the coming week, with the week planner one click away. Finishing records it until the next one. Notes are kept with the goal.</li>
       <li>Goals are yours unless you share one with a group, like a project.</li>
     </ul>
+    <p>
+      <strong>Habits.</strong> Some goals aren't reached once but kept up: “eat less junk”, “walk 30 minutes”, “no phone
+      after 22:00”. Choose <em>Habit</em> when you add one, from today (or another day) and for good or until a date;
+      have as many as you like. Each day, the <em>Track</em> card on Today (and the reflection in Summary &amp; journal
+      and the evening planning) asks <em>Did you manage?</em>: yes, partly or no, with a short note if you want (tap the
+      answer again to clear it). The Goals page shows this week's days, the days in a row, and the share of good days
+      over the last four weeks (partly counts half). In the weekly review each habit shows the week's days and suggests
+      a verdict from them; change it if the week felt different, and add a note. A shared habit is answered by each
+      member for themselves.
+    </p>
   </section>
 
   <section id="occasions">
@@ -457,6 +562,7 @@
     <ul>
       <li><strong>Notifications</strong>: in <a href="/settings">Settings → Notifications</a>, tap <em>Turn on</em> on each device (on iPhone, from the home-screen app). You then get planning reminders, overlap warnings and the like even when Streamline is closed. Choose which kinds there too.</li>
       <li>Without HTTPS, everything else works in the browser as usual; the <a href="https://ntfy.sh">ntfy</a> app can still deliver notifications (Settings → Notifications).</li>
+      <li><strong>Morning digest</strong>: pick a time in <a href="/settings#notifications">Settings → Notifications</a> and you get one message each morning with the day ahead: things at set times, what's planned, what's due or overdue, and waiting items to check on. It comes through the same channels as other notifications (in the app, push, ntfy); leave the time empty to turn it off. <em>Preview</em> shows what today's says.</li>
     </ul>
   </section>
 

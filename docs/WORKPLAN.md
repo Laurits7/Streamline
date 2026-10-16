@@ -527,22 +527,31 @@ Legend: **Deliverables** = what exists afterwards · **Tests** = what must be co
 
 ### Phase 7: Later (after v1.0, in the order given in §7.7)
 
-- [ ] **7.1 Integration framework + Mealie shopping list** *(needs Q-10)*: `IntegrationProvider`
-      trait, encrypted settings, polling job, last-known state + warning on failure; read the
-      live instance's `/docs` first. One open "Go shopping" task per list (deduplicated via
+*v1.4 (D-93) takes 7.1, 7.2, 7.3, 7.6 and 7.7; 7.4 (thermal printing) is dropped and 7.5 stays
+postponed.*
+
+- [ ] **7.1 Integration framework + Mealie shopping list** *(parked, D-101)*: `IntegrationProvider`
+      trait, encrypted settings, polling job, last-known state + warning on failure; develop against Mealie v3.25.0 (the
+      owner's version, D-96) in a local container with its OpenAPI. One open "Go shopping" task per list (deduplicated via
       `ext_source/ext_id`), auto-complete when the list is empty, optional minimum item count.
-- [ ] **7.2 Mealie meal plan**: one task per meal entry with a recipe link, ingredients and
+- [ ] **7.2 Mealie meal plan** *(parked, D-101)*: one task per meal entry with a recipe link, ingredients and
       steps shown in the focus view, prep+cook time as the estimate, type `expires`; generic
       "prepare lunch" tasks resolve against the meal plan.
-- [ ] **7.3 Print, A4**: print-CSS day sheet with stable item codes and a QR code to the
+- [x] **7.3 Print, A4**: print-CSS day sheet with stable item codes and a QR code to the
       reconcile page.
 - [ ] **7.4 Thermal printing + reconcile**  *(needs Q-13, Q-14)*: ESC/POS over TCP 9100,
       58/80 mm layouts, scheduled morning print; signed, expiring reconcile links that can only
       complete the printed items (`source=print`).
 - [ ] **7.5 Child profiles** *(needs Q-15, only if needed)*: restricted role, simplified UI,
       optional parent confirmation.
-- [ ] **7.6 GitHub integration**: import/link issues and PRs per project, mirror status.
-- [ ] **7.7 Calendar write-back**: `put_event` on the provider; write planned blocks as busy
+- [x] **7.6 GitHub, GitLab and others** (D-97, D-99): connect accounts with access tokens (GitHub,
+      GitLab.com or self-hosted, Gitea/Forgejo; encrypted like the calendar password); a
+      polling job brings in what's yours (assigned issues, assigned PRs/MRs, review requests,
+      mentions; each kind on/off per account) as tasks with a link, deduplicated by source and
+      id; repository rules choose the project (else the inbox); closed, merged or unassigned
+      upstream completes the task; read-only towards the forge; tests with recorded API
+      answers; help and CHANGELOG.
+- [x] **7.7 Calendar write-back**: `put_event` on the provider; write planned blocks as busy
       events to a dedicated calendar.
 - [ ] **7.8 Native app** *(Linux desktop app moved to Phase 9, D-78; phones stay on the PWA, D-61)*: evaluate Tauri 2 reusing `web/`, with token auth and the
       change feed.
@@ -601,25 +610,25 @@ ideas: projects that aren't started yet, kept with a description.
 
 ---
 
-### Phase 8: Sync between Streamline servers (v1.1, D-69)
+### Phase 8: Sync between Streamline servers (v1.4, D-69, D-93; as built: D-100)
 
 Shared projects across instances: each collaborator keeps their own server. Home-server model:
 the sharer's server is authoritative; members' servers hold a replica and forward writes.
 
-- [ ] **8.1 Federated identities**: remote members (`name@host`) as login-less user rows; group
+- [x] **8.1 Federated identities**: remote members (`name@host`) as login-less user rows; group
       membership for remote members; how they're shown (name, server).
-- [ ] **8.2 Invites and handshake**: per-project invite link (expiring, single use); the
+- [x] **8.2 Invites and handshake**: per-project invite link (expiring, single use); the
       collaborator's server redeems it over HTTPS and gets a per-link secret (revocable);
       server identity check; outbound calls through `net.rs`.
-- [ ] **8.3 Replication feed**: project-scoped change feed and live stream for a link (project,
+- [x] **8.3 Replication feed**: project-scoped change feed and live stream for a link (project,
       subprojects, tasks, routines); the replica server applies changes as read-only mirrors;
       routines, rollover of shared items and occurrences run only on the home server.
-- [ ] **8.4 Forwarded writes**: edits to replicated items go to the home server as the remote
+- [x] **8.4 Forwarded writes**: edits to replicated items go to the home server as the remote
       member (same permission checks as local members); the result comes back via the feed.
       Home unreachable → read-only with a banner (D-69).
-- [ ] **8.5 UI**: invite/join flow, remote members in groups, server status per shared project,
+- [x] **8.5 UI**: invite/join flow, remote members in groups, server status per shared project,
       leaving/removing (replica deleted).
-- [ ] **8.6 Tests and security review**: two servers in one test process (join, edit both ways,
+- [x] **8.6 Tests and security review**: two servers in one test process (join, edit both ways,
       remove, revoke, home down, hostile peer input); compose file with two instances; review
       of the new server-to-server surface.
 
@@ -679,6 +688,54 @@ own), then the server's merge support, then the desktop app on top of it.
       test passwords or tokens in the test, server or app logs; README, DECISIONS, OpenAPI
       and TS types current. *Left for the owner:* smoke test on a phone and behind the HTTPS
       proxy, and the pre-release tag.
+
+### Phase 10: Productivity (v1.4, D-93)
+
+Developed on the `v1.4` branch, with Phase 7's picked integrations and Phase 8. Order: the
+productivity features first (small, used daily), then 7.3, 7.7, 7.6, 7.1–7.2, then Phase 8,
+then the gate.
+
+- [x] **10.1 README badges**: CI, latest release, licence, image, and what the CI enforces
+      (rustfmt, clippy with warnings as errors, tests, bundle budget).
+- [x] **10.2 Command palette and keyboard shortcuts**: Ctrl+K (⌘K) searches tasks (titles,
+      notes, checklist steps), projects, routines, journal and pages, and runs actions on the
+      chosen item (open, plan today or tomorrow, focus, complete); single-key shortcuts
+      outside text fields (n new task, / search, g t Today, g i Inbox, g p Plan, j/k move,
+      x complete, ? lists them); pure ranking in `web/src/lib` with tests; help and CHANGELOG.
+- [x] **10.2b Week view** (D-94): `/week` with two modes, remembered: a *planner* (7 day
+      columns with every planned task, each day's load against free time, drag tasks between
+      days and in from an unplanned list, add to a day) and a *calendar* (7 days on an hour
+      grid with events, timed tasks and time blocks; drag to another day or time). The
+      overlap layout moves from the timeline into a tested function both use; sidebar entry,
+      `g w`, the palette; help and CHANGELOG.
+- [x] **10.3 Inbox triage**: process the inbox one item at a time with one-key decisions (do
+      now, today, tomorrow, pick a project, schedule, waiting, delete, skip), progress and
+      undo; tests; help and CHANGELOG.
+- [x] **10.4 Weekly review**: a guided review: last week's numbers, overdue and stale tasks,
+      waiting items, projects without a next step, ideas to start or drop, then plan next
+      week; the goal review folds in; remembers when it was last done and reminds on the
+      chosen day; tests; help and CHANGELOG.
+- [x] **10.5 Better estimates**: from estimates vs. focus time actually spent (domain,
+      tested): the usual overrun overall and per project and type of task, a suggested
+      estimate when planning and in the task sheet, and planning load using realistic
+      times (optional); Trends shows estimate accuracy; help and CHANGELOG.
+- [x] **10.6 Morning digest**: one message each morning (time per user, off by default)
+      through push or ntfy: today's plan, fixed times, what's due, waiting items to check;
+      tests for the content; help and CHANGELOG.
+- [x] **10.8 Quick-add extras** (owner request, D-103): steps typed in while adding; add as
+      done, as waiting, or as ongoing.
+- [x] **10.9 Ongoing tasks** (owner request, D-102): kept at over a period, "worked on it" per
+      day, never carried or missed, finished by hand; domain + web logic tested.
+- [x] **10.10 Habit goals** (owner request, D-105): goals that are habits, answered per day
+      (yes / partly / no) in Track and the reflection, judged per week in the review.
+- [ ] **10.7 Phase gate** (Part D) for v1.4.
+      *Done 2026-10-15:* tests, fmt and clippy green (CI not run yet: not pushed); resource
+      log updated (image 16.2 MB, idle 9.0 MiB, 110.4 KB initial); two-server, forge and
+      ongoing flows tried in the real app (headless Chrome, desktop and phone width); security
+      review done and fixed (D-104); no test passwords, tokens or link secrets in the test or
+      server logs; README, DECISIONS, Help, CHANGELOG, TS types current (OpenAPI is generated
+      at runtime). *Left for the owner:* smoke test on a phone and behind the HTTPS proxy,
+      push so CI runs, and the release (tag, GitHub release, AUR).
 
 ---
 

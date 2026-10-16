@@ -7,4 +7,12 @@ export type CalendarAccountView = { id: string, kind: string, url: string, usern
 /**
  * `new` (not synced yet), `ok` or `error`.
  */
-status: string, last_sync_at: string | null, last_error: string | null, };
+status: string, last_sync_at: string | null, last_error: string | null, 
+/**
+ * Where timed tasks are written as busy events (7.7); `null` = not written.
+ */
+write_calendar_id: string | null, 
+/**
+ * Write task titles (else just "Busy").
+ */
+write_titles: boolean, };

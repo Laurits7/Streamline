@@ -2,11 +2,11 @@
   // Planned time against free time for a day; warns (but never blocks) when overbooked (D-9).
   import { fmtMinutes, nowHHMM } from '../dates'
   import { dayLoad } from '../planning'
-  import { store } from '../store.svelte'
+  import { REALISTIC_PREF, store } from '../store.svelte'
 
   let { date }: { date: string } = $props()
   const load = $derived(
-    dayLoad(store.me!, store.dayEntries(date), (id) => store.tasks.get(id), date === store.today ? nowHHMM(store.me!.timezone) : undefined, store.dayBusy(date)),
+    store.dayLoadFor(date),
   )
   const over = $derived(load.planned - load.free)
   const pct = $derived(load.free > 0 ? Math.min(100, (load.planned / load.free) * 100) : load.planned > 0 ? 100 : 0)
@@ -14,7 +14,7 @@
 
 <div class="load" class:over={over > 0} role="status" aria-live="polite">
   <div class="text">
-    <span><strong>{fmtMinutes(load.planned)}</strong> planned</span>
+    <span><strong>{fmtMinutes(load.planned)}</strong> planned{#if store.pref(REALISTIC_PREF, false)}<span class="muted" title="Estimates scaled by how long such tasks usually take you (Settings)"> (realistic)</span>{/if}</span>
     <span class="muted">of {fmtMinutes(load.free)} free{load.scheduled ? ` (after ${load.scheduled} scheduled)` : ''}</span>
   </div>
   <div class="bar"><div style:width="{pct}%"></div></div>

@@ -113,7 +113,7 @@ pub async fn create(
     Json(c): Json<CreateTemplate>,
 ) -> ApiResult<Json<TaskTemplate>> {
     let id = id_or_new(c.id)?;
-    let owner = crate::ownership::chosen(&user, c.owner_group_id.as_deref())?;
+    let owner = crate::ownership::chosen(&state, &user, c.owner_group_id.as_deref()).await?;
     let mut tx = state.db.write.begin().await?;
     if let Some(existing) =
         sqlx::query_as::<_, TaskTemplate>("SELECT * FROM task_templates WHERE id = ?")
@@ -240,7 +240,7 @@ pub async fn patch(
         t.place_id = v;
     }
     if let Some(g) = c.owner_group_id {
-        let o = crate::ownership::chosen(&user, g.as_deref())?;
+        let o = crate::ownership::chosen(&state, &user, g.as_deref()).await?;
         t.owner_user_id = o.user;
         t.owner_group_id = o.group;
     }

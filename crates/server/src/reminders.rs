@@ -69,9 +69,10 @@ pub async fn run_for_user(state: &AppState, user: &User) -> anyhow::Result<Vec<N
 }
 
 pub async fn run_all(state: &AppState) -> anyhow::Result<()> {
-    let users: Vec<User> = sqlx::query_as("SELECT * FROM users WHERE deleted_at IS NULL")
-        .fetch_all(&state.db.read)
-        .await?;
+    let users: Vec<User> =
+        sqlx::query_as("SELECT * FROM users WHERE deleted_at IS NULL AND home IS NULL")
+            .fetch_all(&state.db.read)
+            .await?;
     for u in users {
         if let Err(e) = run_for_user(state, &u).await {
             tracing::warn!("reminders failed for user {}: {e:#}", u.id);

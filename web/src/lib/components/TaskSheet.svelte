@@ -11,6 +11,7 @@
   import { createsCycle } from '../deps'
   import { localTime } from '../calendar'
   import { checkBackDue, checkBackLabel, isWaiting } from '../waiting'
+  import { progress, summary } from '../ongoing'
   import WaitPicker from './WaitPicker.svelte'
   import Checklist from './Checklist.svelte'
 
@@ -166,6 +167,14 @@
         <button class="chip" class:on={!!task.started_at} aria-pressed={!!task.started_at} onclick={() => store.setInProgress(id, !task.started_at)}>
           In progress
         </button>
+        <button
+          class="chip"
+          class:on={task.ongoing}
+          aria-pressed={task.ongoing}
+          title="Kept at over a period (like reading a book): marked “worked on it” each day, finished by hand"
+          onclick={() => store.updateTask(id, task.ongoing ? { ongoing: false } : { ongoing: true, start_date: task.start_date ?? store.today })}>
+          <Icon name="repeat" size={13} /> Ongoing
+        </button>
         {#if !isWaiting(task) && !checkBackDue(task)}
           <button class="chip" class:on={picking} aria-expanded={picking} onclick={() => (picking = !picking)}>
             <Icon name="hourglass" size={13} /> Wait for results…
@@ -197,6 +206,28 @@
         </div>
       {/if}
       {#if picking}<WaitPicker taskId={id} ondone={() => (picking = false)} />{/if}
+      {#if task.ongoing}
+        {@const p = progress(task, store.today, store.me?.week_start ?? 1)}
+        <div class="routine-box ongoing-box" class:due={p.over}>
+          <Icon name="repeat" size={16} />
+          <div class="ongoing-body">
+            <span>
+              {#if p.over}<strong>Its period is over.</strong> Finish it, or give it more time.{:else}<strong>Ongoing</strong>{/if}
+              <span class="muted"> · {summary(p)}{p.periodDays ? ` · day ${p.periodDays}` : ''}</span>
+            </span>
+            <div class="period">
+              <label><span>From</span><input type="date" value={task.start_date ?? ''} onchange={(e) => store.updateTask(id, { start_date: (e.currentTarget as HTMLInputElement).value || null })} /></label>
+              <label><span>Until</span><input type="date" value={task.due_date ?? ''} onchange={(e) => store.updateTask(id, { due_date: (e.currentTarget as HTMLInputElement).value || null })} /></label>
+            </div>
+            <div class="acts">
+              <button class="btn small" class:primary={!p.workedToday} aria-pressed={p.workedToday} onclick={() => store.markWorked(id, store.today, !p.workedToday)}>
+                {p.workedToday ? '✓ Worked on it today' : 'Worked on it today'}
+              </button>
+              <button class="btn small" onclick={() => store.toggleDone(id)}>Finish</button>
+            </div>
+          </div>
+        </div>
+      {/if}
     {/if}
 
     <section>
@@ -372,6 +403,16 @@
             store.updateTask(id, { estimate_min: v ? Math.min(1440, Math.max(0, Number(v))) : null })
           }} />
       </div>
+      {#if task.status === 'open'}
+        {@const s = store.estimateSuggestion(task)}
+        {#if s}
+          <p class="suggest">
+            {s.basis === 'project' && task.project_id ? `Tasks in ${store.projectPath(task.project_id)}` : s.basis === 'type' ? 'Tasks like this' : 'Your tasks'}
+            usually take {s.factor.toFixed(1)}× the estimate ({s.n} done), so about {fmtMinutes(s.minutes)}.
+            <button class="btn small" onclick={() => store.useSuggestedEstimate(id, s.minutes)}>Use {fmtMinutes(s.minutes)}</button>
+          </p>
+        {/if}
+      {/if}
     </section>
 
     <section>
@@ -412,6 +453,14 @@
       <p class="muted help">{behaviorHelp[store.taskType(task.task_type_id)?.day_end_behavior ?? 'carry']}</p>
     </section>
 
+    {#if task.ext_url && /^https?:\/\//.test(task.ext_url)}
+      <section>
+        <h3>Comes from</h3>
+        <a class="link" href={task.ext_url} target="_blank" rel="noopener noreferrer">Open on {new URL(task.ext_url).host} ↗</a>
+        {#if task.ext_source === 'forge'}<p class="muted help">Completed here by itself once it's closed, merged or no longer yours there.</p>{/if}
+      </section>
+    {/if}
+
     <section>
       <h3>Notes</h3>
       <textarea bind:value={notes} onblur={saveNotes} rows="5" placeholder="Details, links…"></textarea>
@@ -432,6 +481,15 @@
 {/if}
 
 <style>
+  .suggest {
+    margin: 8px 0 0;
+    font-size: 13px;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
   .head {
     display: flex;
     align-items: center;
@@ -565,6 +623,24 @@
     background: var(--accent-soft);
     color: var(--accent);
     font-size: 14px;
+  }
+  .ongoing-body {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    flex: 1;
+    min-width: 0;
+  }
+  .period {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .period label {
+    display: flex;
+    flex-direction: column;
+    font-size: 12px;
+    color: var(--muted);
   }
   .wait-box.due {
     background: var(--warn-soft);

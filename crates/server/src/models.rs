@@ -32,6 +32,10 @@ pub struct User {
     pub last_review_date: Option<String>,
     pub notify_off: String,
     pub ntfy_url: Option<String>,
+    pub digest_time: Option<String>,
+    pub last_digest_date: Option<String>,
+    /// Set for people who live on another server (Phase 8): their server's address.
+    pub home: Option<String>,
 }
 
 impl User {
@@ -88,6 +92,8 @@ pub struct Me {
     pub notify_off: Vec<String>,
     /// ntfy topic URL notifications are also sent to.
     pub ntfy_url: Option<String>,
+    /// When the morning digest is sent (local HH:MM); `null` = off.
+    pub digest_time: Option<String>,
 }
 
 impl From<&User> for Me {
@@ -116,6 +122,7 @@ impl From<&User> for Me {
             last_review_date: u.last_review_date.clone(),
             notify_off: serde_json::from_str(&u.notify_off).unwrap_or_default(),
             ntfy_url: u.ntfy_url.clone(),
+            digest_time: u.digest_time.clone(),
         }
     }
 }
@@ -137,7 +144,7 @@ pub struct TaskType {
     pub rev: i64,
 }
 
-#[derive(Debug, Clone, Serialize, FromRow, TS, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, serde::Deserialize, FromRow, TS, utoipa::ToSchema)]
 #[ts(export)]
 pub struct Project {
     pub id: String,
@@ -165,7 +172,7 @@ pub struct Project {
     pub rev: i64,
 }
 
-#[derive(Debug, Clone, Serialize, FromRow, TS, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, serde::Deserialize, FromRow, TS, utoipa::ToSchema)]
 #[ts(export)]
 pub struct Task {
     pub id: String,
@@ -236,6 +243,17 @@ pub struct Task {
     #[ts(as = "Vec<ChecklistItem>")]
     #[schema(value_type = Vec<ChecklistItem>)]
     pub checklist: sqlx::types::Json<Vec<ChecklistItem>>,
+    /// Kept at over a period rather than done in one go (D-102): marked "worked on it" per
+    /// day, finished by hand. Its period runs from `start_date` (or creation) to `due_date`.
+    #[serde(default)]
+    pub ongoing: bool,
+    #[serde(default)]
+    pub start_date: Option<String>,
+    /// Days it was worked on (`YYYY-MM-DD`, sorted).
+    #[ts(type = "Array<string>")]
+    #[schema(value_type = Vec<String>)]
+    #[serde(default)]
+    pub worked_days: sqlx::types::Json<Vec<String>>,
     pub created_at: String,
     pub updated_at: String,
     pub deleted_at: Option<String>,
@@ -344,6 +362,9 @@ pub struct Group {
     pub deleted_at: Option<String>,
     #[ts(type = "number")]
     pub rev: i64,
+    /// Set for a group mirrored from another server (Phase 8): that server's address. It's
+    /// managed there and can't own anything made here.
+    pub home: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, FromRow, TS, utoipa::ToSchema)]
@@ -550,7 +571,7 @@ pub async fn upsert_place(conn: &mut SqliteConnection, p: &Place) -> sqlx::Resul
 }
 
 /// A routine: a template that spawns one task per occurrence (SPEC §6.3).
-#[derive(Debug, Clone, Serialize, FromRow, TS, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, serde::Deserialize, FromRow, TS, utoipa::ToSchema)]
 #[ts(export)]
 pub struct Series {
     pub id: String,
@@ -702,9 +723,9 @@ pub async fn upsert_task(conn: &mut SqliteConnection, t: &Task) -> sqlx::Result<
            due_date, estimate_min, difficulty, importance, urgency, actual_min, task_type_id, carry_count, started_at, completed_at,
            completed_by, ext_source, ext_id, ext_url, place_id, event_id, also_project_ids, depends_on, blocked, wait_min, ready_at,
            workflow_instance_id, workflow_step, workflow_steps, series_id, occurrence_key, occurrence_date, window_end,
-           waiting_since, check_back_at, waiting_note, waiting_by, checklist,
+           waiting_since, check_back_at, waiting_note, waiting_by, checklist, ongoing, start_date, worked_days,
            created_at, updated_at, deleted_at, rev)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
          ON CONFLICT(id) DO UPDATE SET owner_user_id=excluded.owner_user_id, owner_group_id=excluded.owner_group_id,
            assignee_user_id=excluded.assignee_user_id, project_id=excluded.project_id, title=excluded.title,
            notes=excluded.notes, status=excluded.status, position=excluded.position, due_date=excluded.due_date,
@@ -719,6 +740,7 @@ pub async fn upsert_task(conn: &mut SqliteConnection, t: &Task) -> sqlx::Result<
            occurrence_date=excluded.occurrence_date, window_end=excluded.window_end,
            waiting_since=excluded.waiting_since, check_back_at=excluded.check_back_at,
            waiting_note=excluded.waiting_note, waiting_by=excluded.waiting_by, checklist=excluded.checklist,
+           ongoing=excluded.ongoing, start_date=excluded.start_date, worked_days=excluded.worked_days,
            updated_at=excluded.updated_at, deleted_at=excluded.deleted_at, rev=excluded.rev",
     )
     .bind(&t.id).bind(&t.owner_user_id).bind(&t.owner_group_id).bind(&t.assignee_user_id).bind(&t.project_id)
@@ -728,6 +750,7 @@ pub async fn upsert_task(conn: &mut SqliteConnection, t: &Task) -> sqlx::Result<
     .bind(&t.ext_url).bind(&t.place_id).bind(&t.event_id).bind(&t.also_project_ids).bind(&t.depends_on).bind(t.blocked)
     .bind(t.wait_min).bind(&t.ready_at).bind(&t.workflow_instance_id).bind(t.workflow_step).bind(t.workflow_steps).bind(&t.series_id).bind(&t.occurrence_key).bind(&t.occurrence_date).bind(&t.window_end)
     .bind(&t.waiting_since).bind(&t.check_back_at).bind(&t.waiting_note).bind(&t.waiting_by).bind(&t.checklist)
+    .bind(t.ongoing).bind(&t.start_date).bind(&t.worked_days)
     .bind(&t.created_at).bind(&t.updated_at).bind(&t.deleted_at).bind(t.rev)
     .execute(conn)
     .await
@@ -826,6 +849,8 @@ pub struct CalendarAccount {
     pub updated_at: String,
     pub deleted_at: Option<String>,
     pub rev: i64,
+    pub write_calendar_id: Option<String>,
+    pub write_titles: bool,
 }
 
 /// What the API shows of a calendar account.
@@ -841,6 +866,10 @@ pub struct CalendarAccountView {
     pub status: String,
     pub last_sync_at: Option<String>,
     pub last_error: Option<String>,
+    /// Where timed tasks are written as busy events (7.7); `null` = not written.
+    pub write_calendar_id: Option<String>,
+    /// Write task titles (else just "Busy").
+    pub write_titles: bool,
 }
 
 impl From<&CalendarAccount> for CalendarAccountView {
@@ -851,6 +880,102 @@ impl From<&CalendarAccount> for CalendarAccountView {
             url: a.url.clone(),
             username: a.username.clone(),
             has_password: a.secret.is_some(),
+            status: a.status.clone(),
+            last_sync_at: a.last_sync_at.clone(),
+            last_error: a.last_error.clone(),
+            write_calendar_id: a.write_calendar_id.clone(),
+            write_titles: a.write_titles,
+        }
+    }
+}
+
+/// A connected GitHub, GitLab or Gitea/Forgejo account (7.6, D-97). The token is stored
+/// encrypted and never leaves the server.
+#[derive(Debug, Clone, FromRow)]
+pub struct ForgeAccount {
+    pub id: String,
+    pub user_id: String,
+    pub kind: String,
+    pub url: String,
+    pub login: String,
+    pub secret: Option<Vec<u8>>,
+    pub issues: bool,
+    pub prs: bool,
+    pub reviews: bool,
+    pub mentions: bool,
+    pub rules: sqlx::types::Json<Vec<streamline_domain::forge::Rule>>,
+    pub status: String,
+    pub last_sync_at: Option<String>,
+    pub last_error: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+impl ForgeAccount {
+    /// What to bring in, as `domain::forge` flags.
+    pub fn kinds(&self) -> u8 {
+        use streamline_domain::forge::{ISSUE, MENTION, PR, REVIEW};
+        [
+            (self.issues, ISSUE),
+            (self.prs, PR),
+            (self.reviews, REVIEW),
+            (self.mentions, MENTION),
+        ]
+        .into_iter()
+        .filter(|(on, _)| *on)
+        .fold(0, |acc, (_, k)| acc | k)
+    }
+}
+
+/// A repository rule: tasks from matching repositories go to the project.
+#[derive(Debug, Clone, Serialize, serde::Deserialize, TS, utoipa::ToSchema)]
+#[ts(export)]
+pub struct ForgeRule {
+    /// `owner/repo`; `*` matches any text (`owner/*`).
+    pub repo: String,
+    pub project_id: String,
+}
+
+/// What the API shows of a forge account.
+#[derive(Debug, Clone, Serialize, TS, utoipa::ToSchema)]
+#[ts(export)]
+pub struct ForgeAccountView {
+    pub id: String,
+    /// `github`, `gitlab` or `gitea` (Forgejo too).
+    pub kind: String,
+    pub url: String,
+    /// The account the token belongs to.
+    pub login: String,
+    pub issues: bool,
+    pub prs: bool,
+    pub reviews: bool,
+    pub mentions: bool,
+    pub rules: Vec<ForgeRule>,
+    /// `new` (not synced yet), `ok` or `error`.
+    pub status: String,
+    pub last_sync_at: Option<String>,
+    pub last_error: Option<String>,
+}
+
+impl From<&ForgeAccount> for ForgeAccountView {
+    fn from(a: &ForgeAccount) -> Self {
+        Self {
+            id: a.id.clone(),
+            kind: a.kind.clone(),
+            url: a.url.clone(),
+            login: a.login.clone(),
+            issues: a.issues,
+            prs: a.prs,
+            reviews: a.reviews,
+            mentions: a.mentions,
+            rules: a
+                .rules
+                .iter()
+                .map(|r| ForgeRule {
+                    repo: r.repo.clone(),
+                    project_id: r.project_id.clone(),
+                })
+                .collect(),
             status: a.status.clone(),
             last_sync_at: a.last_sync_at.clone(),
             last_error: a.last_error.clone(),
@@ -1305,7 +1430,13 @@ pub struct Goal {
     pub owner_group_id: Option<String>,
     pub title: String,
     pub description: String,
+    /// Outcomes: the target date. Habits: when the period ends (`null` = for good).
     pub target_date: Option<String>,
+    /// `outcome` (reached once: milestones, linked work) or `habit` (kept day by day; D-105).
+    #[ts(type = "'outcome' | 'habit'")]
+    pub kind: String,
+    /// Habits: when the period starts (`null` = from its creation).
+    pub start_date: Option<String>,
     #[ts(type = "'active' | 'paused' | 'achieved' | 'dropped'")]
     pub status: String,
     /// 0–1, set by hand; `null` = derived from milestones and linked work.
@@ -1327,19 +1458,52 @@ pub struct Goal {
     pub rev: i64,
 }
 
+/// A day's answer for a habit goal (D-105). Personal.
+#[derive(Debug, Clone, Serialize, FromRow, TS, utoipa::ToSchema)]
+#[ts(export)]
+pub struct HabitCheck {
+    pub id: String,
+    pub goal_id: String,
+    pub user_id: String,
+    pub date: String,
+    #[ts(type = "'yes' | 'partly' | 'no'")]
+    pub result: String,
+    pub note: String,
+    pub created_at: String,
+    pub updated_at: String,
+    pub deleted_at: Option<String>,
+    #[ts(type = "number")]
+    pub rev: i64,
+}
+
+pub async fn upsert_habit_check(conn: &mut SqliteConnection, c: &HabitCheck) -> sqlx::Result<()> {
+    sqlx::query(
+        "INSERT INTO habit_checks (id, goal_id, user_id, date, result, note, created_at, updated_at, deleted_at, rev)
+         VALUES (?,?,?,?,?,?,?,?,?,?)
+         ON CONFLICT(id) DO UPDATE SET result=excluded.result, note=excluded.note, updated_at=excluded.updated_at,
+           deleted_at=excluded.deleted_at, rev=excluded.rev",
+    )
+    .bind(&c.id).bind(&c.goal_id).bind(&c.user_id).bind(&c.date).bind(&c.result).bind(&c.note)
+    .bind(&c.created_at).bind(&c.updated_at).bind(&c.deleted_at).bind(c.rev)
+    .execute(conn)
+    .await
+    .map(|_| ())
+}
+
 pub async fn upsert_goal(conn: &mut SqliteConnection, g: &Goal) -> sqlx::Result<()> {
     sqlx::query(
         "INSERT INTO goals (id, owner_user_id, owner_group_id, title, description, target_date, status, progress_override, milestones,
-           project_ids, task_ids, position, created_at, updated_at, deleted_at, rev)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+           project_ids, task_ids, position, created_at, updated_at, deleted_at, rev, kind, start_date)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
          ON CONFLICT(id) DO UPDATE SET owner_user_id=excluded.owner_user_id, owner_group_id=excluded.owner_group_id, title=excluded.title,
            description=excluded.description, target_date=excluded.target_date, status=excluded.status, progress_override=excluded.progress_override,
            milestones=excluded.milestones, project_ids=excluded.project_ids, task_ids=excluded.task_ids, position=excluded.position,
-           updated_at=excluded.updated_at, deleted_at=excluded.deleted_at, rev=excluded.rev",
+           updated_at=excluded.updated_at, deleted_at=excluded.deleted_at, rev=excluded.rev,
+           kind=excluded.kind, start_date=excluded.start_date",
     )
     .bind(&g.id).bind(&g.owner_user_id).bind(&g.owner_group_id).bind(&g.title).bind(&g.description).bind(&g.target_date)
     .bind(&g.status).bind(g.progress_override).bind(&g.milestones).bind(&g.project_ids).bind(&g.task_ids).bind(&g.position)
-    .bind(&g.created_at).bind(&g.updated_at).bind(&g.deleted_at).bind(g.rev)
+    .bind(&g.created_at).bind(&g.updated_at).bind(&g.deleted_at).bind(g.rev).bind(&g.kind).bind(&g.start_date)
     .execute(conn)
     .await
     .map(|_| ())

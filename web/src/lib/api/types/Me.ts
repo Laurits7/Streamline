@@ -43,4 +43,8 @@ notify_off: Array<string>,
 /**
  * ntfy topic URL notifications are also sent to.
  */
-ntfy_url: string | null, };
+ntfy_url: string | null, 
+/**
+ * When the morning digest is sent (local HH:MM); `null` = off.
+ */
+digest_time: string | null, };

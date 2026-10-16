@@ -74,4 +74,13 @@ waiting_by: string | null,
 /**
  * Steps inside the task (D-71).
  */
-checklist: Array<ChecklistItem>, created_at: string, updated_at: string, deleted_at: string | null, rev: number, };
+checklist: Array<ChecklistItem>, 
+/**
+ * Kept at over a period rather than done in one go (D-102): marked "worked on it" per
+ * day, finished by hand. Its period runs from `start_date` (or creation) to `due_date`.
+ */
+ongoing: boolean, start_date: string | null, 
+/**
+ * Days it was worked on (`YYYY-MM-DD`, sorted).
+ */
+worked_days: Array<string>, created_at: string, updated_at: string, deleted_at: string | null, rev: number, };

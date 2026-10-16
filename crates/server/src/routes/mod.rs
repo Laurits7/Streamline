@@ -3,7 +3,9 @@ mod backups;
 mod blocks;
 mod calendar;
 mod days;
+mod federation;
 pub mod focus;
+mod forges;
 mod goals;
 pub mod groups;
 mod log;
@@ -44,16 +46,18 @@ use crate::AppState;
         account::patch_me, account::change_password, account::list_tokens, account::create_token,
         account::revoke_token, account::list_users, account::create_user, account::patch_user,
         account::delete_user,
-        account::patch_prefs, focus::get_focus, focus::post_focus,
+        account::patch_prefs, crate::digest::preview, crate::print::create, crate::print::get, crate::print::complete, focus::get_focus, focus::post_focus,
         groups::list, groups::directory, groups::create, groups::patch, groups::delete, groups::add_member, groups::remove_member,
         workflows::list, workflows::create, workflows::patch, workflows::delete, workflows::start,
         places::list, places::create, places::patch, places::delete,
         series::list, series::all_stats, series::create, series::patch, series::delete,
-        calendar::get_account, calendar::put_account, calendar::delete_account, calendar::test, calendar::sync_now, calendar::patch_calendar, calendar::put_event_project,
+        calendar::get_account, calendar::put_account, calendar::patch_account, calendar::delete_account, calendar::test, calendar::sync_now, calendar::patch_calendar, calendar::put_event_project,
+        federation::create_invite, federation::remote_members, federation::remove_member, federation::join_here, federation::feed, federation::events, federation::forward, federation::leave_here, federation::list_joins, federation::create_join, federation::sync_join, federation::delete_join,
+        forges::list, forges::test, forges::create, forges::patch, forges::sync_now, forges::delete,
         occasions::calendar, occasions::search, occasions::load, occasions::create_person, occasions::patch_person, occasions::delete_person, occasions::put_template,
         blocks::create_template, blocks::patch_template, blocks::delete_template, blocks::apply_template, blocks::create_block, blocks::patch_block, blocks::delete_block, blocks::suggest,
         tracking::put_record, tracking::put_health, tracking::delete_health, tracking::summary, tracking::glance, tracking::create_metric, tracking::patch_metric, tracking::delete_metric, tracking::create_entry, tracking::patch_entry, tracking::delete_entry, tracking::metric_csv, tracking::import_csv, tracking::export,
-        goals::create, goals::patch, goals::delete, goals::all_progress, goals::review, goals::reviews,
+        goals::create, goals::patch, goals::delete, goals::put_check, goals::delete_check, goals::all_progress, goals::review, goals::reviews,
         push::key, push::subscribe, push::unsubscribe, push::test,
         backups::list, backups::create, backups::download,
         sync::sync, sync::events, sync::today, sync::task_types,
@@ -75,6 +79,8 @@ use crate::AppState;
         (name = "workflows", description = "Multi-step workflow templates"),
         (name = "groups", description = "Groups and shared ownership"),
         (name = "calendar", description = "Calendar account (CalDAV) and calendars"),
+        (name = "federation", description = "Sharing projects with people on other Streamline servers"),
+        (name = "forges", description = "Tasks from GitHub, GitLab and Gitea/Forgejo"),
         (name = "occasions", description = "Nameday calendar, people, birthdays and namedays"),
         (name = "tracking", description = "Reflection, metrics, day summary and export (personal)"),
         (name = "goals", description = "Long-term goals, milestones and reviews"),
@@ -150,6 +156,12 @@ pub fn router(state: AppState) -> Router {
             patch(account::patch_user).delete(account::delete_user),
         )
         .route("/me/prefs", patch(account::patch_prefs))
+        .route("/me/digest", get(crate::digest::preview))
+        .route("/print/sheets", post(crate::print::create))
+        .route(
+            "/reconcile/{token}",
+            get(crate::print::get).post(crate::print::complete),
+        )
         .route("/focus", get(focus::get_focus).post(focus::post_focus))
         .route("/groups", get(groups::list).post(groups::create))
         .route("/groups/{id}", patch(groups::patch).delete(groups::delete))
@@ -182,11 +194,42 @@ pub fn router(state: AppState) -> Router {
             "/calendar/account",
             get(calendar::get_account)
                 .put(calendar::put_account)
+                .patch(calendar::patch_account)
                 .delete(calendar::delete_account),
         )
         .route("/calendar/test", post(calendar::test))
         .route("/calendar/sync", post(calendar::sync_now))
         .route("/calendars/{id}", patch(calendar::patch_calendar))
+        .route("/projects/{id}/invites", post(federation::create_invite))
+        .route(
+            "/projects/{id}/remote-members",
+            get(federation::remote_members),
+        )
+        .route("/federation/join", post(federation::join_here))
+        .route(
+            "/federation/joins",
+            get(federation::list_joins).post(federation::create_join),
+        )
+        .route(
+            "/federation/joins/{id}",
+            axum::routing::delete(federation::delete_join),
+        )
+        .route("/federation/joins/{id}/sync", post(federation::sync_join))
+        .route(
+            "/federation/links/{id}",
+            axum::routing::delete(federation::remove_member),
+        )
+        .route("/federation/links/{id}/feed", get(federation::feed))
+        .route("/federation/links/{id}/events", get(federation::events))
+        .route("/federation/links/{id}/forward", post(federation::forward))
+        .route(
+            "/federation/links/{id}/self",
+            axum::routing::delete(federation::leave_here),
+        )
+        .route("/forges", get(forges::list).post(forges::create))
+        .route("/forges/test", post(forges::test))
+        .route("/forges/{id}", patch(forges::patch).delete(forges::delete))
+        .route("/forges/{id}/sync", post(forges::sync_now))
         .route(
             "/calendar/event-projects",
             axum::routing::put(calendar::put_event_project),
@@ -246,6 +289,10 @@ pub fn router(state: AppState) -> Router {
         .route("/goals/review", post(goals::review))
         .route("/goals/{id}", patch(goals::patch).delete(goals::delete))
         .route("/goals/{id}/reviews", get(goals::reviews))
+        .route(
+            "/goals/{id}/checks/{date}",
+            axum::routing::put(goals::put_check).delete(goals::delete_check),
+        )
         .route("/push/key", get(push::key))
         .route("/push/subscriptions", post(push::subscribe))
         .route("/push/subscriptions/remove", post(push::unsubscribe))
@@ -279,7 +326,13 @@ pub fn router(state: AppState) -> Router {
             "/day-entries/{id}",
             patch(days::patch_entry).delete(days::delete_entry),
         )
-        .route("/openapi.json", get(openapi_json));
+        .route("/openapi.json", get(openapi_json))
+        // Edits to projects shared from another server go there (Phase 8).
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            crate::federation::forward_replica_writes,
+        ));
+    let _ = state.api.set(api.clone().with_state(state.clone()));
 
     Router::new()
         .nest("/api/v1", api)

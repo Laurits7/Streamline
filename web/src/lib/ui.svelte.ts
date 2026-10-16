@@ -13,6 +13,9 @@ export const ui = $state({
   event: null as string | null,
   /** Step of the guided tour being shown, or null. */
   tour: null as number | null,
+  /** The command palette (Ctrl+K) and the keyboard shortcut list (?) (10.2). */
+  palette: false,
+  shortcuts: false,
 })
 
 // Collapsed projects in project trees (remembered in this browser only).

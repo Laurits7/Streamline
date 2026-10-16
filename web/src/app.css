@@ -310,3 +310,36 @@ body.dragging-active .drop-zone {
   color: var(--muted);
   background: var(--surface-3);
 }
+
+/* Keys in help texts and the shortcut list. */
+kbd {
+  font: inherit;
+  font-size: 0.85em;
+  padding: 0 5px;
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: var(--surface);
+  white-space: nowrap;
+}
+
+/* Printing (7.3): only the page's content, no app chrome. */
+@page {
+  size: A4;
+  margin: 14mm;
+}
+@media print {
+  .sidebar,
+  .tabbar,
+  .toasts,
+  .offline,
+  .screen-only {
+    display: none !important;
+  }
+  body,
+  .content {
+    background: #fff !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+}

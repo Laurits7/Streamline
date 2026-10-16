@@ -2,17 +2,26 @@
   // "Add a task…" with default tasks (D-71, D-86): the list opens when the field gets focus
   // and narrows as you type; arrows and Enter pick one, Enter with none highlighted adds
   // the typed text. A default task with kinds asks which kinds to add (one task each).
+  // For tasks (`tasks`), steps can be typed in, and a task can be added as already done
+  // or as waiting for results.
+  import type { ChecklistItem } from '../api/types/ChecklistItem'
   import type { TaskTemplate } from '../api/types/TaskTemplate'
   import type { DefaultMatch } from '../defaults'
   import { store } from '../store.svelte'
+  import { ulid } from '../ulid'
   import Icon from './Icon.svelte'
+  import WaitPicker from './WaitPicker.svelte'
   let {
     placeholder,
     onadd,
     ondefault,
+    tasks = false,
   }: {
     placeholder: string
-    onadd: (title: string) => void
+    /** Returns the new task's id when adding tasks (`tasks`). */
+    onadd: (title: string, extra: { checklist: ChecklistItem[]; ongoing?: boolean }) => string | void
+    /** Offer steps, "Add as done" and "Add as waiting". */
+    tasks?: boolean
     /** Add from a default task, one task per chosen kind (none = the default task itself). */
     ondefault?: (templateId: string, kindIds: string[]) => void
   } = $props()
@@ -23,6 +32,10 @@
   let choosing = $state<{ tpl: TaskTemplate; kinds: string[] } | null>(null)
   let wrap: HTMLDivElement
   let input: HTMLInputElement
+  let stepsOpen = $state(false)
+  let stepsText = $state('')
+  /** A task just added as waiting: say what for and when to check back. */
+  let waitingId = $state<string | null>(null)
   const list = $derived<DefaultMatch[]>(
     !ondefault ? [] : value.trim() ? store.matchDefaults(value) : store.defaultTasks().map((tpl) => ({ tpl, kind: null })),
   )
@@ -40,10 +53,26 @@
   function submit(e: Event) {
     e.preventDefault()
     if (shown && active >= 0) return pick(list[active])
+    addAs('open')
+  }
+  function addAs(how: 'open' | 'done' | 'waiting' | 'ongoing') {
     const t = value.trim()
     if (!t) return
-    onadd(t)
+    const checklist: ChecklistItem[] = stepsText
+      .split('\n')
+      .map((l) => l.replace(/^\s*(?:[-*•]|\[\s?\]|\d+[.)])\s*/, '').trim())
+      .filter(Boolean)
+      .slice(0, 100)
+      .map((text) => ({ id: ulid(), text, done: how === 'done' }))
+    const id = onadd(t, how === 'ongoing' ? { checklist, ongoing: true } : { checklist })
+    if (id && how === 'done') store.updateTask(id, { status: 'done' })
+    if (id && how === 'waiting') {
+      store.waitFor(id, null, '')
+      waitingId = id
+    }
     value = ''
+    stepsText = ''
+    stepsOpen = false
     close()
   }
   function pick(m: DefaultMatch) {
@@ -113,6 +142,45 @@
         onclick={() => (open && !choosing ? close() : ((choosing = null), (open = true)))}><Icon name="checklist" size={18} /></button>
     {/if}
   </form>
+  {#if tasks && value.trim()}
+    <div class="more">
+      <button type="button" class="chip" class:on={stepsOpen} aria-expanded={stepsOpen} onclick={() => (stepsOpen = !stepsOpen)}>
+        <Icon name="checklist" size={14} /> Steps{stepsText.trim() ? ` (${stepsText.split('\n').filter((l) => l.trim()).length})` : ''}
+      </button>
+      <button type="button" class="chip" onclick={() => addAs('done')} title="Add it as already done (e.g. to log something you did)">
+        <Icon name="check" size={14} /> Add as done
+      </button>
+      <button type="button" class="chip" onclick={() => addAs('waiting')} title="Add it as waiting for results from somewhere">
+        <Icon name="hourglass" size={14} /> Add as waiting
+      </button>
+      <button type="button" class="chip" onclick={() => addAs('ongoing')} title="Something to keep at over a period, like reading a book: marked “worked on it” each day">
+        <Icon name="repeat" size={14} /> Add as ongoing
+      </button>
+    </div>
+    {#if stepsOpen}
+      <textarea
+        class="steps"
+        bind:value={stepsText}
+        rows="4"
+        placeholder="One step per line"
+        aria-label="Steps, one per line"
+        onkeydown={(e) => {
+          if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+            e.preventDefault()
+            addAs('open')
+          }
+        }}></textarea>
+    {/if}
+  {/if}
+  {#if waitingId}
+    <div class="waiting card">
+      <div class="whead">
+        <strong>Waiting for results</strong>
+        <button type="button" class="icon-btn" aria-label="Done" onclick={() => (waitingId = null)}><Icon name="x" size={16} /></button>
+      </div>
+      <WaitPicker taskId={waitingId} ondone={() => (waitingId = null)} />
+    </div>
+  {/if}
   {#if shown}
     <ul class="suggest card" id="qa-{uid}" role="listbox" aria-label="Default tasks">
       {#each list as m, i (m.tpl.id + (m.kind?.id ?? ''))}
@@ -165,6 +233,31 @@
 <style>
   .wrap {
     position: relative;
+  }
+  .more {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 6px;
+  }
+  .more .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .steps {
+    width: 100%;
+    margin-top: 6px;
+    resize: vertical;
+  }
+  .waiting {
+    margin-top: 6px;
+    padding: 10px 12px;
+  }
+  .whead {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
   }
   .quick {
     display: flex;

@@ -166,7 +166,7 @@
 
   // Confirm
   const load = $derived(
-    dayLoad(store.me!, store.dayEntries(date), (id) => store.tasks.get(id), date === store.today ? nowHHMM(store.me!.timezone) : undefined, store.dayBusy(date)),
+    store.dayLoadFor(date),
   )
   const isPlanned = $derived(store.isPlanned(date))
   function confirm() {
@@ -295,7 +295,7 @@
         </div>
       {/if}
       <h3>Ready to pick</h3>
-      <QuickAdd placeholder="Add a new task for {label}…" onadd={(title) => store.createTask({ title, day: date })} ondefault={(id, kinds) => store.createFromDefault(id, { day: date }, kinds)} />
+      <QuickAdd placeholder="Add a new task for {label}…" tasks onadd={(title, extra) => store.createTask({ title, ...(extra.ongoing ? {} : { day: date }), ...extra })} ondefault={(id, kinds) => store.createFromDefault(id, { day: date }, kinds)} />
       <input class="search" type="text" bind:value={q} placeholder="Search tasks…" aria-label="Search tasks" />
       {#each groups as g (g.name)}
         <h4><ProjectMark project={g.project} />{g.name}</h4>

@@ -43,8 +43,9 @@ pub async fn run_for_user(state: &AppState, user: &User) -> anyhow::Result<()> {
          WHERE (t.owner_user_id = ?1 OR t.owner_group_id IN (SELECT group_id FROM group_members WHERE user_id = ?1))
            AND t.deleted_at IS NULL AND t.status = 'open'
            AND (t.series_id IS NOT NULL OR t.ext_source = 'occasion') AND tt.day_end_behavior = 'expire' AND t.blocked = 0 AND t.waiting_since IS NULL
-           AND COALESCE(t.due_date, t.occurrence_date) < ?2 AND {not_idea}",
-        not_idea = crate::routes::projects::NOT_IN_IDEA_SQL
+           AND COALESCE(t.due_date, t.occurrence_date) < ?2 AND {not_idea} AND {not_replica}",
+        not_idea = crate::routes::projects::NOT_IN_IDEA_SQL,
+        not_replica = crate::federation::NOT_REPLICA_SQL,
     ))
     .bind(&user.id)
     .bind(&today_s)
@@ -75,8 +76,9 @@ pub async fn run_for_user(state: &AppState, user: &User) -> anyhow::Result<()> {
          WHERE (t.owner_user_id = ?1 OR t.owner_group_id IN (SELECT group_id FROM group_members WHERE user_id = ?1))
            AND t.deleted_at IS NULL AND t.status = 'open'
            AND t.window_end IS NOT NULL AND t.window_end < ?2 AND t.blocked = 0
-           AND t.waiting_since IS NULL AND {not_idea}",
-        not_idea = crate::routes::projects::NOT_IN_IDEA_SQL
+           AND t.waiting_since IS NULL AND {not_idea} AND {not_replica}",
+        not_idea = crate::routes::projects::NOT_IN_IDEA_SQL,
+        not_replica = crate::federation::NOT_REPLICA_SQL,
     ))
     .bind(&user.id)
     .bind(&today_s)
@@ -127,18 +129,23 @@ pub async fn run_for_user(state: &AppState, user: &User) -> anyhow::Result<()> {
         changes.push(Change::task(&t));
     }
 
-    let rows: Vec<(String, String)> = sqlx::query_as(&format!(
-        "SELECT e.id, tt.day_end_behavior FROM day_entries e
+    // Tasks of a project shared from another server change only there (Phase 8): their
+    // entries here still move on, the tasks themselves are left alone.
+    let rows: Vec<(String, String, bool)> = sqlx::query_as(&format!(
+        "SELECT e.id, tt.day_end_behavior, NOT {not_replica} FROM day_entries e
          JOIN tasks t ON t.id = e.task_id
          JOIN task_types tt ON tt.id = t.task_type_id
          WHERE e.user_id = ?1 AND e.deleted_at IS NULL AND e.date < ?2
            AND t.status = 'open' AND t.deleted_at IS NULL
+           -- ongoing tasks aren't carried: they show every day of their period (D-102)
+           AND t.ongoing = 0
            -- only tasks the user can still see (not ones from a group they left)
            AND (t.owner_user_id = ?1 OR t.owner_group_id IN (SELECT group_id FROM group_members WHERE user_id = ?1))
            -- ideas' tasks are left alone (D-72)
            AND {not_idea}
          ORDER BY e.date, e.position",
-        not_idea = crate::routes::projects::NOT_IN_IDEA_SQL
+        not_idea = crate::routes::projects::NOT_IN_IDEA_SQL,
+        not_replica = crate::federation::NOT_REPLICA_SQL,
     ))
     .bind(&user.id)
     .bind(&today_s)
@@ -153,7 +160,7 @@ pub async fn run_for_user(state: &AppState, user: &User) -> anyhow::Result<()> {
     .fetch_one(&mut *tx)
     .await?;
 
-    for (entry_id, behavior) in rows {
+    for (entry_id, behavior, replica) in rows {
         let mut entry: DayEntry = sqlx::query_as("SELECT * FROM day_entries WHERE id = ?")
             .bind(&entry_id)
             .fetch_one(&mut *tx)
@@ -180,6 +187,10 @@ pub async fn run_for_user(state: &AppState, user: &User) -> anyhow::Result<()> {
                 entry.updated_at = ts.clone();
                 entry.rev = rev;
                 upsert_entry(&mut tx, &entry).await?;
+                changes.push(Change::entry(&entry));
+                if replica {
+                    continue;
+                }
                 task.carry_count += days as i32;
                 task.updated_at = ts.clone();
                 task.rev = rev;
@@ -192,9 +203,9 @@ pub async fn run_for_user(state: &AppState, user: &User) -> anyhow::Result<()> {
                     Some(serde_json::json!({"from": from, "to": today_s})),
                 )
                 .await?;
-                changes.push(Change::entry(&entry));
                 changes.push(Change::task(&task));
             }
+            Outcome::Miss if replica => {}
             Outcome::Miss => {
                 let rev = next_rev(&mut tx).await?;
                 task.status = "missed".into();
@@ -234,9 +245,10 @@ pub async fn run_for_user(state: &AppState, user: &User) -> anyhow::Result<()> {
 }
 
 pub async fn run_all(state: &AppState) -> anyhow::Result<()> {
-    let users: Vec<User> = sqlx::query_as("SELECT * FROM users WHERE deleted_at IS NULL")
-        .fetch_all(&state.db.read)
-        .await?;
+    let users: Vec<User> =
+        sqlx::query_as("SELECT * FROM users WHERE deleted_at IS NULL AND home IS NULL")
+            .fetch_all(&state.db.read)
+            .await?;
     for u in users {
         if let Err(e) = run_for_user(state, &u).await {
             tracing::warn!("rollover failed for user {}: {e:#}", u.id);

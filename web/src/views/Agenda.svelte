@@ -4,18 +4,14 @@
   import { timeRange } from '../lib/calendar'
   import Check from '../lib/components/Check.svelte'
   import Icon from '../lib/components/Icon.svelte'
-  import { addDays, dayLabel, longDate } from '../lib/dates'
+  import { addDays, dayLabel, longDate, weekOf as weekOfDate } from '../lib/dates'
   import { router } from '../lib/router.svelte'
   import { store } from '../lib/store.svelte'
   import { ui } from '../lib/ui.svelte'
 
   let { start: startProp = null }: { start?: string | null } = $props()
 
-  /** First day of the week containing `date` (week_start: 1 = Monday … 7 = Sunday). */
-  function weekOf(date: string) {
-    const iso = ((new Date(date + 'T00:00:00Z').getUTCDay() + 6) % 7) + 1
-    return addDays(date, -((iso + 7 - (store.me?.week_start ?? 1)) % 7))
-  }
+  const weekOf = (date: string) => weekOfDate(date, store.me?.week_start ?? 1)
   const start = $derived(weekOf(startProp ?? store.today))
   const days = $derived(Array.from({ length: 7 }, (_, i) => addDays(start, i)))
 

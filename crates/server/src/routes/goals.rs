@@ -1,5 +1,6 @@
 //! Long-term goals (SPEC §6.10): goals with milestones and linked work, derived progress
 //! with a manual override (D-21), and periodic reviews. Personal, or shared with a group.
+//! Habit goals (D-105) are kept day by day: each person answers yes / partly / no per day.
 
 use axum::{
     Json,
@@ -18,13 +19,22 @@ use crate::{
     db::next_rev,
     error::{ApiResult, AppError, bad},
     events::Change,
-    models::{Goal, Me, Milestone, upsert_goal},
+    models::{Goal, HabitCheck, Me, Milestone, upsert_goal, upsert_habit_check},
     ownership::{self, gone_for},
     util::{double_option, id_or_new, new_id, now, parse_date},
     visibility,
 };
 
 const STATUSES: [&str; 4] = ["active", "paused", "achieved", "dropped"];
+const KINDS: [&str; 2] = ["outcome", "habit"];
+
+fn check_kind(k: &str) -> ApiResult<()> {
+    if KINDS.contains(&k) {
+        Ok(())
+    } else {
+        Err(bad("kind must be outcome or habit"))
+    }
+}
 
 async fn load(conn: &mut sqlx::SqliteConnection, user: &AuthUser, id: &str) -> ApiResult<Goal> {
     let g: Goal = sqlx::query_as("SELECT * FROM goals WHERE id = ? AND deleted_at IS NULL")
@@ -101,6 +111,10 @@ pub struct CreateGoal {
     #[serde(default)]
     description: String,
     target_date: Option<String>,
+    /// `outcome` (default) or `habit` (D-105).
+    kind: Option<String>,
+    /// Habits: when the period starts (default: today).
+    start_date: Option<String>,
     /// Share with a group you belong to.
     owner_group_id: Option<String>,
     #[serde(default)]
@@ -117,8 +131,21 @@ pub async fn create(
     user: AuthUser,
     Json(c): Json<CreateGoal>,
 ) -> ApiResult<Json<Goal>> {
-    let owner = ownership::chosen(&user, c.owner_group_id.as_deref())?;
+    let owner = ownership::chosen(&state, &user, c.owner_group_id.as_deref()).await?;
     let id = id_or_new(c.id)?;
+    let kind = c.kind.unwrap_or_else(|| "outcome".into());
+    check_kind(&kind)?;
+    for d in [&c.start_date, &c.target_date].into_iter().flatten() {
+        parse_date(d)?;
+    }
+    let start_date = match (&kind[..], c.start_date) {
+        ("habit", None) => Some(
+            crate::rollover::today_for(&user.user)
+                .format("%Y-%m-%d")
+                .to_string(),
+        ),
+        (_, d) => d,
+    };
     let mut tx = state.db.write.begin().await?;
     if let Some(g) = sqlx::query_as::<_, Goal>("SELECT * FROM goals WHERE id = ?")
         .bind(&id)
@@ -150,6 +177,8 @@ pub async fn create(
         title: c.title.trim().into(),
         description: c.description,
         target_date: c.target_date,
+        kind,
+        start_date,
         status: "active".into(),
         progress_override: None,
         milestones: sqlx::types::Json(c.milestones),
@@ -174,6 +203,11 @@ pub struct PatchGoal {
     description: Option<String>,
     #[serde(default, deserialize_with = "double_option")]
     target_date: Option<Option<String>>,
+    /// `outcome` or `habit`.
+    kind: Option<String>,
+    /// Habits: when the period starts.
+    #[serde(default, deserialize_with = "double_option")]
+    start_date: Option<Option<String>>,
     /// `active`, `paused`, `achieved` or `dropped`.
     status: Option<String>,
     /// 0–1, or null to go back to derived progress.
@@ -205,7 +239,20 @@ pub async fn patch(
         g.description = v;
     }
     if let Some(v) = c.target_date {
+        if let Some(d) = &v {
+            parse_date(d)?;
+        }
         g.target_date = v;
+    }
+    if let Some(v) = c.kind {
+        check_kind(&v)?;
+        g.kind = v;
+    }
+    if let Some(v) = c.start_date {
+        if let Some(d) = &v {
+            parse_date(d)?;
+        }
+        g.start_date = v;
     }
     if let Some(v) = c.status {
         g.status = v;
@@ -227,7 +274,7 @@ pub async fn patch(
         g.position = v;
     }
     if let Some(group) = c.owner_group_id {
-        let o = ownership::chosen(&user, group.as_deref())?;
+        let o = ownership::chosen(&state, &user, group.as_deref()).await?;
         g.owner_user_id = o.user;
         g.owner_group_id = o.group;
     }
@@ -271,6 +318,20 @@ pub struct GoalProgress {
     pub milestones: u32,
     pub tasks_done: u32,
     pub tasks: u32,
+    /// Habits: the viewer's own answers over the last four weeks (D-105).
+    pub habit: Option<HabitSummary>,
+}
+
+#[derive(Serialize, utoipa::ToSchema, ts_rs::TS)]
+#[ts(export)]
+pub struct HabitSummary {
+    pub yes: u32,
+    pub partly: u32,
+    pub no: u32,
+    /// Days of the window without an answer.
+    pub unanswered: u32,
+    /// Days in a row answered yes (up to today, or yesterday while today is open).
+    pub streak: u32,
 }
 
 /// Progress as `viewer` sees it: linked tasks and projects they can't see don't count
@@ -299,19 +360,168 @@ pub async fn progress_of(
     .bind(serde_json::to_string(&g.project_ids.0).unwrap_or_default())
     .bind(serde_json::to_string(&g.task_ids.0).unwrap_or_default())
     .bind(viewer)
-    .fetch_one(conn)
+    .fetch_one(&mut *conn)
     .await?;
     counts.tasks_done = done.max(0) as u32;
     counts.tasks = total.max(0) as u32;
+    // Habits: the share of good days (partly = half) over the last four weeks.
+    let (habit, habit_score) = if g.kind == "habit" {
+        let s = habit_summary(conn, g, viewer).await?;
+        (Some(s.0), s.1)
+    } else {
+        (None, None)
+    };
+    let derived = if g.kind == "habit" {
+        habit_score
+    } else {
+        progress(counts, None)
+    };
     Ok(GoalProgress {
         goal_id: g.id.clone(),
-        progress: progress(counts, g.progress_override),
-        derived: progress(counts, None),
+        progress: g.progress_override.map(|m| m.clamp(0.0, 1.0)).or(derived),
+        derived,
+        habit,
         milestones_done: counts.milestones_done,
         milestones: counts.milestones,
         tasks_done: counts.tasks_done,
         tasks: counts.tasks,
     })
+}
+
+/// A habit's last four weeks for one person, and its score (`None`: nothing answered).
+async fn habit_summary(
+    conn: &mut sqlx::SqliteConnection,
+    g: &Goal,
+    viewer: &str,
+) -> sqlx::Result<(HabitSummary, Option<f64>)> {
+    use streamline_domain::habits::{Answer, SCORE_DAYS, stats, streak, window};
+    let tz: Option<String> = sqlx::query_scalar("SELECT timezone FROM users WHERE id = ?")
+        .bind(viewer)
+        .fetch_optional(&mut *conn)
+        .await?;
+    let tz =
+        streamline_domain::time::parse_tz(tz.as_deref().unwrap_or("UTC")).unwrap_or(chrono_tz::UTC);
+    let today = chrono::Utc::now().with_timezone(&tz).date_naive();
+    let rows: Vec<(String, String)> = sqlx::query_as(
+        "SELECT date, result FROM habit_checks WHERE goal_id = ? AND user_id = ? AND deleted_at IS NULL ORDER BY date DESC LIMIT 400",
+    )
+    .bind(&g.id)
+    .bind(viewer)
+    .fetch_all(&mut *conn)
+    .await?;
+    let answers: Vec<(chrono::NaiveDate, Answer)> = rows
+        .iter()
+        .filter_map(|(d, r)| {
+            Some((
+                chrono::NaiveDate::parse_from_str(d, "%Y-%m-%d").ok()?,
+                Answer::parse(r)?,
+            ))
+        })
+        .collect();
+    let date = |d: &Option<String>| {
+        d.as_deref()
+            .and_then(|d| chrono::NaiveDate::parse_from_str(d, "%Y-%m-%d").ok())
+    };
+    let st = window(date(&g.start_date), date(&g.target_date), today, SCORE_DAYS)
+        .map(|(from, to)| stats(&answers, from, to))
+        .unwrap_or_default();
+    Ok((
+        HabitSummary {
+            yes: st.yes,
+            partly: st.partly,
+            no: st.no,
+            unanswered: st.unanswered,
+            streak: streak(&answers, today),
+        },
+        st.score,
+    ))
+}
+
+#[derive(Deserialize, utoipa::ToSchema)]
+pub struct PutCheck {
+    /// `yes`, `partly` or `no`.
+    result: String,
+    #[serde(default)]
+    note: String,
+}
+
+/// Answer a habit for a day (yours; each member of a shared habit answers for themselves).
+#[utoipa::path(put, path = "/goals/{id}/checks/{date}", tag = "goals", summary = "Say how a habit went on a day (yes, partly, no)", params(("id" = String, Path, description = "ULID"), ("date" = String, Path, description = "YYYY-MM-DD")), request_body = PutCheck, responses((status = 200, body = HabitCheck), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
+pub async fn put_check(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path((id, date)): Path<(String, String)>,
+    Json(c): Json<PutCheck>,
+) -> ApiResult<Json<HabitCheck>> {
+    parse_date(&date)?;
+    if streamline_domain::habits::Answer::parse(&c.result).is_none() {
+        return Err(bad("result must be yes, partly or no"));
+    }
+    let note = c.note.trim();
+    if note.chars().count() > 1000 {
+        return Err(bad("note too long"));
+    }
+    let mut tx = state.db.write.begin().await?;
+    let g = load(&mut tx, &user, &id).await?;
+    if g.kind != "habit" {
+        return Err(bad("only habits are answered per day"));
+    }
+    let existing: Option<HabitCheck> =
+        sqlx::query_as("SELECT * FROM habit_checks WHERE goal_id = ? AND user_id = ? AND date = ?")
+            .bind(&g.id)
+            .bind(user.id())
+            .bind(&date)
+            .fetch_optional(&mut *tx)
+            .await?;
+    let ts = now();
+    let mut check = existing.unwrap_or_else(|| HabitCheck {
+        id: new_id(),
+        goal_id: g.id.clone(),
+        user_id: user.id().into(),
+        date: date.clone(),
+        result: String::new(),
+        note: String::new(),
+        created_at: ts.clone(),
+        updated_at: ts.clone(),
+        deleted_at: None,
+        rev: 0,
+    });
+    check.result = c.result;
+    check.note = note.into();
+    check.deleted_at = None;
+    check.updated_at = ts;
+    check.rev = next_rev(&mut tx).await?;
+    upsert_habit_check(&mut tx, &check).await?;
+    tx.commit().await?;
+    state.bus.publish([Change::habit_check(&check)]);
+    Ok(Json(check))
+}
+
+#[utoipa::path(delete, path = "/goals/{id}/checks/{date}", tag = "goals", summary = "Clear a day's answer for a habit", params(("id" = String, Path, description = "ULID"), ("date" = String, Path, description = "YYYY-MM-DD")), responses((status = 204, description = "Done"), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
+pub async fn delete_check(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path((id, date)): Path<(String, String)>,
+) -> ApiResult<StatusCode> {
+    let mut tx = state.db.write.begin().await?;
+    load(&mut tx, &user, &id).await?;
+    let existing: Option<HabitCheck> = sqlx::query_as(
+        "SELECT * FROM habit_checks WHERE goal_id = ? AND user_id = ? AND date = ? AND deleted_at IS NULL",
+    )
+    .bind(&id)
+    .bind(user.id())
+    .bind(&date)
+    .fetch_optional(&mut *tx)
+    .await?;
+    if let Some(mut c) = existing {
+        c.deleted_at = Some(now());
+        c.updated_at = now();
+        c.rev = next_rev(&mut tx).await?;
+        upsert_habit_check(&mut tx, &c).await?;
+        tx.commit().await?;
+        state.bus.publish([Change::habit_check(&c)]);
+    }
+    Ok(StatusCode::NO_CONTENT)
 }
 
 #[utoipa::path(get, path = "/goals/progress", tag = "goals", summary = "Progress of every goal you can see", responses((status = 200, body = Vec<GoalProgress>), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
@@ -339,6 +549,8 @@ pub struct ReviewNote {
     goal_id: String,
     #[serde(default)]
     note: String,
+    /// Habits: how the period went, `yes`, `partly` or `no` (D-105).
+    verdict: Option<String>,
 }
 
 #[derive(Deserialize, utoipa::ToSchema)]
@@ -356,6 +568,8 @@ pub struct GoalReview {
     pub progress: Option<f64>,
     pub note: String,
     pub created_at: String,
+    /// Habits: `yes`, `partly` or `no` for the period.
+    pub verdict: Option<String>,
 }
 
 /// Finish the periodic review: a note (and a progress snapshot) per goal.
@@ -375,7 +589,12 @@ pub async fn review(
         }
         let g = load(&mut tx, &user, &n.goal_id).await?;
         let p = progress_of(&mut tx, &g, user.id()).await?;
-        sqlx::query("INSERT INTO goal_reviews (id, goal_id, user_id, date, progress, note, created_at) VALUES (?,?,?,?,?,?,?)")
+        if let Some(v) = &n.verdict
+            && streamline_domain::habits::Answer::parse(v).is_none()
+        {
+            return Err(bad("verdict must be yes, partly or no"));
+        }
+        sqlx::query("INSERT INTO goal_reviews (id, goal_id, user_id, date, progress, note, created_at, verdict) VALUES (?,?,?,?,?,?,?,?)")
             .bind(new_id())
             .bind(&g.id)
             .bind(user.id())
@@ -383,6 +602,7 @@ pub async fn review(
             .bind(p.progress)
             .bind(n.note.trim())
             .bind(now())
+            .bind(&n.verdict)
             .execute(&mut *tx)
             .await?;
     }
