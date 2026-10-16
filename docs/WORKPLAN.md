@@ -788,7 +788,7 @@ column says when it must be settled.
    - p95 API latency for the day aggregate on a Pi-class machine (target < 50 ms)
 3. Manual smoke test on phone + desktop, over plain HTTP and behind the HTTPS proxy.
 4. No secrets in logs (grep test logs for the test passwords).
-5. README and DECISIONS.md updated; OpenAPI and TS types regenerated.
+5. Docs site (`docs/`, `mkdocs build --strict`), README and DECISIONS.md updated; OpenAPI and TS types regenerated.
 6. Tag a pre-release (`v0.<phase>`), so each phase is a usable, runnable version.
 
 ---

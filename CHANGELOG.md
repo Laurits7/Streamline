@@ -49,6 +49,9 @@
   good or until a date. Each day the Track card (and the reflection) asks "Did you manage?":
   yes, partly or no, with a note. The Goals page shows the week, the streak and the share of
   good days; the weekly review shows each habit's week and asks for your verdict (D-105).
+- Documentation site at https://laurits7.github.io/Streamline/ (MkDocs): install, configuration,
+  HTTPS and notifications, backups, the desktop app, guides, API and development. The README is
+  now a short overview (D-106).
 
 ## 1.3.0 (2026-10-14)
 
