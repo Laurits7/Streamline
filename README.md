@@ -14,13 +14,17 @@
 A self-hosted todo list and day planner for a household. One small container, one data
 folder, and it works from any phone, tablet or computer on your network.
 
-> **Version 1.3.** Everything in [`docs/SPEC.md`](docs/SPEC.md) up to the v1.0 phase is built: day
+> **Version 1.4.** Everything in [`docs/SPEC.md`](docs/SPEC.md) up to the v1.0 phase is built: day
 > planning, routines, multi-step chores, household groups, your calendar, namedays and birthdays,
 > time blocks, journal and tracking, goals, an installable app with notifications, and backups.
 > 1.2 added waiting for results, checklists and default tasks, project ideas, project marks, a
-> daily health check-in and a guided tour. 1.3 adds the [Linux desktop app](#desktop-app-linux)
+> daily health check-in and a guided tour. 1.3 added the [Linux desktop app](#desktop-app-linux)
 > (works offline, or on one computer without a server), checklist steps on the timeline and in
-> the Agenda, default tasks with kinds, and focus options.
+> the Agenda, default tasks with kinds, and focus options. 1.4 adds search and keyboard
+> shortcuts, a week view, inbox processing, a weekly review, realistic estimates, a morning
+> digest, printing the day, writing your plan to your calendar, tasks from GitHub, GitLab and
+> Gitea, [sharing projects with other Streamline servers](#sharing-a-project-with-someone-on-another-streamline-server),
+> ongoing tasks, habit goals, and a richer quick-add.
 > What changed per phase is in [`CHANGELOG.md`](CHANGELOG.md); decisions are in
 > [`docs/DECISIONS.md`](docs/DECISIONS.md), and later plans in [`docs/WORKPLAN.md`](docs/WORKPLAN.md).
 
@@ -37,8 +41,24 @@ What works today:
   read-only). Events appear on the day's timeline and in a week **agenda**, and busy time is
   subtracted from the day's free time. Recurring events, exceptions and time zones are handled.
   Put an event (or every instance of a recurring one) into a project and attach todos to it.
+  Optionally write your tasks with a time to one of your calendars as busy time.
+- **Tasks from GitHub, GitLab and Gitea/Forgejo**: connect accounts with an access token; issues
+  and pull/merge requests assigned to you, review requests and mentions arrive as tasks (rules
+  choose the project) and complete themselves once closed or merged. Read-only.
+- **Sharing with other Streamline servers**: someone with their own Streamline can join one of
+  your group projects with an invite link; their server keeps a copy and sends their changes to
+  yours. Personal data stays on each server.
 - **Long-term goals**: milestones, links to projects and tasks, progress that fills up as work
   gets done (or set by hand), and a weekly/monthly review.
+- **Habit goals**: things to keep up, like "eat less junk", from a start date and for good or
+  until a date. Each day you answer yes, partly or no (with a note); the Goals page shows the
+  week, the streak and the share of good days, and the weekly review asks for your verdict.
+- **Weekly review**: the week in numbers, loose ends to plan or drop, waiting items, projects
+  without a next step, a note per goal, then a look at the coming week.
+- **Week view**: a planner with a column per day and each day's load, or the week on an hour
+  grid with events, timed tasks and time blocks; drag tasks between days and times.
+- **Search and keyboard shortcuts**: Ctrl+K (⌘K) or "/" finds tasks, projects, routines and
+  pages and acts on a task; single-key shortcuts for the common actions (? lists them).
 - **Summary, journal and tracking**: a day summary (planned vs. done, routines, events, focus),
   a private journal with prompts, mood/weight/custom metrics with reminders, trend charts,
   CSV import/export and a full JSON export.
@@ -52,6 +72,10 @@ What works today:
 - **Activity log**: every day records what happened (done, started, added, missed, focus time,
   planning) in time order, for reflecting; copy it as text.
 - **Projects, subprojects (any depth) and inbox** (a task can also be listed in several projects): quick-add, complete with undo, archive.
+- **Quick-add**: type a task's steps while adding it, or add it as already done, as waiting for
+  results, or as ongoing. **Process the inbox** one item at a time with one key per decision.
+- **Ongoing tasks**: things you keep at over a period (reading a book): shown every day of
+  their period, ticked as "worked on it today", counting the days, finished by hand.
 - **Built-in help** at `/help` (sidebar, or Settings on a phone).
 - **Routines and repeating tasks**: on a schedule (any iCalendar rule: weekdays, monthly on the
   last day, …), at a fixed time (put on the timeline), or N times a week/month. Each occurrence is
@@ -80,6 +104,12 @@ What works today:
   it as you type, checklist included.
 - **Waiting for results**: park a task whose work is handed off (a training run, a reply) with a
   check-back time; it asks for nothing meanwhile, then reminds you and returns to Up next.
+- **Realistic estimates**: learned from the focus time on finished tasks; the task sheet
+  suggests a better estimate when yours are usually off, and planning can count with them.
+- **Morning digest**: one message each morning (push, ntfy or in the app) with the plan, fixed
+  times, what's due and what to check on.
+- **Print the day**: an A4 sheet with tick boxes and a QR code; scan it later to tick off what
+  was done on paper.
 - **Project ideas and marks**: keep not-yet-started projects as quiet *ideas* with a
   description; every project gets its own colour and shape.
 - **Health check-in**: once a day, great / OK / unwell / sick (what) / injured (where), shown on
@@ -208,7 +238,7 @@ git pull && docker compose up -d --build
 ```
 
 With the prebuilt image: `docker compose pull && docker compose up -d`. Pin a version with
-`image: ghcr.io/laurits7/streamline:1.3.0` instead of `latest` if you prefer to update on your own
+`image: ghcr.io/laurits7/streamline:1.4.0` instead of `latest` if you prefer to update on your own
 schedule. Database migrations run automatically on startup; going back to an older version after a
 migration means restoring the backup.
 
@@ -341,18 +371,18 @@ crates/desktop/Cargo.toml` runs its tests (offline sync against a real in-proces
 
 ### Releasing
 
-1. `scripts/bump-version.sh 1.3.0` (server, desktop app, web app and lock files), move the
-   changelog's *Unreleased* heading to the version, commit, tag `v1.3.0` and push the tag.
+1. `scripts/bump-version.sh 1.4.0` (server, desktop app, web app and lock files), move the
+   changelog's *Unreleased* heading to the version, commit, tag `v1.4.0` and push the tag.
 2. CI publishes the image; the Release workflow then creates the GitHub release with the
    compose file and adds the desktop tarball and `.deb`.
-3. **AUR** (needs your AUR account and its SSH key): `packaging/aur/update.sh 1.3.0` sets
+3. **AUR** (needs your AUR account and its SSH key): `packaging/aur/update.sh 1.4.0` sets
    `pkgver`, the checksums of the released files and `.SRCINFO` for both packages. Commit
    that, then for each package:
 
    ```sh
    git clone ssh://aur@aur.archlinux.org/streamline-desktop-bin.git /tmp/aur-bin   # first time
    cp packaging/aur/streamline-desktop-bin/{PKGBUILD,.SRCINFO} /tmp/aur-bin/
-   cd /tmp/aur-bin && git add PKGBUILD .SRCINFO && git commit -m "1.3.0" && git push
+   cd /tmp/aur-bin && git add PKGBUILD .SRCINFO && git commit -m "1.4.0" && git push
    ```
 
    and the same with `streamline-desktop`. The first push creates the package on the AUR.
