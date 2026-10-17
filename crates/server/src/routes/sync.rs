@@ -246,12 +246,15 @@ pub async fn sync(
     .bind(&cutoff_date)
     .fetch_all(db)
     .await?;
-    // Built-in metrics exist after the first sync; only write when they don't.
-    let builtins: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM metric_definitions WHERE owner_user_id = ? AND key IN ('mood', 'weight')")
-        .bind(user.id())
-        .fetch_one(db)
-        .await?;
-    if builtins < 2 {
+    // Built-in metrics exist after the first sync (a newly added one, like water, after the
+    // next); only write when one is missing.
+    let builtins: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM metric_definitions WHERE owner_user_id = ? AND key IS NOT NULL",
+    )
+    .bind(user.id())
+    .fetch_one(db)
+    .await?;
+    if builtins < crate::tracking::BUILTIN_COUNT {
         let mut tx = state.db.write.begin().await?;
         let mut changes = vec![];
         crate::tracking::ensure_builtins(&mut tx, user.id(), &mut changes).await?;

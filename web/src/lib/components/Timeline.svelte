@@ -303,7 +303,12 @@
               }),
             }}>
             <span data-nodrag class="chk">
-              <Check done={b.task.status === 'done'} onclick={() => store.toggleDone(b.task.id)} label="Complete {b.task.title}" />
+              <Check
+                done={b.task.status === 'done'}
+                disabled={store.tooEarly(b.task)}
+                title={store.tooEarly(b.task) ? store.earlyTitle(b.task) : undefined}
+                onclick={() => store.toggleDone(b.task.id, date)}
+                label="Complete {b.task.title}" />
             </span>
             <button
               class="body"

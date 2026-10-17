@@ -1,11 +1,13 @@
 <script lang="ts">
   // Long-term goals (SPEC §6.10): progress at a glance, milestones and linked work, and
-  // the periodic review.
+  // the periodic review. Goals form a tree with routines attached and rules under them
+  // (D-112).
   import type { Goal } from '../lib/api/types/Goal'
   import type { GoalReview } from '../lib/api/types/GoalReview'
   import { api } from '../lib/api/client'
   import Icon from '../lib/components/Icon.svelte'
   import { longDate, weekOf } from '../lib/dates'
+  import { goalTree, parentOptions } from '../lib/goals'
   import { stripSummary, weekStrip } from '../lib/habits'
   import { store } from '../lib/store.svelte'
   import { ulid } from '../lib/ulid'
@@ -15,10 +17,47 @@
     store.loadGoalProgress()
   })
   const goals = $derived(store.goalList())
-  const active = $derived(goals.filter((g) => g.status === 'active'))
-  const paused = $derived(goals.filter((g) => g.status === 'paused'))
-  const closed = $derived(goals.filter((g) => g.status === 'achieved' || g.status === 'dropped'))
+  const isOpen = (g: Goal) => g.status === 'active' || g.status === 'paused'
+  // The tree of open goals, with the open rules under them (rules without a goal live on
+  // the Rules page). A goal under a closed one shows at the top.
+  const tree = $derived.by(() => {
+    const open = goals.filter((g) => isOpen(g) && g.kind !== 'rule')
+    const ids = new Set(open.map((g) => g.id))
+    return goalTree([...open, ...goals.filter((g) => g.kind === 'rule' && isOpen(g) && !!g.parent_id && ids.has(g.parent_id))])
+  })
+  let collapsed = $state<Set<string>>(new Set())
+  // Rows whose ancestors are all expanded.
+  const rows = $derived.by(() => {
+    const out: typeof tree = []
+    let hideBelow = Infinity
+    for (const row of tree) {
+      if (row.depth > hideBelow) continue
+      hideBelow = collapsed.has(row.goal.id) ? row.depth : Infinity
+      out.push(row)
+    }
+    return out
+  })
+  const toggle = (id: string) => {
+    const next = new Set(collapsed)
+    if (!next.delete(id)) next.add(id)
+    collapsed = next
+  }
+  const closed = $derived(goals.filter((g) => !isOpen(g) && g.kind !== 'rule'))
   let showClosed = $state(false)
+  // Sub-goals and rules being added under a goal.
+  let subTitle = $state('')
+  function addSub(e: Event, parent: Goal, kind: 'outcome' | 'rule') {
+    e.preventDefault()
+    if (!subTitle.trim()) return
+    store.createGoal(subTitle.trim(), null, kind, parent.id)
+    subTitle = ''
+    collapsed = new Set([...collapsed].filter((x) => x !== parent.id))
+  }
+  /** Where a goal can move: open outcome goals outside its own subtree, in tree order. */
+  const parentChoices = (g: Goal) => goalTree(parentOptions(goals.filter((x) => x.kind === 'outcome' && (isOpen(x) || x.id === g.parent_id)), g.id))
+  const seriesTitle = (id: string) => store.series.get(id)?.title ?? 'Routine'
+  const ratePart = (r: { done: number; missed: number; rate: number | null }) =>
+    r.rate === null ? 'nothing done or missed yet' : `${r.done} of ${r.done + r.missed} done · ${Math.round(r.rate * 100)}%`
   let open = $state<string | null>(null)
   let newTitle = $state('')
   /** A goal is an outcome (reached once) or a habit (kept day by day; D-105). */
@@ -80,12 +119,15 @@
   </div>
 </header>
 
-{#snippet card(g: Goal)}
+{#snippet card(g: Goal, children: number = 0)}
   {@const p = pct(g)}
   {@const prog = store.goalProgress.get(g.id)}
   <article class="card goal" class:open={open === g.id}>
     <button class="summary" onclick={() => (open = open === g.id ? null : g.id)} aria-expanded={open === g.id}>
-      <span class="title">{g.title}{#if g.owner_group_id}<span class="muted small"> · {store.groups.get(g.owner_group_id)?.name ?? 'shared'}</span>{/if}</span>
+      <span class="title"
+        >{g.title}{#if g.status === 'paused'}<span class="tag">Paused</span>{/if}{#if g.owner_group_id && !g.parent_id}<span class="muted small">
+            · {store.groups.get(g.owner_group_id)?.name ?? 'shared'}</span
+          >{/if}</span>
       {#if g.kind === 'habit'}
         {@const strip = weekStrip(g, store.habitChecks.values(), thisWeek, store.today)}
         <span class="meta muted small">
@@ -96,7 +138,7 @@
         </span>
       {:else}
         <span class="meta muted small">
-          {#if g.target_date}by {longDate(g.target_date)} · {/if}{g.milestones.filter((m) => m.done).length}/{g.milestones.length} milestones{#if prog && prog.tasks}{` · ${prog.tasks_done}/${prog.tasks} tasks`}{/if}{#if g.progress_override !== null}{' · set by hand'}{/if}
+          {#if g.target_date}by {longDate(g.target_date)} · {/if}{g.milestones.filter((m) => m.done).length}/{g.milestones.length} milestones{#if prog && prog.tasks}{` · ${prog.tasks_done}/${prog.tasks} tasks`}{/if}{#if g.series_ids.length}{` · ${g.series_ids.length} routine${g.series_ids.length === 1 ? '' : 's'}`}{/if}{#if children}{` · ${children} part${children === 1 ? '' : 's'} below`}{/if}{#if g.progress_override !== null}{' · set by hand'}{/if}
         </span>
       {/if}
       <span class="progress" aria-label={g.kind === 'habit' ? `${p ?? 0}% good days in the last four weeks` : `${p ?? 0}% done`}><span style:width="{p ?? 0}%"></span></span>
@@ -123,13 +165,23 @@
             </select>
           </label>
           <label>
-            <span>Shared with</span>
-            <select value={g.owner_group_id ?? ''} onchange={(e) => store.updateGoal(g.id, { owner_group_id: (e.currentTarget as HTMLSelectElement).value || null })}>
-              <option value="">Only me</option>
-              {#each store.myGroups() as gr (gr.id)}<option value={gr.id}>{gr.name}</option>{/each}
+            <span>Under</span>
+            <select value={g.parent_id ?? ''} onchange={(e) => store.updateGoal(g.id, { parent_id: (e.currentTarget as HTMLSelectElement).value || null })}>
+              <option value="">— Top level —</option>
+              {#each parentChoices(g) as { goal: x, depth } (x.id)}<option value={x.id}>{'   '.repeat(depth)}{x.title}</option>{/each}
             </select>
           </label>
+          {#if !g.parent_id}
+            <label>
+              <span>Shared with</span>
+              <select value={g.owner_group_id ?? ''} onchange={(e) => store.updateGoal(g.id, { owner_group_id: (e.currentTarget as HTMLSelectElement).value || null })}>
+                <option value="">Only me</option>
+                {#each store.myGroups() as gr (gr.id)}<option value={gr.id}>{gr.name}</option>{/each}
+              </select>
+            </label>
+          {/if}
         </div>
+        {#if g.parent_id && g.owner_group_id}<p class="muted small"><Icon name="users" size={12} /> Shared with {store.groups.get(g.owner_group_id)?.name ?? 'a group'} together with its top-level goal.</p>{/if}
 
         {#if g.kind === 'habit'}
           {@const h = prog?.habit}
@@ -154,7 +206,10 @@
         </form>
 
         <h3>Linked work</h3>
-        <p class="muted small">Progress counts done milestones plus done tasks in linked projects (with their subprojects) and linked tasks.</p>
+        <p class="muted small">
+          Progress is the average of its parts: its milestones and linked work together (done tasks in linked projects, with their subprojects, and
+          linked tasks), each routine, and each goal below it (achieved ones count fully; dropped ones and rules don't count).
+        </p>
         <div class="chips">
           {#each g.project_ids as pid (pid)}
             <span class="chip"><Icon name="folder" size={12} /> {projectName(pid)}<button aria-label="Unlink" onclick={() => store.updateGoal(g.id, { project_ids: g.project_ids.filter((x) => x !== pid) })}>×</button></span>
@@ -184,6 +239,39 @@
             {/each}
           </ul>
         {/if}
+
+        <h3>Routines</h3>
+        <p class="muted small">Each counts with its share of done runs over the last four weeks (skipped ones don't count).</p>
+        {#if g.series_ids.length}
+          <ul class="routines">
+            {#each g.series_ids as sid (sid)}
+              {@const r = prog?.routines.find((x) => x.series_id === sid)}
+              <li>
+                <Icon name="repeat" size={13} /> {seriesTitle(sid)}
+                <span class="muted small">{r ? ratePart(r) : store.series.has(sid) ? '' : 'ended or not visible to you'}</span>
+                <button class="icon-btn" aria-label="Detach {seriesTitle(sid)}" onclick={() => store.updateGoal(g.id, { series_ids: g.series_ids.filter((x) => x !== sid) })}><Icon name="x" size={14} /></button>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+        <select
+          value=""
+          aria-label="Attach a routine"
+          onchange={(e) => {
+            const v = (e.currentTarget as HTMLSelectElement).value
+            if (v) store.updateGoal(g.id, { series_ids: [...g.series_ids, v] })
+            ;(e.currentTarget as HTMLSelectElement).value = ''
+          }}>
+          <option value="">+ Attach a routine…</option>
+          {#each store.activeSeries().filter((s) => !g.series_ids.includes(s.id)) as s (s.id)}<option value={s.id}>{s.title}</option>{/each}
+        </select>
+
+        <h3>Parts below it</h3>
+        <form class="row" onsubmit={(e) => addSub(e, g, 'outcome')}>
+          <input type="text" bind:value={subTitle} placeholder="e.g. Have good health" aria-label="New sub-goal or rule" />
+          <button class="btn small" type="submit">Add sub-goal</button>
+          <button class="btn small" type="button" onclick={(e) => addSub(e, g, 'rule')} title="A rule for yourself, like “Eat less junk”">Add rule</button>
+        </form>
         {/if}
 
         {#if g.kind !== 'habit'}
@@ -205,7 +293,10 @@
             {/each}
           </ul>
         {/if}
-        <button class="btn small danger" onclick={() => confirm(`Delete “${g.title}”? Linked work stays.`) && store.deleteGoal(g.id)}>Delete goal</button>
+        <button
+          class="btn small danger"
+          onclick={() => confirm(`Delete “${g.title}”? Linked work stays${children ? ', and what’s below it moves up a level' : ''}.`) && store.deleteGoal(g.id)}
+          >Delete goal</button>
       </div>
     {/if}
   </article>
@@ -220,11 +311,28 @@
   <button class="btn primary" type="submit">{newKind === 'habit' ? 'Add habit' : 'Add goal'}</button>
 </form>
 
-<div class="cards">{#each active as g (g.id)}{@render card(g)}{:else}<p class="muted">No active goals yet. Add one above, then link projects and tasks so everyday work counts towards it.</p>{/each}</div>
-{#if paused.length}
-  <h2 class="section-title">Paused</h2>
-  <div class="cards">{#each paused as g (g.id)}{@render card(g)}{/each}</div>
-{/if}
+<div class="tree">
+  {#each rows as { goal: g, depth, children } (g.id)}
+    <div class="node" style:--depth={depth}>
+      {#if children}
+        <button class="icon-btn fold" onclick={() => toggle(g.id)} aria-expanded={!collapsed.has(g.id)} aria-label="{collapsed.has(g.id) ? 'Show' : 'Hide'} what's below {g.title}">
+          <Icon name={collapsed.has(g.id) ? 'right' : 'left'} size={14} />
+        </button>
+      {:else}<span class="fold" aria-hidden="true"></span>{/if}
+      {#if g.kind === 'rule'}
+        <a class="card rule-row" href="/rules">
+          <span class="rule-mark">Rule</span>
+          <span>{g.title}</span>
+          <span class="muted small">{g.start_date ? `since ${longDate(g.start_date)}` : ''}{g.target_date ? ` · until ${longDate(g.target_date)}` : ''}{g.status === 'paused' ? ' · paused' : ''}</span>
+        </a>
+      {:else}
+        {@render card(g, children)}
+      {/if}
+    </div>
+  {:else}
+    <p class="muted">No active goals yet. Add one above, then link projects, tasks and routines so everyday work counts towards it. Big goals can have goals below them: “Have a good life” → “Have good health” → a running routine.</p>
+  {/each}
+</div>
 {#if closed.length}
   <button class="section-title toggle" onclick={() => (showClosed = !showClosed)} aria-expanded={showClosed}>
     <Icon name={showClosed ? 'left' : 'right'} size={14} /> Achieved & dropped ({closed.length})
@@ -316,6 +424,66 @@
   }
   .goal.open {
     grid-column: 1 / -1;
+  }
+  .tree {
+    display: grid;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  .node {
+    display: flex;
+    gap: 4px;
+    align-items: flex-start;
+    padding-left: calc(var(--depth) * 22px);
+  }
+  .node > :global(.card) {
+    flex: 1;
+    min-width: 0;
+  }
+  @media (max-width: 560px) {
+    .node {
+      padding-left: calc(var(--depth) * 12px);
+    }
+  }
+  .fold {
+    flex: 0 0 28px;
+    margin-top: 10px;
+  }
+  .rule-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 10px;
+    padding: 10px 16px;
+    color: inherit;
+    text-decoration: none;
+  }
+  .rule-mark,
+  .tag {
+    font-size: 11px;
+    font-weight: 650;
+    padding: 1px 7px;
+    border-radius: 999px;
+    background: var(--surface-2);
+    color: var(--muted);
+  }
+  .tag {
+    margin-left: 8px;
+  }
+  .rule-mark {
+    background: var(--accent-soft);
+    color: var(--accent);
+  }
+  .routines {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 8px;
+  }
+  .routines li {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 14px;
   }
   .goal {
     overflow: hidden;

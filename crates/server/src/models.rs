@@ -1335,9 +1335,11 @@ pub async fn upsert_day_record(conn: &mut SqliteConnection, r: &DayRecord) -> sq
 pub struct MetricDefinition {
     pub id: String,
     pub owner_user_id: String,
-    /// `mood` or `weight` for the built-ins.
+    /// `mood`, `weight` or `water` for the built-ins.
     pub key: Option<String>,
     pub name: String,
+    /// Shown next to the name (may be empty).
+    pub emoji: String,
     #[ts(type = "'number' | 'scale' | 'yes_no'")]
     pub kind: String,
     /// Weight is stored in kg.
@@ -1349,6 +1351,10 @@ pub struct MetricDefinition {
     pub aggregate: String,
     /// `HH:MM`: a reminder if nothing is logged by then.
     pub reminder_time: Option<String>,
+    /// Quick amounts (number metrics): each is logged as one entry with a tap.
+    #[ts(type = "Array<number>")]
+    #[schema(value_type = Vec<f64>)]
+    pub presets: sqlx::types::Json<Vec<f64>>,
     #[serde(skip)]
     #[ts(skip)]
     pub last_reminded: Option<String>,
@@ -1363,15 +1369,15 @@ pub struct MetricDefinition {
 
 pub async fn upsert_metric(conn: &mut SqliteConnection, m: &MetricDefinition) -> sqlx::Result<()> {
     sqlx::query(
-        "INSERT INTO metric_definitions (id, owner_user_id, key, name, kind, unit, scale_min, scale_max, aggregate, reminder_time, last_reminded,
-           archived, position, created_at, updated_at, deleted_at, rev)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-         ON CONFLICT(id) DO UPDATE SET name=excluded.name, unit=excluded.unit, scale_min=excluded.scale_min, scale_max=excluded.scale_max,
+        "INSERT INTO metric_definitions (id, owner_user_id, key, name, emoji, kind, unit, scale_min, scale_max, aggregate, reminder_time, presets,
+           last_reminded, archived, position, created_at, updated_at, deleted_at, rev)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+         ON CONFLICT(id) DO UPDATE SET name=excluded.name, emoji=excluded.emoji, presets=excluded.presets, unit=excluded.unit, scale_min=excluded.scale_min, scale_max=excluded.scale_max,
            aggregate=excluded.aggregate, reminder_time=excluded.reminder_time, last_reminded=excluded.last_reminded,
            archived=excluded.archived, position=excluded.position, updated_at=excluded.updated_at, deleted_at=excluded.deleted_at, rev=excluded.rev",
     )
-    .bind(&m.id).bind(&m.owner_user_id).bind(&m.key).bind(&m.name).bind(&m.kind).bind(&m.unit).bind(m.scale_min).bind(m.scale_max)
-    .bind(&m.aggregate).bind(&m.reminder_time).bind(&m.last_reminded).bind(m.archived).bind(&m.position)
+    .bind(&m.id).bind(&m.owner_user_id).bind(&m.key).bind(&m.name).bind(&m.emoji).bind(&m.kind).bind(&m.unit).bind(m.scale_min).bind(m.scale_max)
+    .bind(&m.aggregate).bind(&m.reminder_time).bind(&m.presets).bind(&m.last_reminded).bind(m.archived).bind(&m.position)
     .bind(&m.created_at).bind(&m.updated_at).bind(&m.deleted_at).bind(m.rev)
     .execute(conn)
     .await
@@ -1430,13 +1436,20 @@ pub struct Goal {
     pub owner_group_id: Option<String>,
     pub title: String,
     pub description: String,
-    /// Outcomes: the target date. Habits: when the period ends (`null` = for good).
+    /// Outcomes: the target date. Habits and rules: when the period ends (`null` = for good).
     pub target_date: Option<String>,
-    /// `outcome` (reached once: milestones, linked work) or `habit` (kept day by day; D-105).
-    #[ts(type = "'outcome' | 'habit'")]
+    /// `outcome` (reached once: milestones, linked work), `habit` (kept day by day; D-105)
+    /// or `rule` (a rule for oneself, no daily question or progress; D-112).
+    #[ts(type = "'outcome' | 'habit' | 'rule'")]
     pub kind: String,
-    /// Habits: when the period starts (`null` = from its creation).
+    /// Habits and rules: when the period starts (`null` = from its creation).
     pub start_date: Option<String>,
+    /// The goal it's part of (D-112); a child has its parent's owner.
+    pub parent_id: Option<String>,
+    /// Attached routines (D-112): each counts with its four-week rate.
+    #[ts(as = "Vec<String>")]
+    #[schema(value_type = Vec<String>)]
+    pub series_ids: sqlx::types::Json<Vec<String>>,
     #[ts(type = "'active' | 'paused' | 'achieved' | 'dropped'")]
     pub status: String,
     /// 0–1, set by hand; `null` = derived from milestones and linked work.
@@ -1493,17 +1506,18 @@ pub async fn upsert_habit_check(conn: &mut SqliteConnection, c: &HabitCheck) -> 
 pub async fn upsert_goal(conn: &mut SqliteConnection, g: &Goal) -> sqlx::Result<()> {
     sqlx::query(
         "INSERT INTO goals (id, owner_user_id, owner_group_id, title, description, target_date, status, progress_override, milestones,
-           project_ids, task_ids, position, created_at, updated_at, deleted_at, rev, kind, start_date)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+           project_ids, task_ids, position, created_at, updated_at, deleted_at, rev, kind, start_date, parent_id, series_ids)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
          ON CONFLICT(id) DO UPDATE SET owner_user_id=excluded.owner_user_id, owner_group_id=excluded.owner_group_id, title=excluded.title,
            description=excluded.description, target_date=excluded.target_date, status=excluded.status, progress_override=excluded.progress_override,
            milestones=excluded.milestones, project_ids=excluded.project_ids, task_ids=excluded.task_ids, position=excluded.position,
            updated_at=excluded.updated_at, deleted_at=excluded.deleted_at, rev=excluded.rev,
-           kind=excluded.kind, start_date=excluded.start_date",
+           kind=excluded.kind, start_date=excluded.start_date, parent_id=excluded.parent_id, series_ids=excluded.series_ids",
     )
     .bind(&g.id).bind(&g.owner_user_id).bind(&g.owner_group_id).bind(&g.title).bind(&g.description).bind(&g.target_date)
     .bind(&g.status).bind(g.progress_override).bind(&g.milestones).bind(&g.project_ids).bind(&g.task_ids).bind(&g.position)
     .bind(&g.created_at).bind(&g.updated_at).bind(&g.deleted_at).bind(g.rev).bind(&g.kind).bind(&g.start_date)
+    .bind(&g.parent_id).bind(&g.series_ids)
     .execute(conn)
     .await
     .map(|_| ())

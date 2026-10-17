@@ -2,10 +2,16 @@
 //! over or marked missed according to their task type (SPEC §6.2c). Idempotent:
 //! guarded by `users.last_rollover_date`, and only touches entries dated before today.
 
+use std::collections::{BTreeMap, HashMap};
+
 use chrono::{NaiveDate, Utc};
+use sqlx::SqliteConnection;
 use streamline_domain::{
     order::key_after,
-    rollover::{DayEndBehavior, Outcome, WindowOutcome, day_end_outcome, window_outcome},
+    rollover::{
+        DayEndBehavior, Outcome, RollOn, WindowOutcome, carry_after_roll, day_end_outcome,
+        roll_on as roll_on_into, window_outcome,
+    },
     time::{logical_date, parse_hhmm, parse_tz},
 };
 
@@ -14,7 +20,7 @@ use crate::{
     db::next_rev,
     events::Change,
     models::{DayEntry, Task, User, log_task_event, upsert_entry, upsert_task},
-    util::now,
+    util::{new_id, now},
 };
 
 /// The user's current logical date.
@@ -34,6 +40,10 @@ pub async fn run_for_user(state: &AppState, user: &User) -> anyhow::Result<()> {
     let mut tx = state.db.write.begin().await?;
     let mut changes = Vec::new();
     let ts = now();
+
+    // Chores that carry on keep a single open occurrence (D-109): first, so the entries
+    // they hand on are carried below.
+    roll_on(&mut tx, user, today, &ts, &mut changes).await?;
 
     // Routine occurrences of an "expires" type whose day passed undone: missed, whether
     // or not they were planned (planned ones are also caught by the entry loop below).
@@ -225,10 +235,12 @@ pub async fn run_for_user(state: &AppState, user: &User) -> anyhow::Result<()> {
             Outcome::Keep => {}
         }
     }
-    // Missed prerequisites no longer block (D-6).
+    // Missed (or rolled-on, skipped) prerequisites no longer block (D-6).
     let missed: Vec<String> = changes
         .iter()
-        .filter(|c| c.kind == "task" && c.data["status"] == "missed")
+        .filter(|c| {
+            c.kind == "task" && (c.data["status"] == "missed" || c.data["status"] == "skipped")
+        })
         .filter_map(|c| c.data["id"].as_str().map(String::from))
         .collect();
     for id in missed {
@@ -241,6 +253,160 @@ pub async fn run_for_user(state: &AppState, user: &User) -> anyhow::Result<()> {
         .await?;
     tx.commit().await?;
     state.bus.publish(changes);
+    Ok(())
+}
+
+/// Carry-on routines keep a single open occurrence (D-109): once a newer occurrence's day
+/// has come, older open ones of the same routine (or its earlier versions) are skipped
+/// and roll on into it, handing over their plan entry and how long they were carried.
+/// Only scheduled routines (not "N times per week", which keep their windows); blocked
+/// and waiting occurrences are left alone.
+async fn roll_on(
+    conn: &mut SqliteConnection,
+    user: &User,
+    today: NaiveDate,
+    ts: &str,
+    changes: &mut Vec<Change>,
+) -> anyhow::Result<()> {
+    let rows: Vec<(String, String, String)> = sqlx::query_as(&format!(
+        "SELECT t.id, t.series_id, COALESCE(t.due_date, t.occurrence_date) FROM tasks t
+         JOIN task_types tt ON tt.id = t.task_type_id
+         JOIN series s ON s.id = t.series_id
+         WHERE (t.owner_user_id = ?1 OR t.owner_group_id IN (SELECT group_id FROM group_members WHERE user_id = ?1))
+           AND t.deleted_at IS NULL AND t.status = 'open' AND s.mode IN ('repeat', 'anchored')
+           AND tt.day_end_behavior = 'carry' AND t.blocked = 0 AND t.waiting_since IS NULL
+           AND t.workflow_instance_id IS NULL AND t.occurrence_date IS NOT NULL
+           AND COALESCE(t.due_date, t.occurrence_date) <= ?2 AND {not_idea} AND {not_replica}",
+        not_idea = crate::routes::projects::NOT_IN_IDEA_SQL,
+        not_replica = crate::federation::NOT_REPLICA_SQL,
+    ))
+    .bind(&user.id)
+    .bind(today.format("%Y-%m-%d").to_string())
+    .fetch_all(&mut *conn)
+    .await?;
+    // Group by the first version of each routine (a schedule change splits it).
+    let mut roots: HashMap<String, String> = HashMap::new();
+    let mut groups: BTreeMap<String, Vec<(String, NaiveDate)>> = BTreeMap::new();
+    for (id, series_id, day) in rows {
+        let Some(day) = crate::routines::date(&day) else {
+            continue;
+        };
+        let root = match roots.get(&series_id) {
+            Some(r) => r.clone(),
+            None => {
+                let mut root = series_id.clone();
+                for _ in 0..50 {
+                    let prev: Option<String> =
+                        sqlx::query_scalar("SELECT split_from FROM series WHERE id = ?")
+                            .bind(&root)
+                            .fetch_optional(&mut *conn)
+                            .await?
+                            .flatten();
+                    match prev {
+                        Some(p) => root = p,
+                        None => break,
+                    }
+                }
+                roots.insert(series_id, root.clone());
+                root
+            }
+        };
+        groups.entry(root).or_default().push((id, day));
+    }
+    for open in groups.values() {
+        let Some(RollOn {
+            newest: newest_id,
+            day,
+            older,
+        }) = roll_on_into(open, today)
+        else {
+            continue;
+        };
+        let day_s = day.format("%Y-%m-%d").to_string();
+        let mut newest: Task = sqlx::query_as("SELECT * FROM tasks WHERE id = ?")
+            .bind(&newest_id)
+            .fetch_one(&mut *conn)
+            .await?;
+        let mut carried = vec![];
+        for (id, old_day) in older {
+            let mut t: Task = sqlx::query_as("SELECT * FROM tasks WHERE id = ?")
+                .bind(&id)
+                .fetch_one(&mut *conn)
+                .await?;
+            carried.push((t.carry_count, old_day));
+            let rev = next_rev(conn).await?;
+            t.status = "skipped".into();
+            t.updated_at = ts.to_string();
+            t.rev = rev;
+            upsert_task(conn, &t).await?;
+            log_task_event(
+                conn,
+                &t.id,
+                None,
+                "rolled_on",
+                Some(serde_json::json!({"to": newest.id, "date": day_s})),
+            )
+            .await?;
+            changes.push(Change::task(&t));
+            // Its plan entries go to the newest occurrence, unless that's planned already.
+            let entries: Vec<DayEntry> = sqlx::query_as(
+                "SELECT * FROM day_entries WHERE task_id = ? AND deleted_at IS NULL",
+            )
+            .bind(&t.id)
+            .fetch_all(&mut *conn)
+            .await?;
+            for mut e in entries {
+                let planned: Option<String> = sqlx::query_scalar(
+                    "SELECT id FROM day_entries WHERE task_id = ? AND user_id = ? AND deleted_at IS NULL",
+                )
+                .bind(&newest.id)
+                .bind(&e.user_id)
+                .fetch_optional(&mut *conn)
+                .await?;
+                e.deleted_at = Some(ts.to_string());
+                e.updated_at = ts.to_string();
+                e.rev = rev;
+                upsert_entry(conn, &e).await?;
+                changes.push(Change::entry(&e));
+                if planned.is_some() {
+                    continue;
+                }
+                // Not on a day before the newest one's (the carry below brings it to today).
+                let (date, start_time) = if e.date < day_s {
+                    (day_s.clone(), None)
+                } else {
+                    (e.date.clone(), e.start_time.clone())
+                };
+                let last: Option<String> = sqlx::query_scalar(
+                    "SELECT MAX(position) FROM day_entries WHERE user_id = ? AND date = ? AND deleted_at IS NULL",
+                )
+                .bind(&e.user_id)
+                .bind(&date)
+                .fetch_one(&mut *conn)
+                .await?;
+                let moved = DayEntry {
+                    id: new_id(),
+                    user_id: e.user_id.clone(),
+                    date,
+                    task_id: newest.id.clone(),
+                    position: key_after(last.as_deref()),
+                    start_time,
+                    duration_min: e.duration_min,
+                    created_at: ts.to_string(),
+                    updated_at: ts.to_string(),
+                    deleted_at: None,
+                    rev,
+                };
+                upsert_entry(conn, &moved).await?;
+                changes.push(Change::entry(&moved));
+            }
+        }
+        newest.carry_count = carry_after_roll(newest.carry_count, &carried, day);
+        newest.updated_at = ts.to_string();
+        newest.rev = next_rev(conn).await?;
+        upsert_task(conn, &newest).await?;
+        changes.push(Change::task(&newest));
+    }
     Ok(())
 }
 

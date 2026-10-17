@@ -35,8 +35,18 @@
     const entry = item.entryId ? store.entries.get(item.entryId) : store.entryForTask(item.taskId)
     if (entry?.date === date) return
     const t = store.tasks.get(item.taskId)
+    if (t?.status === 'done') {
+      store.moveDone(item.taskId, date)
+      announce(`“${t.title}” done ${dayLabel(date, store.today).toLowerCase()}`)
+      return
+    }
     store.plan(item.taskId, date, { startTime: entry?.start_time ?? null })
     announce(`“${t?.title}” planned for ${dayLabel(date, store.today)}`)
+  }
+  /** Open tasks go on today or later; a done one onto the day it was done, up to today (D-111). */
+  function accepts(item: DragItem, date: string): boolean {
+    if (item.kind !== 'task') return false
+    return store.tasks.get(item.taskId)?.status === 'done' ? date <= store.today : date >= store.today
   }
   function add(e: Event, date: string) {
     e.preventDefault()
@@ -80,7 +90,7 @@
         class:over={over === date}
         aria-label={dayLabel(date, store.today)}
         use:droppable={{
-          accepts: (it) => it.kind === 'task' && !past,
+          accepts: (it) => accepts(it, date),
           over: () => (over = date),
           leave: () => over === date && (over = null),
           drop: (it) => drop(it, date),
@@ -102,10 +112,17 @@
               class:done={r.task.status !== 'open'}
               data-task={r.task.id}
               use:draggable={{
-                disabled: r.task.status !== 'open',
+                disabled: r.task.status !== 'open' && r.task.status !== 'done',
                 item: () => ({ kind: 'task', taskId: r.task.id, entryId: r.entry.id, durationMin: r.entry.duration_min ?? r.task.estimate_min ?? 30 }),
               }}>
-              <span data-nodrag class="chk"><Check done={r.task.status === 'done'} onclick={() => store.toggleDone(r.task.id)} label="Complete {r.task.title}" /></span>
+              <span data-nodrag class="chk" title={store.tooEarly(r.task) ? store.earlyTitle(r.task) : undefined}
+                ><Check
+                  done={r.task.status === 'done'}
+                  disabled={store.tooEarly(r.task)}
+                  title={store.tooEarly(r.task) ? store.earlyTitle(r.task) : undefined}
+                  onclick={() => store.toggleDone(r.task.id, date)}
+                  label="Complete {r.task.title}" /></span
+              >
               <button class="title main" title={r.task.title} onclick={() => (ui.editing = r.task.id)}>
                 {#if r.entry.start_time}<span class="time">{r.entry.start_time}</span>{/if}{r.task.title}
               </button>

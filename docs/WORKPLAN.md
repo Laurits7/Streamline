@@ -739,6 +739,51 @@ then the gate.
 
 ---
 
+### Phase 11: Tracking, routine days, done times, goal tree and rules (v1.5, D-107)
+
+Developed on the `v1.5` branch. Owner requests of 2026-10-17. Migrations: 0036 tracking,
+0037 goal tree and rules.
+
+- [x] **11.1 Tracking tab and metric choice** (D-108): `/tracking` in the sidebar and the
+      phone tab bar (log every shown metric for a day, with day navigation, the day's
+      entries, a 7-day strip, health and habit check-ins, link to Trends); metrics get an
+      emoji and quick amounts (`presets`); built-in **water** (ml, summed per day, buttons
+      +100 ml, +200 ml, +1 l, configurable); Settings: emoji, quick amounts, order, show or
+      hide, and suggestions to add (sleep, steps, coffee, energy); Today's Track card uses
+      the same widgets; tests; help and CHANGELOG.
+- [x] **11.2 Routine days, chores that roll on, nothing done early** (D-109, D-110): the
+      routine sheet shows day chips straight away for "on a schedule" and "at a fixed
+      time" (all days = every day); "If not done in time" reads *Routine: missed* /
+      *Chore: carries on until done*; a carry-on routine keeps **one** open occurrence (at
+      day start older open ones are folded into the newest: skipped as *rolled on*, plan
+      and carry count moved); an occurrence can't be completed before its day (server
+      refuses, rows show it as not yet due; skip and won't do stay allowed); domain +
+      server tests; help and CHANGELOG.
+- [x] **11.3 Change when a task was done** (D-111): `PATCH /tasks/{id}` takes
+      `completed_at` (not in the future; the completed event moves with it, so the day log
+      follows); task sheet shows and edits "Done on"; Week planner lets a done task be
+      dragged to an earlier day (also past days) to set its done day; completing from a
+      past day's page dates it on that day; tests; help and CHANGELOG.
+- [x] **11.4 Goal tree, attachments and rules** (D-112): `goals.parent_id` (any number of
+      top-level goals; a child has its parent's owner; no cycles, `domain::tree`),
+      `goals.series_ids` (routines attach, counted by how often they were done in the last
+      four weeks), parent progress from its children and its own linked work
+      (`domain::goals`, tested); a third kind **rule** ("eat less junk": no daily
+      question, a period that may have no end) with its own **Rules** tab; goals can be
+      attached from the task sheet, the project page, the routine sheet and the rule;
+      goals page shows the tree with sub-goals; only newly linked ids are checked (a
+      deleted linked task no longer blocks edits); goals in the JSON export; tests; help
+      and CHANGELOG.
+- [ ] **11.5 Phase gate** (Part D) for v1.5.
+      *Done 2026-10-17:* fmt, clippy, all tests (server, domain, web) and the web build green;
+      TS types regenerated; docs site builds with `--strict`; new migrations tried on a copy
+      of an older database; API smoke test of every new flow on a fresh server. *Left:*
+      resource measurements (`scripts/measure.sh`), a look at the new pages in a browser
+      (desktop and phone width), the security review, the phone and HTTPS smoke test, push
+      so CI runs, and the release.
+
+---
+
 ## Part C. Open questions with proposed defaults
 
 > **Status: all defaults below accepted by the owner on 2026-10-05** (recorded as D-1…D-23

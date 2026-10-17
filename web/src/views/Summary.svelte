@@ -11,7 +11,7 @@
   import { addDays, dayLabel, fmtMinutes, longDate, userLocale } from '../lib/dates'
   import { router } from '../lib/router.svelte'
   import { store } from '../lib/store.svelte'
-  import { moodEmoji, showWeight } from '../lib/tracking'
+  import { moodEmoji, valueText } from '../lib/tracking'
   import { timeRange, eventsOn } from '../lib/calendar'
 
   let { date: dateProp = null }: { date?: string | null } = $props()
@@ -73,9 +73,7 @@
     const m = store.metrics.get(id)
     if (!m) return String(v)
     if (m.key === 'mood') return `${moodEmoji(v)} ${Math.round(v * 10) / 10}/5`
-    if (m.key === 'weight') return `${Math.round(showWeight(v, imperial) * 10) / 10} ${imperial ? 'lb' : 'kg'}`
-    if (m.kind === 'yes_no') return v ? 'yes' : 'no'
-    return `${Math.round(v * 10) / 10}${m.unit ? ' ' + m.unit : ''}`
+    return valueText(m, v, imperial)
   }
   const events = $derived(summary ? eventsOn(date, summary.events, store.me?.timezone ?? 'UTC', (id) => store.calendars.get(id)) : null)
 </script>

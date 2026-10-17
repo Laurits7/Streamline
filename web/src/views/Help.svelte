@@ -161,8 +161,8 @@
     <h2><Icon name="repeat" size={18} /> Routines and repeating tasks</h2>
     <p>Create them on the <a href="/routines">Routines</a> page. There are three kinds:</p>
     <ul>
-      <li><strong>On a schedule</strong>: due on certain days, e.g. pay rent on the 1st, bins out every Tuesday. Daily, weekdays, certain days, every N days, monthly (also “last day”), yearly, or any iCalendar rule.</li>
-      <li><strong>At a fixed time</strong>: e.g. vitamins every morning at 8:00. It appears on the day's timeline by itself.</li>
+      <li><strong>On a schedule</strong>: due on certain days, e.g. bins out every Tuesday, clean the bathroom on Mondays and Thursdays. Tick the days it runs on (all of them is every day); <em>More options</em> has every N days, monthly (also “last day”, e.g. pay rent on the 1st), yearly, or any iCalendar rule.</li>
+      <li><strong>At a fixed time</strong>: e.g. vitamins every morning at 8:00, or gym on Mondays and Wednesdays at 18:00 (the same day chips). It appears on the day's timeline by itself.</li>
       <li><strong>N times a week or month</strong>: e.g. laundry twice a week, any day you like. Today shows them under “This week / month” with your progress (1/2).</li>
     </ul>
     <p>
@@ -170,12 +170,18 @@
       clashes (it keeps its time), or <strong>Skip this time</strong>. The Routines page shows how this week is going,
       e.g. “3 of 4 this week” — skipped or deleted ones count as not done. Editing
       that task changes only that occurrence; <strong>Edit routine</strong> changes it from a date on, and earlier
-      occurrences keep their history. Occurrences appear the day before (so you can plan them in the evening).
+      occurrences keep their history. Occurrences appear the day before (so you can plan them in the evening), but
+      can only be ticked off from their day on (the tick shows “From Thursday”); move one to an earlier day to do it
+      early, or skip it.
     </p>
     <p>
-      What happens when one isn't done depends on its type: fixed-time routines <em>expire</em> (counted as missed),
-      “N times” routines are missed if the week or month ends first, and scheduled ones <em>carry on</em> by default.
-      The Routines page shows your streak 🔥 for each.
+      What happens when one isn't done depends on its type (<em>If not done in time</em> in the routine):
+      a <strong>routine</strong> is <em>missed if not done</em> (the default for fixed-time ones), a
+      <strong>chore</strong> <em>carries on until done</em> (the default for scheduled ones), and “N times” routines
+      are missed if the week or month ends first. A chore never piles up: when its next day comes while the last one
+      is still open, the old one rolls on into the new one (it's skipped, and the new one takes over its place in your
+      plan and how many days it has been carried), so there's only ever one to do. Doing it counts for its latest day,
+      and the ones that rolled on don't break your streak. The Routines page shows your streak 🔥 for each.
     </p>
   </section>
 
@@ -269,6 +275,12 @@
       <li><strong>Won't do</strong> closes a task without completing it. <strong>Delete</strong> removes it.</li>
     </ul>
     <p>Completing a task shows an <em>Undo</em> button for a few seconds.</p>
+    <p>
+      <strong>Done on another day?</strong> A done task's details show <em>Done on</em> with a date and time you can
+      change (not into the future); the day's log, summary and weekly review then count it on that day. On the
+      <a href="/week">Week</a> planner you can also drag a done task to the day you did it, up to today. Ticking a task
+      off on a past day's page dates it on that day.
+    </p>
   </section>
 
   <section id="dayend">
@@ -484,11 +496,15 @@
   <section id="tracking">
     <h2><Icon name="book" size={18} /> Summary, journal and tracking</h2>
     <p>
-      The <em>Track</em> card on the Today view logs your mood (tap a face whenever you think of it: each tap is a new entry with its time, and the day shows the average and how it went through the day), weight, and anything you add yourself in
-      <a href="/settings">Settings</a> (sleep, water, steps, “took vitamins”…). Log as often as you like; each metric
+      The <a href="/tracking">Tracking</a> page (in the menu under <em>Reflect</em>, and <em>Track</em> in the phone's tab bar) and the <em>Track</em> card on the Today view log your mood (tap a face whenever you think of it: each tap is a new entry with its time, and the day shows the average and how it went through the day), weight, water, and anything you add yourself in
+      <a href="/settings#tracking">Settings → Tracking</a> (sleep, steps, coffee, “took vitamins”…). Log as often as you like; each metric
       decides how a day's values combine (latest, average, sum or highest).
     </p>
     <ul>
+      <li><strong>The Tracking page</strong> shows one day at a time (the arrows go back through past days): each metric with its value, everything logged that day (tap × to remove an entry) and a bar for each of the last 7 days (tap one to go to that day). Health and habits are there too.</li>
+      <li><strong>Water</strong> is built in, like mood and weight: tap <em>+100 ml</em>, <em>+200 ml</em> or <em>+1 l</em> for each glass or bottle and the day adds up (“1.3 l today”), or type another amount. Each tap can be undone from the message that appears. Water stays in ml with imperial units too.</li>
+      <li><strong>Quick amounts</strong>: any number metric can have up to 6 buttons that each log that much (coffee: +1). Set them in Settings → Tracking as numbers separated by commas; a metric whose amounts add up should combine its day as <em>sum</em>.</li>
+      <li><strong>Choose what to track</strong> in Settings → Tracking: give each metric an emoji, change the order with the arrows, and hide what you don't use (built-ins can be hidden, not deleted; your own can be deleted). The suggestions (sleep, steps, coffee, energy…) add a ready-made metric with one tap.</li>
       <li><strong>Health</strong>: once a day, tap how you are: feeling great, OK, not feeling well, sick or injured. Sick asks what it is (cold, flu, fever, stomach, headache, other) and injured asks where (back, neck, hand, arm, knee, foot, other); add a note if you like. It's on the Today view's <em>Track</em> card, in the planner's reflection step and on the summary (where you can fill in past days). Sick and injured days are marked on the month calendar, and <a href="/trends">Trends</a> shows a strip of your days. It's only a record: it doesn't change streaks or plans, and nobody else sees it.</li>
       <li><a href="/summary">Summary &amp; journal</a> shows a day at a glance: planned vs. done, what was carried over or missed, routines and streaks, events, focus time and what you tracked. Write your reflection there (or in the planner's first step); it saves as you type. The month calendar lets you browse past days.</li>
       <li><a href="/trends">Trends</a> charts each metric over a week, month or year, and your mood next to how many routines you did.</li>
@@ -507,8 +523,23 @@
       set the progress by hand.
     </p>
     <ul>
-      <li>Once a week (or month; choose on the Goals page) the Today view invites you to the <a href="/review">review</a>, a short walk through six steps: the week in numbers; <strong>loose ends</strong> (overdue tasks, ones carried over again and again, and ones untouched for three weeks) to plan or let go; what you're <strong>waiting</strong> for; <strong>projects</strong> with nothing to do next (add a next step or archive them) and ideas to start or drop; a note on each <strong>goal</strong>; and a look at the coming week, with the week planner one click away. Finishing records it until the next one. Notes are kept with the goal.</li>
-      <li>Goals are yours unless you share one with a group, like a project.</li>
+      <li>
+        <strong>Goals within goals.</strong> A big goal can have smaller ones below it: “Have a good life” → “Earn good
+        money” and “Have good health”. Use <em>Add sub-goal</em> on a goal, or pick where a goal belongs with
+        <em>Under</em>; the arrow next to a goal hides or shows what's below it. Its progress is the average of its parts:
+        its own milestones and linked work (together as one part), each attached routine, and each goal below it (an
+        achieved one counts as done; dropped ones and rules don't count). Deleting a goal moves what's below it up a level.
+      </li>
+      <li>
+        <strong>Routines</strong> can be attached to a goal (“Go running 3× a week” under “Have good health”). Each counts
+        with its share of done runs over the last four weeks: done ÷ (done + missed); skipped ones don't count.
+      </li>
+      <li>
+        Link work from where it lives, too: the <em>Goals</em> field in a task, in a routine, and in a project's menu adds
+        it to a goal or takes it off again.
+      </li>
+      <li>Once a week (or month; choose on the Goals page) the Today view invites you to the <a href="/review">review</a>, a short walk through six steps: the week in numbers; <strong>loose ends</strong> (overdue tasks, ones carried over again and again, and ones untouched for three weeks) to plan or let go; what you're <strong>waiting</strong> for; <strong>projects</strong> with nothing to do next (add a next step or archive them) and ideas to start or drop; a note on each <strong>goal</strong> (with your rules as a reminder); and a look at the coming week, with the week planner one click away. Finishing records it until the next one. Notes are kept with the goal.</li>
+      <li>Goals are yours unless you share one with a group, like a project. Goals below a shared goal are shared with it; moving a goal under a shared one shares it with that group.</li>
     </ul>
     <p>
       <strong>Habits.</strong> Some goals aren't reached once but kept up: “eat less junk”, “walk 30 minutes”, “no phone
@@ -519,6 +550,13 @@
       over the last four weeks (partly counts half). In the weekly review each habit shows the week's days and suggests
       a verdict from them; change it if the week felt different, and add a note. A shared habit is answered by each
       member for themselves.
+    </p>
+    <p>
+      <strong>Rules.</strong> Some things are less a daily question than a rule for yourself: “eat less junk”, “no
+      screens after 22:00”. Add them on the <a href="/rules">Rules</a> page (or with <em>Add rule</em> on a goal), from
+      today or another day, for good or until a date, with a note on why and what counts. Rules have no daily question
+      and no progress: they show under their goal on the Goals page (put one under a goal with <em>Under the goal</em>)
+      and as a reminder in the weekly review. When you're done with one, mark it <em>kept</em> or drop it.
     </p>
   </section>
 

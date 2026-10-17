@@ -55,7 +55,27 @@ export function fromRule(rule: string | null | undefined): Preset {
   return { kind: 'custom', rule: r }
 }
 
-const ordinal = (n: number) => `${n}${n % 10 === 1 && n !== 11 ? 'st' : n % 10 === 2 && n !== 12 ? 'nd' : n % 10 === 3 && n !== 13 ? 'rd' : 'th'}`
+/** The weekdays a "which days" preset runs on (D-109); null for the other presets. */
+export function presetDays(p: Preset): string[] | null {
+  switch (p.kind) {
+    case 'daily':
+      return [...DAYS]
+    case 'weekdays':
+      return ['MO', 'TU', 'WE', 'TH', 'FR']
+    case 'weekly':
+      return DAYS.filter((d) => p.days.includes(d))
+    default:
+      return null
+  }
+}
+
+/** The preset for a set of weekdays: all of them is every day. */
+export function fromDays(days: string[]): Preset {
+  if (DAYS.every((d) => days.includes(d))) return { kind: 'daily' }
+  return fromRule(toRule({ kind: 'weekly', days }))
+}
+
+const ordinal =(n: number) => `${n}${n % 10 === 1 && n !== 11 ? 'st' : n % 10 === 2 && n !== 12 ? 'nd' : n % 10 === 3 && n !== 13 ? 'rd' : 'th'}`
 
 export function describeRule(rule: string | null | undefined): string {
   const p = fromRule(rule)

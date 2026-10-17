@@ -448,6 +448,38 @@ fn outcome(status: &str, pending: bool) -> Outcome {
     }
 }
 
+/// Done and missed occurrences (one per day, a multi-step run counts once) of a routine
+/// and its earlier versions over the `days` up to `today`, for a goal's progress (D-112).
+/// Skipped and undecided ones don't count.
+pub async fn recent_outcomes(
+    conn: &mut SqliteConnection,
+    s: &Series,
+    today: NaiveDate,
+    days: i64,
+) -> sqlx::Result<(u32, u32)> {
+    let ids = lineage(&mut *conn, s).await?;
+    let rows: Vec<(String, String, Option<String>)> = sqlx::query_as(
+        "SELECT status, occurrence_date, window_end FROM tasks
+         WHERE series_id IN (SELECT value FROM json_each(?1)) AND deleted_at IS NULL
+           AND occurrence_date BETWEEN ?2 AND ?3
+         ORDER BY occurrence_date, occurrence_key",
+    )
+    .bind(serde_json::to_string(&ids).unwrap_or_default())
+    .bind(fmt(today - Duration::days(days - 1)))
+    .bind(fmt(today))
+    .fetch_all(&mut *conn)
+    .await?;
+    let (mut done, mut missed) = (0, 0);
+    for (d, sts) in per_day(&rows) {
+        match day_outcome(&sts, d >= today) {
+            Outcome::Done => done += 1,
+            Outcome::Missed => missed += 1,
+            _ => {}
+        }
+    }
+    Ok((done, missed))
+}
+
 pub async fn stats(state: &AppState, user: &User, s: &Series) -> anyhow::Result<SeriesStats> {
     let today = today_for(user);
     // Earlier versions of the routine count too (streaks survive schedule changes).

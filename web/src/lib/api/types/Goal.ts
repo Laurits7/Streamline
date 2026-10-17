@@ -6,17 +6,26 @@ import type { Milestone } from "./Milestone";
  */
 export type Goal = { id: string, owner_user_id: string | null, owner_group_id: string | null, title: string, description: string, 
 /**
- * Outcomes: the target date. Habits: when the period ends (`null` = for good).
+ * Outcomes: the target date. Habits and rules: when the period ends (`null` = for good).
  */
 target_date: string | null, 
 /**
- * `outcome` (reached once: milestones, linked work) or `habit` (kept day by day; D-105).
+ * `outcome` (reached once: milestones, linked work), `habit` (kept day by day; D-105)
+ * or `rule` (a rule for oneself, no daily question or progress; D-112).
  */
-kind: 'outcome' | 'habit', 
+kind: 'outcome' | 'habit' | 'rule', 
 /**
- * Habits: when the period starts (`null` = from its creation).
+ * Habits and rules: when the period starts (`null` = from its creation).
  */
-start_date: string | null, status: 'active' | 'paused' | 'achieved' | 'dropped', 
+start_date: string | null, 
+/**
+ * The goal it's part of (D-112); a child has its parent's owner.
+ */
+parent_id: string | null, 
+/**
+ * Attached routines (D-112): each counts with its four-week rate.
+ */
+series_ids: Array<string>, status: 'active' | 'paused' | 'achieved' | 'dropped', 
 /**
  * 0–1, set by hand; `null` = derived from milestones and linked work.
  */

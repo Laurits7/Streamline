@@ -3,6 +3,7 @@
   // Inbox (projectId = null) or a single project's todo list.
   import ProjectMark from '../lib/components/ProjectMark.svelte'
   import Icon from '../lib/components/Icon.svelte'
+  import GoalLinks from '../lib/components/GoalLinks.svelte'
   import QuickAdd from '../lib/components/QuickAdd.svelte'
   import RemoteSharing from '../lib/components/RemoteSharing.svelte'
   import TaskRow from '../lib/components/TaskRow.svelte'
@@ -206,6 +207,12 @@
                   {#each store.placeList() as p (p.id)}<option value={p.id}>{p.name}</option>{/each}
                 </select>
               </label>
+            {/if}
+            {#if store.goals.size}
+              <div class="move">
+                <span>Counts towards goals</span>
+                <GoalLinks kind="project" id={project.id} />
+              </div>
             {/if}
             <button role="menuitem" onclick={() => setIdea(project.status !== 'idea')}>
               <Icon name="bulb" size={16} /> {project.status === 'idea' ? 'Activate' : 'Move to ideas'}

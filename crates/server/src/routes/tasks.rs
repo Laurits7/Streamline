@@ -416,6 +416,9 @@ pub struct PatchTask {
     start_date: Option<Option<String>>,
     /// Mark (or unmark) a day an ongoing task was worked on.
     worked: Option<WorkedDay>,
+    /// When a done task was done (RFC 3339; not in the future), e.g. to log it on an
+    /// earlier day (D-111). Only for a done task, or together with `status: done`.
+    completed_at: Option<String>,
     /// An offline edit's base values and time (D-79).
     #[serde(flatten)]
     #[allow(dead_code)]
@@ -644,6 +647,27 @@ pub async fn patch(
         check_task_type(&mut tx, &user, &v).await?;
         t.task_type_id = v;
     }
+    // A routine occurrence can't be done before its day (D-110); its steps still tick.
+    let today = crate::rollover::today_for(&user.user);
+    let early = t.series_id.is_some()
+        && streamline_domain::rollover::too_early(
+            t.occurrence_date.as_deref().and_then(crate::routines::date),
+            t.due_date.as_deref().and_then(crate::routines::date),
+            today,
+        );
+    if early && c.status.as_deref() == Some("done") && t.status != "done" {
+        let from = [t.occurrence_date.as_deref(), t.due_date.as_deref()]
+            .into_iter()
+            .flatten()
+            .filter_map(crate::routines::date)
+            .min()
+            .unwrap_or(today);
+        return Err(bad(format!(
+            "this routine can be done from {}",
+            from.format("%A, %-d %B")
+        )));
+    }
+    let checklist_status = checklist_status.filter(|s| !(early && s == "done"));
     if let Some(status) = c.status.or(checklist_status)
         && status != t.status
     {
@@ -670,6 +694,31 @@ pub async fn patch(
         };
         t.status = status;
         log_task_event(&mut tx, &t.id, Some(user.id()), &kind, None).await?;
+    }
+    // When it was done (D-111): the completion event moves with it, so the day log,
+    // summary and review count it on that day.
+    if let Some(v) = c.completed_at {
+        if t.status != "done" {
+            return Err(bad("only a done task has a completion time"));
+        }
+        let at = chrono::DateTime::parse_from_rfc3339(&v)
+            .map_err(|_| bad("completed_at must be an RFC 3339 time"))?
+            .with_timezone(&chrono::Utc);
+        // A little leeway for a client clock that runs ahead.
+        if at > chrono::Utc::now() + chrono::Duration::minutes(5) {
+            return Err(bad("a task can't be done in the future"));
+        }
+        let at = at
+            .min(chrono::Utc::now())
+            .to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+        sqlx::query(
+            "UPDATE task_events SET at = ?2 WHERE rowid = (SELECT rowid FROM task_events WHERE task_id = ?1 AND kind = 'completed' ORDER BY rowid DESC LIMIT 1)",
+        )
+        .bind(&t.id)
+        .bind(&at)
+        .execute(&mut *tx)
+        .await?;
+        t.completed_at = Some(at);
     }
     if let Some(p) = c.in_progress {
         t.started_at = if p {

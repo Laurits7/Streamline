@@ -17,6 +17,8 @@
   import { disablePush, enablePush, pushBlocker, pushEnabled } from '../lib/pwa'
   import { REALISTIC_PREF, store } from '../lib/store.svelte'
   import { toast } from '../lib/toast.svelte'
+  import { MAX_PRESETS, parsePresets, SUGGESTIONS } from '../lib/tracking'
+  import type { MetricDefinition } from '../lib/api/types/MetricDefinition'
   import { ui } from '../lib/ui.svelte'
 
   let { onlogout }: { onlogout: () => void } = $props()
@@ -133,12 +135,20 @@
   }
 
   // Tracking
-  let nm = $state({ name: '', kind: 'number', unit: '' })
+  let nm = $state({ name: '', kind: 'number', unit: '', emoji: '', presets: '' })
   function addMetric(e: Event) {
     e.preventDefault()
     if (!nm.name.trim()) return
-    store.createMetric({ name: nm.name.trim(), kind: nm.kind, unit: nm.unit.trim() })
-    nm = { name: '', kind: 'number', unit: '' }
+    const presets = nm.kind === 'number' ? parsePresets(nm.presets) : []
+    // Quick amounts add up through the day (like water), so they sum.
+    store.createMetric({ name: nm.name.trim(), kind: nm.kind, unit: nm.unit.trim(), emoji: nm.emoji.trim(), presets, ...(presets.length ? { aggregate: 'sum' } : {}) })
+    nm = { name: '', kind: 'number', unit: '', emoji: '', presets: '' }
+  }
+  const tracked = $derived(new Set(store.metricList(true).map((m) => m.name.toLowerCase())))
+  const suggestions = $derived(SUGGESTIONS.filter((s) => !tracked.has(s.name.toLowerCase())))
+  function setPresets(m: MetricDefinition, text: string) {
+    const presets = parsePresets(text)
+    if (presets.join() !== m.presets.join()) store.updateMetric(m.id, { presets })
   }
   async function importCsv(metricId: string, file: File | undefined) {
     if (!file) return
@@ -464,8 +474,10 @@
 <section class="card" id="tracking">
   <h2>Tracking</h2>
   <p class="help muted">
-    What you log on the Today view. Mood and weight are built in; add your own (sleep hours, water, steps, “took
-    vitamins”…). A reminder time sends a notice if nothing is logged by then. Only you can see your tracking and journal.
+    What you log on the <a href="/tracking">Tracking</a> page and the Today view, in this order. Mood, weight and water
+    are built in (hide the ones you don't use); add your own (sleep hours, steps, “took vitamins”…). Quick amounts are
+    buttons that each log that much (water: +200 ml), so the day adds up. A reminder time sends a notice if nothing is
+    logged by then. Only you can see your tracking and journal.
   </p>
   <label class="inline">
     <span>Units</span>
@@ -474,13 +486,28 @@
       <option value="imperial">Imperial (lb)</option>
     </select>
   </label>
-  {#each store.metricList(true) as m (m.id)}
+  {#each store.metricList(true) as m, i (m.id)}
     <div class="line metric-row" class:archived={m.archived}>
       <div class="mname">
+        <span class="order">
+          <button class="icon-btn" aria-label="Move {m.name} up" disabled={i === 0} onclick={() => store.moveMetric(m.id, -1)}><Icon name="up" size={14} /></button>
+          <button class="icon-btn" aria-label="Move {m.name} down" disabled={i === store.metricList(true).length - 1} onclick={() => store.moveMetric(m.id, 1)}><Icon name="down" size={14} /></button>
+        </span>
+        <input class="emoji-input" type="text" value={m.emoji} maxlength={8} placeholder="🙂" aria-label="Emoji for {m.name}" onchange={(e) => store.updateMetric(m.id, { emoji: (e.currentTarget as HTMLInputElement).value.trim() })} />
         <input class="place-name" type="text" value={m.name} aria-label="Name" onchange={(e) => store.updateMetric(m.id, { name: (e.currentTarget as HTMLInputElement).value })} />
         <span class="muted small">{m.kind === 'yes_no' ? 'yes/no' : m.kind}{m.key === 'weight' ? (me.unit_system === 'imperial' ? ' · lb' : ' · kg') : m.unit ? ` · ${m.unit}` : ''}</span>
       </div>
       <div class="row">
+        {#if m.kind === 'number' && m.key !== 'weight'}
+          <input
+            class="presets-input"
+            type="text"
+            value={m.presets.join(', ')}
+            placeholder="quick amounts"
+            aria-label="Quick amounts for {m.name}, separated by commas (at most {MAX_PRESETS})"
+            title="Quick amounts, separated by commas (at most {MAX_PRESETS}); each is a button that logs that much"
+            onchange={(e) => setPresets(m, (e.currentTarget as HTMLInputElement).value)} />
+        {/if}
         <select class="small-select" value={m.aggregate} aria-label="Several a day" title="When logged several times a day" onchange={(e) => store.updateMetric(m.id, { aggregate: (e.currentTarget as HTMLSelectElement).value as 'latest' })}>
           <option value="latest">latest</option>
           <option value="average">average</option>
@@ -496,15 +523,27 @@
     </div>
   {/each}
   <form class="row" onsubmit={addMetric}>
+    <input class="emoji-input" type="text" bind:value={nm.emoji} maxlength={8} placeholder="😴" aria-label="Emoji" />
     <input type="text" bind:value={nm.name} placeholder="New metric, e.g. Sleep" aria-label="New metric name" />
     <select bind:value={nm.kind} aria-label="Kind">
       <option value="number">Number</option>
       <option value="scale">Scale 1–5</option>
       <option value="yes_no">Yes / no</option>
     </select>
-    {#if nm.kind === 'number'}<input class="unit" type="text" bind:value={nm.unit} placeholder="unit, e.g. h" aria-label="Unit" />{/if}
+    {#if nm.kind === 'number'}
+      <input class="unit" type="text" bind:value={nm.unit} placeholder="unit, e.g. h" aria-label="Unit" />
+      <input class="presets-input" type="text" bind:value={nm.presets} placeholder="quick amounts, e.g. 1, 2" aria-label="Quick amounts, separated by commas" />
+    {/if}
     <button class="btn" type="submit">Add</button>
   </form>
+  {#if suggestions.length}
+    <div class="suggest" role="group" aria-label="Suggestions">
+      <span class="muted small">Suggestions:</span>
+      {#each suggestions as s (s.name)}
+        <button class="chip" onclick={() => store.createMetric({ ...s })}>{s.emoji} {s.name}{s.unit ? ` (${s.unit})` : s.kind === 'scale' ? ` ${s.scale_min}–${s.scale_max}` : ''}</button>
+      {/each}
+    </div>
+  {/if}
   <p class="help muted export">
     Import takes CSV rows of <code>date,value</code> (weight in kg). <a href="/api/v1/export" download="streamline-export.json">Download all your data (JSON)</a>
   </p>
@@ -655,6 +694,7 @@
 
 <a class="card help-link" href="/summary"><Icon name="book" /><span>Summary &amp; journal</span><Icon name="right" size={16} /></a>
 <a class="card help-link" href="/goals"><Icon name="flag" /><span>Goals</span><Icon name="right" size={16} /></a>
+<a class="card help-link" href="/rules"><Icon name="checklist" /><span>Rules</span><Icon name="right" size={16} /></a>
 <a class="card help-link" href="/trends"><Icon name="chart" /><span>Trends</span><Icon name="right" size={16} /></a>
 <a class="card help-link" href="/occasions"><Icon name="gift" /><span>Namedays & birthdays</span><Icon name="right" size={16} /></a>
 
@@ -1104,8 +1144,37 @@
   }
   .mname {
     display: flex;
-    flex-direction: column;
-    gap: 2px;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 2px 6px;
+  }
+  .mname .muted {
+    flex-basis: 100%;
+  }
+  .order {
+    display: inline-flex;
+  }
+  .order .icon-btn {
+    padding: 2px;
+  }
+  .order .icon-btn:disabled {
+    opacity: 0.3;
+  }
+  .emoji-input {
+    width: 48px !important;
+    text-align: center;
+  }
+  .presets-input {
+    max-width: 150px;
+    padding: 2px 6px !important;
+    font-size: 12px;
+  }
+  .suggest {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin-top: 8px;
   }
   .small-select,
   .small-time {

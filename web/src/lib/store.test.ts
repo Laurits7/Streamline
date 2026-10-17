@@ -202,6 +202,42 @@ describe('optimistic updates', () => {
   })
 })
 
+describe('when a task can be and was done (D-110, D-111)', () => {
+  const tomorrow = (extra: Partial<Task> = {}) =>
+    task('R1', { series_id: 'S1', occurrence_key: '2026-10-07', occurrence_date: '2026-10-07', due_date: '2026-10-07', ...extra })
+
+  it("doesn't complete a routine before its day", async () => {
+    await load({ tasks: [tomorrow({ checklist: [{ id: 'a', text: 'Legs', done: false }] })] })
+    mockApi(() => new Promise(() => {}))
+    expect(store.tooEarly(store.tasks.get('R1')!)).toBe(true)
+    store.toggleDone('R1')
+    expect(store.tasks.get('R1')?.status).toBe('open')
+    expect(toasts.at(-1)?.text).toBe('Can be done from tomorrow')
+    expect(calls).toHaveLength(0)
+    // The last step ticks, the task stays open.
+    store.tickItem('R1', 'a')
+    expect(store.tasks.get('R1')).toMatchObject({ status: 'open', checklist: [{ done: true }] })
+    // Skipping is fine.
+    store.updateTask('R1', { status: 'skipped' })
+    expect(store.tasks.get('R1')?.status).toBe('skipped')
+  })
+
+  it('completes one moved to today', async () => {
+    await load({ tasks: [tomorrow({ due_date: '2026-10-06' })] })
+    mockApi(() => new Promise(() => {}))
+    store.toggleDone('R1')
+    expect(store.tasks.get('R1')?.status).toBe('done')
+  })
+
+  it('dates a completion from a past day on that day', async () => {
+    await load({ tasks: [task('T1')] })
+    mockApi(() => new Promise(() => {}))
+    store.toggleDone('T1', '2026-10-04')
+    expect(store.tasks.get('T1')?.completed_at).toBe('2026-10-04T12:00:00.000Z')
+    expect(calls[0].body).toMatchObject({ status: 'done', completed_at: '2026-10-04T12:00:00.000Z' })
+  })
+})
+
 describe('live changes', () => {
   it('ignores stale events and applies newer ones and tombstones', async () => {
     await load({ tasks: [task('T1', { title: 'v5', rev: 5 })] })

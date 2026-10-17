@@ -20,6 +20,14 @@ export function dayLabel(date: string, today: string): string {
   return utc(date).toLocaleDateString(userLocale(), { weekday: 'long', timeZone: 'UTC' })
 }
 
+/** A coming day after "from": "tomorrow", a weekday within the week, else the date. */
+export function fromLabel(date: string, today: string): string {
+  if (date <= today) return 'today'
+  if (date === addDays(today, 1)) return 'tomorrow'
+  if (date <= addDays(today, 6)) return utc(date).toLocaleDateString(userLocale(), { weekday: 'long', timeZone: 'UTC' })
+  return longDate(date)
+}
+
 export function longDate(date: string): string {
   return utc(date).toLocaleDateString(userLocale(), { weekday: 'short', day: 'numeric', month: 'long', timeZone: 'UTC' })
 }

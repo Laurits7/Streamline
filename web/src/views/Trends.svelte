@@ -79,7 +79,7 @@
         {logged.length} {range === 'year' ? 'weeks' : 'days'} logged{avg !== null ? ` · average ${Math.round(avg * 10) / 10}${unit ? ' ' + unit : ''}` : ''}{range === 'year' ? ' · weekly averages' : ''}
       </p>
     {:else}
-      <p class="muted">Nothing logged in this period. Log it from the <a href="/">Today</a> view.</p>
+      <p class="muted">Nothing logged in this period. Log it on the <a href="/tracking">Tracking</a> page or the <a href="/">Today</a> view.</p>
     {/if}
   </section>
 {/if}
@@ -137,7 +137,7 @@
   </section>
 {/if}
 </div>
-<p class="muted small"><Icon name="settings" size={12} /> Add your own metrics (sleep, water, steps…) in <a href="/settings">Settings</a>.</p>
+<p class="muted small"><Icon name="settings" size={12} /> Add your own metrics (sleep, steps, coffee…) in <a href="/settings#tracking">Settings</a>.</p>
 
 <style>
   .lead-num {

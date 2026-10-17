@@ -309,7 +309,7 @@
         keyMove: (id, index) => store.reorderEntry(flexible.map((i) => i.entry), id, index),
       }}>
       {#each flexible as i (i.entry.id)}
-        <TaskRow task={i.task} entry={i.entry} showProject handle />
+        <TaskRow task={i.task} entry={i.entry} showProject handle doneDay={date} />
       {:else}
         <div class="empty">
           {#if timed.length || closed.length}Nothing left without a time.{:else}Nothing planned yet.{/if}
@@ -344,7 +344,7 @@
       <h2 class="section-title"><Icon name="repeat" size={14} /> This week / month</h2>
       <div class="card list">
         {#each windowed as t (t.id)}
-          <TaskRow task={t} showProject planButton planDate={date} />
+          <TaskRow task={t} showProject planButton planDate={date} doneDay={date} />
         {/each}
       </div>
     {/if}
@@ -353,7 +353,7 @@
       <h2 class="section-title"><Icon name="calendar" size={14} /> Due {isToday ? '& overdue' : ''}</h2>
       <div class="card list">
         {#each due as t (t.id)}
-          <TaskRow task={t} showProject planButton planDate={date} />
+          <TaskRow task={t} showProject planButton planDate={date} doneDay={date} />
         {/each}
       </div>
     {/if}
@@ -367,7 +367,7 @@
       {#if showDone}
         <div class="card list">
           {#each closed as i (i.entry.id)}
-            <TaskRow task={i.task} entry={i.entry} showProject />
+            <TaskRow task={i.task} entry={i.entry} showProject doneDay={date} />
           {/each}
         </div>
       {/if}

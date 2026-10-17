@@ -291,9 +291,11 @@
         <a href="/routines" draggable="false" aria-current={active('routines')}><Icon name="repeat" /> Routines</a>
         <a href="/focus" draggable="false"><Icon name="target" /> Focus</a>
         <h2 class="group">Reflect</h2>
+        <a href="/tracking" draggable="false" aria-current={active('tracking')}><Icon name="droplet" /> Tracking</a>
         <a href="/summary" draggable="false" aria-current={active('summary')}><Icon name="book" /> Summary & journal</a>
         <a href="/trends" draggable="false" aria-current={active('trends')}><Icon name="chart" /> Trends</a>
         <a href="/goals" draggable="false" aria-current={active('goals')}><Icon name="flag" /> Goals</a>
+        <a href="/rules" draggable="false" aria-current={active('rules')}><Icon name="checklist" /> Rules</a>
         <a href="/occasions" draggable="false" aria-current={active('occasions')}><Icon name="gift" /> Namedays & birthdays</a>
         <h2 class="group"><a class="group-link" href="/projects" draggable="false" aria-current={active('projects')}>Projects <Icon name="right" size={12} /></a></h2>
         <div class="projects">
@@ -341,8 +343,12 @@
         {#await import('./views/Summary.svelte') then m}<m.default date={route.date} />{/await}
       {:else if route.name === 'goals'}
         {#await import('./views/Goals.svelte') then m}<m.default />{/await}
+      {:else if route.name === 'rules'}
+        {#await import('./views/Rules.svelte') then m}<m.default />{/await}
       {:else if route.name === 'review'}
         {#await import('./views/Review.svelte') then m}<m.default />{/await}
+      {:else if route.name === 'tracking'}
+        {#await import('./views/Tracking.svelte') then m}<m.default date={route.date} />{/await}
       {:else if route.name === 'trends'}
         {#await import('./views/Trends.svelte') then m}<m.default />{/await}
       {:else if route.name === 'occasions'}
@@ -378,6 +384,7 @@
       <a href="/" class="drop-zone" draggable="false" aria-current={todayActive} use:droppable={toToday}><Icon name="sun" size={22} /><span>Today</span></a>
       <a href="/inbox" class="drop-zone" draggable="false" aria-current={active('inbox') ?? active('triage')} use:droppable={toProject(null)}><Icon name="inbox" size={22} /><span>Inbox</span></a>
       <a href="/agenda" aria-current={active('agenda')}><Icon name="calendar" size={22} /><span>Agenda</span></a>
+      <a href="/tracking" aria-current={active('tracking')}><Icon name="droplet" size={22} /><span>Track</span></a>
       <a href="/projects" aria-current={projectsActive}><Icon name="folder" size={22} /><span>Projects</span></a>
       <button type="button" onclick={() => (ui.palette = true)}><Icon name="search" size={22} /><span>Search</span></button>
       <a href="/settings" aria-current={route.name === 'settings' || route.name === 'help' ? 'page' : undefined}><Icon name="settings" size={22} /><span>Settings</span></a>

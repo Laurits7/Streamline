@@ -10,10 +10,11 @@
   import { describeSeries } from '../rrule'
   import { createsCycle } from '../deps'
   import { localTime } from '../calendar'
-  import { checkBackDue, checkBackLabel, isWaiting } from '../waiting'
+  import { checkBackDue, checkBackLabel, isWaiting, localParts, zonedToUtc } from '../waiting'
   import { progress, summary } from '../ongoing'
   import WaitPicker from './WaitPicker.svelte'
   import Checklist from './Checklist.svelte'
+  import GoalLinks from './GoalLinks.svelte'
 
   let { id }: { id: string } = $props()
 
@@ -73,6 +74,18 @@
   })
   const backLabel = (iso: string) => checkBackLabel(iso, store.me?.timezone ?? 'UTC', Date.now(), store.me?.locale || undefined)
 
+  // When it was done (D-111): a date and time on the user's clock, not in the future.
+  const tz = $derived(store.me?.timezone ?? 'UTC')
+  function setDoneAt(date: string, time: string) {
+    if (!date || !time) return
+    const at = zonedToUtc(date, time, tz)
+    if (at > new Date().toISOString()) {
+      toast("It can't be done in the future", 'error')
+      return
+    }
+    store.updateTask(id, { completed_at: at })
+  }
+
   let customDate = $state('')
   function planOn(date: string) {
     if (date) store.plan(id, date)
@@ -94,7 +107,12 @@
   <Sheet title="Edit task" onclose={close}>
     {#snippet header()}
       <div class="head">
-        <Check done={task.status === 'done'} onclick={() => store.toggleDone(id)} label="Toggle done" />
+        <Check
+          done={task.status === 'done'}
+          disabled={store.tooEarly(task)}
+          title={store.tooEarly(task) ? store.earlyTitle(task) : undefined}
+          onclick={() => store.toggleDone(id)}
+          label="Toggle done" />
         <span class="muted">{task.status === 'open' ? (isWaiting(task) ? 'Waiting' : task.started_at ? 'In progress' : 'Open') : task.status === 'done' ? 'Done' : task.status.replace('_', ' ')}</span>
       </div>
     {/snippet}
@@ -106,6 +124,23 @@
       onblur={saveTitle}
       onkeydown={(e) => e.key === 'Enter' && (e.currentTarget as HTMLInputElement).blur()}
       aria-label="Title" />
+
+    {#if task.status === 'done' && task.completed_at}
+      {@const at = localParts(task.completed_at, tz)}
+      <div class="done-on">
+        <Icon name="check" size={14} />
+        <span>Done on</span>
+        <input
+          type="date"
+          aria-label="Day it was done"
+          max={localParts(new Date().toISOString(), tz).date}
+          value={at.date}
+          onchange={(e) => setDoneAt((e.currentTarget as HTMLInputElement).value, at.time)} />
+        <input type="time" aria-label="Time it was done" value={at.time} onchange={(e) => setDoneAt(at.date, (e.currentTarget as HTMLInputElement).value)} />
+      </div>
+    {:else if store.tooEarly(task)}
+      <p class="muted help">{store.doableLabel(task)}.</p>
+    {/if}
 
     {#if task.event_id && store.events.get(task.event_id)}
       {@const ev = store.events.get(task.event_id)!}
@@ -312,6 +347,13 @@
       </div>
     </section>
 
+    {#if store.goals.size}
+      <section>
+        <h3><Icon name="flag" size={14} /> Goals</h3>
+        <GoalLinks kind="task" {id} />
+      </section>
+    {/if}
+
     {#if task.project_id && task.owner_group_id}
       <p class="muted help"><Icon name="users" size={12} /> Shared with {store.groupName(task.owner_group_id)} through its project.</p>
     {:else if !task.project_id && store.myGroups().length}
@@ -481,6 +523,18 @@
 {/if}
 
 <style>
+  .done-on {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 10px;
+    color: var(--muted);
+    font-size: 13px;
+  }
+  .done-on input {
+    width: auto;
+  }
   .suggest {
     margin: 8px 0 0;
     font-size: 13px;

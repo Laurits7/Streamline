@@ -90,7 +90,8 @@ pub async fn get_log(
            FROM task_events e JOIN tasks t ON t.id = e.task_id
           WHERE (t.owner_user_id = ?1 OR e.user_id = ?1) AND t.deleted_at IS NULL AND e.at >= ?2 AND e.at < ?3
             AND e.kind IN ('completed', 'skipped', 'wont_do')
-            AND NOT EXISTS (SELECT 1 FROM task_events r WHERE r.task_id = e.task_id AND r.kind = 'reopened' AND r.at > e.at)
+            -- not reopened afterwards (in recording order: a completion's time can be changed, D-111)
+            AND NOT EXISTS (SELECT 1 FROM task_events r WHERE r.task_id = e.task_id AND r.kind = 'reopened' AND r.rowid > e.rowid)
          UNION ALL
          SELECT ?3, 'missed', t.id, t.title, {PROJECT}, NULL, NULL
            FROM task_events e JOIN tasks t ON t.id = e.task_id

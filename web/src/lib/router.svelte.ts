@@ -42,8 +42,10 @@ export type Route =
   | { name: 'routines' }
   | { name: 'occasions' }
   | { name: 'summary'; date: string | null }
+  | { name: 'tracking'; date: string | null }
   | { name: 'trends' }
   | { name: 'goals' }
+  | { name: 'rules' }
   | { name: 'review' }
   | { name: 'focus' }
   | { name: 'projects' }
@@ -72,8 +74,11 @@ export function match(path: string): Route {
   if (p === '/occasions') return { name: 'occasions' }
   if (p === '/summary') return { name: 'summary', date: null }
   if ((m = p.match(/^\/summary\/(\d{4}-\d{2}-\d{2})$/))) return { name: 'summary', date: m[1] }
+  if (p === '/tracking') return { name: 'tracking', date: null }
+  if ((m = p.match(/^\/tracking\/(\d{4}-\d{2}-\d{2})$/))) return { name: 'tracking', date: m[1] }
   if (p === '/trends') return { name: 'trends' }
   if (p === '/goals') return { name: 'goals' }
+  if (p === '/rules') return { name: 'rules' }
   // The goals review is part of the weekly review now (10.4); its old address still works.
   if (p === '/review' || p === '/goals/review') return { name: 'review' }
   if (p === '/focus') return { name: 'focus' }
