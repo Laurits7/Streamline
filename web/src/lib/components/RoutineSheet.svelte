@@ -5,11 +5,12 @@
   // occurrences keep their history. Editing one occurrence happens in the task sheet.
   import { untrack } from 'svelte'
   import { fmtMinutes } from '../dates'
-  import { DAY_NAMES, DAYS, describeSeries, fromRule, toRule, type Preset } from '../rrule'
+  import { DAY_NAMES, DAYS, describeSeries, fromDays, fromRule, presetDays, toRule, type Preset } from '../rrule'
   import { store } from '../store.svelte'
   import { ui } from '../ui.svelte'
   import Icon from './Icon.svelte'
   import Sheet from './Sheet.svelte'
+  import GoalLinks from './GoalLinks.svelte'
 
   let { id }: { id: string } = $props()
   const existing = untrack(() => (id === 'new' ? null : (store.series.get(id) ?? null)))
@@ -40,17 +41,18 @@
 
   const defaultType: Record<Mode, string> = { repeat: 'tt_carry_on', anchored: 'tt_expires', flexible: 'tt_window' }
   const effectiveType = $derived(typeId || defaultType[mode])
-  const types = $derived([...store.taskTypes.values()])
+  const types = $derived([...store.taskTypes.values()].sort((a, b) => typeOrder(a.id) - typeOrder(b.id)))
   const projects = $derived(store.projectTree())
   const rule = $derived(toRule(preset))
   const summary = $derived(
     describeSeries({ mode, rrule: rule, start_time: startTime, times_per_window: times, window }),
   )
 
+  // Which days, straight away (D-109); the other schedules under "More options".
+  const days = $derived(presetDays(preset))
+  let more = $state(presetDays(untrack(() => preset)) === null)
   const presetKinds: { kind: Preset['kind']; label: string }[] = [
-    { kind: 'daily', label: 'Every day' },
-    { kind: 'weekdays', label: 'Weekdays' },
-    { kind: 'weekly', label: 'Certain days' },
+    { kind: 'daily', label: 'Certain days' },
     { kind: 'interval', label: 'Every N days' },
     { kind: 'monthly', label: 'Monthly' },
     { kind: 'yearly', label: 'Yearly' },
@@ -72,10 +74,16 @@
                 : { kind }
   }
   function toggleDay(d: string) {
-    if (preset.kind !== 'weekly') return
-    const days = preset.days.includes(d) ? preset.days.filter((x) => x !== d) : [...preset.days, d]
-    preset = { kind: 'weekly', days: days.length ? days : [d] }
+    if (!days) return
+    const next = days.includes(d) ? days.filter((x) => x !== d) : [...days, d]
+    preset = fromDays(next.length ? next : [d])
   }
+  // The task types read as what happens when it's not done (D-109).
+  const typeLabel: Record<string, string> = {
+    tt_expires: 'Routine: missed if not done',
+    tt_carry_on: 'Chore: carries on until done',
+  }
+  const typeOrder = (id: string) => (id === 'tt_expires' ? 0 : id === 'tt_carry_on' ? 1 : 2)
 
   const close = () => (ui.routine = null)
 
@@ -145,18 +153,23 @@
     </section>
   {:else}
     <section>
-      <div class="chips">
-        {#each presetKinds as p (p.kind)}
-          <button class="chip" class:on={preset.kind === p.kind} onclick={() => choose(p.kind)}>{p.label}</button>
-        {/each}
-      </div>
-      {#if preset.kind === 'weekly'}
-        <div class="chips days">
+      {#if days}
+        <div class="chips days" role="group" aria-label="Days">
           {#each DAYS as d (d)}
-            <button class="chip" class:on={preset.days.includes(d)} aria-pressed={preset.days.includes(d)} onclick={() => toggleDay(d)}>{DAY_NAMES[d]}</button>
+            <button class="chip" class:on={days.includes(d)} aria-pressed={days.includes(d)} onclick={() => toggleDay(d)}>{DAY_NAMES[d]}</button>
           {/each}
         </div>
-      {:else if preset.kind === 'interval'}
+      {/if}
+      {#if more}
+        <div class="chips more">
+          {#each presetKinds as p (p.kind)}
+            <button class="chip" class:on={p.kind === 'daily' ? !!days : preset.kind === p.kind} onclick={() => choose(p.kind)}>{p.label}</button>
+          {/each}
+        </div>
+      {:else}
+        <button class="link more-toggle" onclick={() => (more = true)}>More options (every N days, monthly…)</button>
+      {/if}
+      {#if preset.kind === 'interval'}
         <div class="row">Every <input class="num" type="number" min="2" max="365" value={preset.n} onchange={(e) => (preset = { kind: 'interval', n: Number((e.currentTarget as HTMLInputElement).value) })} /> days</div>
       {:else if preset.kind === 'monthly'}
         <div class="row">
@@ -215,6 +228,14 @@
     </select>
   </section>
 
+  {#if existing && store.goals.size}
+    <section>
+      <h3>Goals</h3>
+      <GoalLinks kind="series" id={existing.id} />
+      <p class="muted help">Counts towards a goal with its share of done runs over the last four weeks (skipped ones don't count).</p>
+    </section>
+  {/if}
+
   {#if !existing && !projectId && store.myGroups().length}
     <section>
       <h3>Shared with</h3>
@@ -263,7 +284,7 @@
     <h3>If not done in time</h3>
     <div class="chips">
       {#each types as t (t.id)}
-        <button class="chip" class:on={effectiveType === t.id} onclick={() => (typeId = t.id)}>{t.name}</button>
+        <button class="chip" class:on={effectiveType === t.id} onclick={() => (typeId = t.id)}>{typeLabel[t.id] ?? t.name}</button>
       {/each}
     </div>
   </section>
@@ -360,8 +381,12 @@
   .num {
     width: 72px !important;
   }
-  .days {
+  .more {
     margin-top: 10px;
+  }
+  .more-toggle {
+    margin-top: 8px;
+    font-size: 13px;
   }
   .loads {
     margin-top: 8px;

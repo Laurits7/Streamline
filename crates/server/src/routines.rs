@@ -304,6 +304,25 @@ pub async fn lineage(conn: &mut SqliteConnection, s: &Series) -> sqlx::Result<Ve
     Ok(out)
 }
 
+/// The routine that carries on from this one now (itself, unless its schedule was
+/// changed since: then the newest version that replaced it).
+pub async fn current_version(conn: &mut SqliteConnection, id: &str) -> sqlx::Result<String> {
+    let mut id = id.to_string();
+    for _ in 0..50 {
+        let next: Option<String> = sqlx::query_scalar(
+            "SELECT id FROM series WHERE split_from = ? ORDER BY created_at DESC LIMIT 1",
+        )
+        .bind(&id)
+        .fetch_optional(&mut *conn)
+        .await?;
+        match next {
+            Some(n) => id = n,
+            None => break,
+        }
+    }
+    Ok(id)
+}
+
 /// Bring a user's routines up to date: occurrences through tomorrow (so tomorrow can be
 /// planned in the evening), catching up on missed days after downtime.
 pub async fn materialize_user(state: &AppState, user: &User) -> anyhow::Result<()> {
@@ -446,6 +465,38 @@ fn outcome(status: &str, pending: bool) -> Outcome {
         // Still open after its day (carry-on type): undecided, doesn't break the streak.
         _ => Outcome::Pending,
     }
+}
+
+/// Done and missed occurrences (one per day, a multi-step run counts once) of a routine
+/// and its earlier versions over the `days` up to `today`, for a goal's progress (D-112).
+/// Skipped and undecided ones don't count.
+pub async fn recent_outcomes(
+    conn: &mut SqliteConnection,
+    s: &Series,
+    today: NaiveDate,
+    days: i64,
+) -> sqlx::Result<(u32, u32)> {
+    let ids = lineage(&mut *conn, s).await?;
+    let rows: Vec<(String, String, Option<String>)> = sqlx::query_as(
+        "SELECT status, occurrence_date, window_end FROM tasks
+         WHERE series_id IN (SELECT value FROM json_each(?1)) AND deleted_at IS NULL
+           AND occurrence_date BETWEEN ?2 AND ?3
+         ORDER BY occurrence_date, occurrence_key",
+    )
+    .bind(serde_json::to_string(&ids).unwrap_or_default())
+    .bind(fmt(today - Duration::days(days - 1)))
+    .bind(fmt(today))
+    .fetch_all(&mut *conn)
+    .await?;
+    let (mut done, mut missed) = (0, 0);
+    for (d, sts) in per_day(&rows) {
+        match day_outcome(&sts, d >= today) {
+            Outcome::Done => done += 1,
+            Outcome::Missed => missed += 1,
+            _ => {}
+        }
+    }
+    Ok((done, missed))
 }
 
 pub async fn stats(state: &AppState, user: &User, s: &Series) -> anyhow::Result<SeriesStats> {

@@ -16,6 +16,7 @@ import type { DayRecord } from './api/types/DayRecord'
 import type { MetricDefinition } from './api/types/MetricDefinition'
 import type { MetricEntry } from './api/types/MetricEntry'
 import type { DayTemplate } from './api/types/DayTemplate'
+import type { WeekTemplate } from './api/types/WeekTemplate'
 import type { SuggestedPlan } from './api/types/SuggestedPlan'
 import type { TemplateBlock } from './api/types/TemplateBlock'
 import type { TimeBlock } from './api/types/TimeBlock'
@@ -44,7 +45,7 @@ import type { Task } from './api/types/Task'
 import type { TaskType } from './api/types/TaskType'
 import { busyIntervals, eventsOn, zoned } from './calendar'
 import { daily } from './tracking'
-import { reviewDue, type Cadence } from './goals'
+import { LINK_FIELD, reviewDue, type Cadence, type LinkKind } from './goals'
 import { findConflicts, nextFreeSlot, type Conflict, type Item } from './conflicts'
 import { isBlocked } from './deps'
 import { keyAt, keyBetween } from './order'
@@ -55,10 +56,12 @@ import { checkBackDue, isWaiting } from './waiting'
 import { setWorked } from './ongoing'
 import { statusAfter } from './checklist'
 import { factorFor, learn, realistic, suggestion } from './estimates'
-import { nowHHMM } from './dates'
+import { fromLabel, nowHHMM } from './dates'
+import { doableFrom, doneAtOn, tooEarly } from './completion'
 import { dayLoad, type DayLoad } from './planning'
 import { DesktopEvents, desktop } from './desktop'
 import { allDefaults, matchDefaults, tasksFor, type DefaultMatch } from './defaults'
+import { dayTemplateFor, previewDay, type PreviewBlock } from './weekTemplates'
 
 type Kind =
   | 'task'
@@ -76,6 +79,7 @@ type Kind =
   | 'event_project'
   | 'person'
   | 'day_template'
+  | 'week_template'
   | 'time_block'
   | 'day_record'
   | 'health_day'
@@ -99,6 +103,7 @@ type Entity =
   | EventProject
   | Person
   | DayTemplate
+  | WeekTemplate
   | TimeBlock
   | DayRecord
   | HealthDay
@@ -128,6 +133,7 @@ export type TaskPatch = Partial<
     | 'checklist'
     | 'ongoing'
     | 'start_date'
+    | 'completed_at'
   >
 >
 export type EntryPatch = Partial<Pick<DayEntry, 'date' | 'position' | 'start_time' | 'duration_min'>>
@@ -204,6 +210,10 @@ class Store {
   remoteProjects = new SvelteMap<string, JoinView>()
   people = new SvelteMap<string, Person>()
   dayTemplates = new SvelteMap<string, DayTemplate>()
+  /** Which day template each weekday gets (D-113). */
+  weekTemplates = new SvelteMap<string, WeekTemplate>()
+  /** Days from today on already set up from templates or changed by hand (the rest are previewed). */
+  setUpDays = $state<Set<string>>(new Set())
   dayRecords = new SvelteMap<string, DayRecord>()
   /** Your day answers for habit goals (D-105), by id. */
   habitChecks = new SvelteMap<string, HabitCheck>()
@@ -276,6 +286,8 @@ class Store {
     this.remoteProjects.clear()
     this.people.clear()
     this.dayTemplates.clear()
+    this.weekTemplates.clear()
+    this.setUpDays = new Set()
     this.timeBlocks.clear()
     this.dayRecords.clear()
     this.habitChecks.clear()
@@ -353,6 +365,7 @@ class Store {
       this.events.clear()
       this.people.clear()
       this.dayTemplates.clear()
+      this.weekTemplates.clear()
       this.timeBlocks.clear()
       this.dayRecords.clear()
     this.habitChecks.clear()
@@ -391,6 +404,9 @@ class Store {
     for (const x of r.event_projects) this.applyRemote('event_project', x)
     for (const x of r.people) this.applyRemote('person', x)
     for (const x of r.day_templates) this.applyRemote('day_template', x)
+    for (const x of r.week_templates ?? []) this.applyRemote('week_template', x)
+    // Always complete (older servers don't send it: nothing is previewed then).
+    this.setUpDays = new Set(r.set_up_days?.dates ?? [])
     for (const x of r.time_blocks) this.applyRemote('time_block', x)
     for (const x of r.day_records) this.applyRemote('day_record', x)
     for (const x of r.health_days) this.applyRemote('health_day', x)
@@ -450,6 +466,7 @@ class Store {
         c.kind === 'event_project' ||
         c.kind === 'person' ||
         c.kind === 'day_template' ||
+        c.kind === 'week_template' ||
         c.kind === 'time_block' ||
         c.kind === 'day_record' ||
         c.kind === 'health_day' ||
@@ -495,6 +512,7 @@ class Store {
       event_project: this.eventProjects,
       person: this.people,
       day_template: this.dayTemplates,
+      week_template: this.weekTemplates,
       time_block: this.timeBlocks,
       day_record: this.dayRecords,
       health_day: this.healthDays,
@@ -668,6 +686,27 @@ class Store {
    */
   isUpcoming(t: Task, day = this.today): boolean {
     return !!t.occurrence_date && t.occurrence_date > day
+  }
+
+  /** A routine occurrence that can't be done before its day (D-110); the server refuses it too. */
+  tooEarly(t: Task): boolean {
+    return t.status !== 'done' && tooEarly(t, this.today)
+  }
+
+  /** "Can be done from Thursday" */
+  doableLabel(t: Task): string {
+    return `Can be done from ${fromLabel(doableFrom(t), this.today)}`
+  }
+
+  /** The disabled tick's title: "From Thursday". */
+  earlyTitle(t: Task): string {
+    const d = fromLabel(doableFrom(t), this.today)
+    return `From ${d.charAt(0).toUpperCase()}${d.slice(1)}`
+  }
+
+  /** When a task done on (logical) `day` counts as done: its time of day, or noon, never in the future (D-111). */
+  doneAtOn(day: string, prev?: string | null): string {
+    return doneAtOn(day, this.me?.timezone ?? 'UTC', this.me?.day_end ?? '00:00', Date.now(), prev)
   }
 
   /** An idea whose parent isn't one: where the "Idea" tag is shown (its subprojects follow it). */
@@ -859,16 +898,25 @@ class Store {
   updateTask(id: string, patch: TaskPatch) {
     const cur = this.tasks.get(id)
     if (!cur) return
+    // Not before its day (D-110): other changes still go through.
+    const early = cur.status !== 'done' && tooEarly({ ...cur, ...patch }, this.today)
+    if (early && patch.status === 'done') {
+      toast(this.doableLabel({ ...cur, ...patch }), 'info')
+      patch = { ...patch }
+      delete patch.status
+      delete patch.completed_at
+      if (!Object.keys(patch).length) return
+    }
     // Ticking the last step completes the task, unticking one reopens it (D-80); the
     // server does the same, this only shows it right away.
     // (Not for ongoing tasks: they're finished by hand, D-102.)
     if (patch.checklist && !patch.status && !(patch.ongoing ?? cur.ongoing)) {
       const status = statusAfter(cur.checklist, patch.checklist, cur.status)
-      if (status) patch = { ...patch, status }
+      if (status && !(early && status === 'done')) patch = { ...patch, status }
     }
     const local: Task = { ...cur, ...patch, updated_at: now() }
     if (patch.status && patch.status !== cur.status) {
-      local.completed_at = patch.status === 'done' ? now() : null
+      local.completed_at = patch.status === 'done' ? (patch.completed_at ?? now()) : null
       local.completed_by = patch.status === 'done' ? (this.me?.id ?? null) : null
       if (patch.status === 'open') local.started_at = null
       Object.assign(local, NOT_WAITING)
@@ -900,11 +948,16 @@ class Store {
       toast(`All steps done: completed “${t.title}”`, 'info', { label: 'Undo', run: () => this.tickItem(id, itemId) })
   }
 
-  toggleDone(id: string) {
+  /** Complete or reopen a task. Completed from a past day's page (`day`), it's dated on that day (D-111). */
+  toggleDone(id: string, day?: string) {
     const t = this.tasks.get(id)
     if (!t) return
     const done = t.status !== 'done'
-    this.updateTask(id, { status: done ? 'done' : 'open' })
+    if (done && this.tooEarly(t)) {
+      toast(this.doableLabel(t), 'info')
+      return
+    }
+    this.updateTask(id, done ? { status: 'done', ...(day && day < this.today ? { completed_at: this.doneAtOn(day) } : {}) } : { status: 'open' })
     if (done) toast(`Completed “${t.title}”`, 'info', { label: 'Undo', run: () => this.updateTask(id, { status: 'open' }) })
   }
 
@@ -1079,6 +1132,14 @@ class Store {
    * keep their current value on the same day, or default when the day changes:
    * appended to the end, no time slot.
    */
+  /** A done task dragged to another day (not later than today): it was done that day (D-111). */
+  moveDone(taskId: string, date: string) {
+    const t = this.tasks.get(taskId)
+    if (!t || t.status !== 'done' || date > this.today) return
+    this.updateTask(taskId, { completed_at: this.doneAtOn(date, t.completed_at) })
+    this.plan(taskId, date, { startTime: this.entryForTask(taskId)?.start_time ?? null })
+  }
+
   plan(taskId: string, date: string, opts: { position?: string; startTime?: string | null } = {}) {
     const existing = this.entryForTask(taskId)
     const sameDay = existing?.date === date
@@ -1795,8 +1856,7 @@ class Store {
     return true
   }
 
-  createTemplate(name: string, weekdays: number[], blocks: TemplateBlock[]) {
-    const id = ulid()
+  createTemplate(name: string, weekdays: number[], blocks: TemplateBlock[], id = ulid()) {
     const ts = now()
     const t: DayTemplate = {
       id,
@@ -1836,7 +1896,78 @@ class Store {
     )
   }
 
+  weekTemplateList(): WeekTemplate[] {
+    return [...this.weekTemplates.values()].sort(byPosition)
+  }
+
+  createWeekTemplate(w: Pick<WeekTemplate, 'name' | 'days' | 'mode' | 'start_date' | 'end_date'>) {
+    const id = ulid()
+    const ts = now()
+    const t: WeekTemplate = {
+      id,
+      owner_user_id: this.me?.id ?? '',
+      ...w,
+      position: keyBetween(this.weekTemplateList().at(-1)?.position, null),
+      created_at: ts,
+      updated_at: ts,
+      deleted_at: null,
+      rev: 0,
+    }
+    return this.optimistic(
+      [['week_template', id]],
+      () => this.weekTemplates.set(id, t),
+      async () => [['week_template', await api.post<WeekTemplate>('/week-templates', { id, ...w })]],
+    )
+  }
+
+  updateWeekTemplate(id: string, patch: Partial<Pick<WeekTemplate, 'name' | 'days' | 'mode' | 'start_date' | 'end_date'>>) {
+    const cur = this.weekTemplates.get(id)
+    if (!cur) return
+    return this.optimistic(
+      [['week_template', id]],
+      () => this.weekTemplates.set(id, { ...cur, ...patch }),
+      async () => [['week_template', await api.patch<WeekTemplate>(`/week-templates/${id}`, patch)]],
+    )
+  }
+
+  deleteWeekTemplate(id: string) {
+    if (!this.weekTemplates.has(id)) return
+    return this.optimistic(
+      [['week_template', id]],
+      () => this.weekTemplates.delete(id),
+      () => api.del(`/week-templates/${id}`),
+    )
+  }
+
+  /**
+   * What the templates will set up on a day the server hasn't set up yet (D-113): from
+   * today on, not set up, no blocks. Null when there's nothing to preview.
+   */
+  previewOf(date: string): { template: DayTemplate; blocks: PreviewBlock[] } | null {
+    if (date < this.today || this.setUpDays.has(date) || this.blocksOn(date).length) return null
+    const id = dayTemplateFor(date, [...this.weekTemplates.values()])
+    const template = id ? this.dayTemplates.get(id) : undefined
+    if (!template || !template.blocks.length) return null
+    const busy = this.dayItems(date)
+      .filter((i) => i.kind !== 'block')
+      .map((i): [number, number] => [i.start, i.end])
+    return { template, blocks: previewDay(template, date, this.series, busy) }
+  }
+
+  /** Where a day template is used: (week template, weekday index 0 = Monday). */
+  templateUses(id: string): [WeekTemplate, number][] {
+    const out: [WeekTemplate, number][] = []
+    for (const w of this.weekTemplateList()) w.days.forEach((d, i) => d === id && out.push([w, i]))
+    return out
+  }
+
+  /** A day's blocks were changed by hand: it's set up (no preview) from now on. */
+  private markSetUp(date: string) {
+    if (!this.setUpDays.has(date)) this.setUpDays = new Set([...this.setUpDays, date])
+  }
+
   async applyTemplate(date: string, templateId: string | null) {
+    this.markSetUp(date)
     try {
       await api.post(`/days/${date}/apply-template`, { template_id: templateId })
       await this.sync()
@@ -1849,6 +1980,7 @@ class Store {
     const id = ulid()
     const ts = now()
     const block: TimeBlock = { id, user_id: this.me?.id ?? '', date, template_id: null, created_at: ts, updated_at: ts, deleted_at: null, rev: 0, ...b }
+    this.markSetUp(date)
     return this.optimistic(
       [['time_block', id]],
       () => this.timeBlocks.set(id, block),
@@ -1859,6 +1991,7 @@ class Store {
   updateBlock(id: string, patch: Partial<Pick<TimeBlock, 'title' | 'start_time' | 'end_time' | 'energy'>>) {
     const cur = this.timeBlocks.get(id)
     if (!cur) return
+    this.markSetUp(cur.date)
     return this.optimistic(
       [['time_block', id]],
       () => this.timeBlocks.set(id, { ...cur, ...patch }),
@@ -1867,7 +2000,9 @@ class Store {
   }
 
   deleteBlock(id: string) {
-    if (!this.timeBlocks.has(id)) return
+    const cur = this.timeBlocks.get(id)
+    if (!cur) return
+    this.markSetUp(cur.date)
     return this.optimistic(
       [['time_block', id]],
       () => this.timeBlocks.delete(id),
@@ -2018,7 +2153,17 @@ class Store {
     )
   }
 
-  async createMetric(input: { name: string; kind: string; unit?: string; scale_min?: number; scale_max?: number; aggregate?: string; reminder_time?: string | null }) {
+  async createMetric(input: {
+    name: string
+    kind: string
+    unit?: string
+    scale_min?: number
+    scale_max?: number
+    aggregate?: string
+    reminder_time?: string | null
+    emoji?: string
+    presets?: number[]
+  }) {
     try {
       const m = await api.post<MetricDefinition>('/metrics', input)
       this.applyRemote('metric', m)
@@ -2027,7 +2172,10 @@ class Store {
     }
   }
 
-  updateMetric(id: string, patch: Partial<Pick<MetricDefinition, 'name' | 'unit' | 'aggregate' | 'reminder_time' | 'archived'>>) {
+  updateMetric(
+    id: string,
+    patch: Partial<Pick<MetricDefinition, 'name' | 'unit' | 'aggregate' | 'reminder_time' | 'archived' | 'emoji' | 'presets' | 'position'>>,
+  ) {
     const cur = this.metrics.get(id)
     if (!cur) return
     return this.optimistic(
@@ -2035,6 +2183,16 @@ class Store {
       () => this.metrics.set(id, { ...cur, ...patch }),
       async () => [['metric', await api.patch<MetricDefinition>(`/metrics/${id}`, patch)]],
     )
+  }
+
+  /** Move a metric one place up (-1) or down (1) among all of them, hidden ones too. */
+  moveMetric(id: string, dir: -1 | 1) {
+    const list = this.metricList(true)
+    const i = list.findIndex((m) => m.id === id)
+    const j = i + dir
+    if (i < 0 || j < 0 || j >= list.length) return
+    const others = list.filter((m) => m.id !== id).map((m) => m.position)
+    return this.updateMetric(id, { position: keyAt(others, j) })
   }
 
   deleteMetric(id: string) {
@@ -2064,13 +2222,16 @@ class Store {
 
   /** Whether the periodic goals review is due (and there's something to review). */
   goalReviewDue(): boolean {
-    if (!this.me || ![...this.goals.values()].some((g) => g.status === 'active')) return false
+    if (!this.me || ![...this.goals.values()].some((g) => g.status === 'active' && g.kind !== 'rule')) return false
     return reviewDue(this.me.review_cadence as Cadence, this.me.last_review_date, this.today, this.me.week_start)
   }
 
-  createGoal(title: string, groupId: string | null = null, kind: 'outcome' | 'habit' = 'outcome') {
+  /** A new goal, habit or rule; under `parentId` it takes that goal's owner (D-112). */
+  createGoal(title: string, groupId: string | null = null, kind: Goal['kind'] = 'outcome', parentId: string | null = null) {
     const id = ulid()
     const ts = now()
+    const parent = parentId ? this.goals.get(parentId) : undefined
+    if (parent) groupId = parent.owner_group_id
     const g: Goal = {
       id,
       owner_user_id: groupId ? null : (this.me?.id ?? null),
@@ -2079,7 +2240,9 @@ class Store {
       description: '',
       target_date: null,
       kind,
-      start_date: kind === 'habit' ? this.today : null,
+      start_date: kind === 'outcome' ? null : this.today,
+      parent_id: parent ? parent.id : null,
+      series_ids: [],
       status: 'active',
       progress_override: null,
       milestones: [],
@@ -2094,18 +2257,40 @@ class Store {
     return this.optimistic(
       [['goal', id]],
       () => this.goals.set(id, g),
-      async () => [['goal', await api.post<Goal>('/goals', { id, title, owner_group_id: groupId, kind, start_date: g.start_date })]],
+      async () => [
+        ['goal', await api.post<Goal>('/goals', { id, title, owner_group_id: groupId, kind, start_date: g.start_date, parent_id: g.parent_id })],
+      ],
     ).then(() => this.loadGoalProgress())
   }
 
   updateGoal(
     id: string,
-    patch: Partial<Pick<Goal, 'title' | 'description' | 'target_date' | 'start_date' | 'kind' | 'status' | 'progress_override' | 'milestones' | 'project_ids' | 'task_ids' | 'owner_group_id'>>,
+    patch: Partial<
+      Pick<
+        Goal,
+        | 'title'
+        | 'description'
+        | 'target_date'
+        | 'start_date'
+        | 'kind'
+        | 'status'
+        | 'progress_override'
+        | 'milestones'
+        | 'project_ids'
+        | 'task_ids'
+        | 'series_ids'
+        | 'owner_group_id'
+        | 'parent_id'
+      >
+    >,
   ) {
     const cur = this.goals.get(id)
     if (!cur) return
     const local = { ...cur, ...patch }
     if ('owner_group_id' in patch) local.owner_user_id = patch.owner_group_id ? null : (this.me?.id ?? null)
+    // Moved under another goal: it (and the server moves its sub-goals too) takes its owner.
+    const parent = patch.parent_id ? this.goals.get(patch.parent_id) : undefined
+    if (parent) Object.assign(local, { owner_user_id: parent.owner_user_id, owner_group_id: parent.owner_group_id })
     return this.optimistic(
       [['goal', id]],
       () => this.goals.set(id, local),
@@ -2113,13 +2298,37 @@ class Store {
     ).then(() => this.loadGoalProgress())
   }
 
+  /** Delete a goal; its sub-goals move up to its parent. */
   deleteGoal(id: string) {
-    if (!this.goals.has(id)) return
+    const g = this.goals.get(id)
+    if (!g) return
+    const children = [...this.goals.values()].filter((c) => c.parent_id === id)
     return this.optimistic(
-      [['goal', id]],
-      () => this.goals.delete(id),
+      [['goal', id], ...children.map((c) => ['goal', c.id] as [Kind, string])],
+      () => {
+        this.goals.delete(id)
+        for (const c of children) this.goals.set(c.id, { ...c, parent_id: g.parent_id })
+      },
       () => api.del(`/goals/${id}`),
     )
+  }
+
+  /** Goals a task, project or routine is linked to (D-112). */
+  goalsLinking(kind: LinkKind, id: string): Goal[] {
+    const field = LINK_FIELD[kind]
+    return this.goalList().filter((g) => g[field].includes(id))
+  }
+
+  linkToGoal(goalId: string, kind: LinkKind, id: string) {
+    const g = this.goals.get(goalId)
+    const field = LINK_FIELD[kind]
+    if (g && !g[field].includes(id)) return this.updateGoal(goalId, { [field]: [...g[field], id] })
+  }
+
+  unlinkFromGoal(goalId: string, kind: LinkKind, id: string) {
+    const g = this.goals.get(goalId)
+    const field = LINK_FIELD[kind]
+    if (g) return this.updateGoal(goalId, { [field]: g[field].filter((x) => x !== id) })
   }
 
   // ---- habit goals (D-105) ----------------------------------------------------

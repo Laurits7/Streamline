@@ -22,6 +22,7 @@ export const GO: Record<string, { to: string; label: string }> = {
   o: { to: '/projects', label: 'Projects' },
   r: { to: '/routines', label: 'Routines' },
   f: { to: '/focus', label: 'Focus' },
+  m: { to: '/tracking', label: 'Tracking' },
   j: { to: '/summary', label: 'Summary & journal' },
   y: { to: '/trends', label: 'Trends' },
   g: { to: '/goals', label: 'Goals' },

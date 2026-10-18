@@ -1,9 +1,15 @@
 <script lang="ts">
   import Icon from './Icon.svelte'
-  let { done, onclick, label }: { done: boolean; onclick: () => void; label: string } = $props()
+  let {
+    done,
+    onclick,
+    label,
+    disabled = false,
+    title,
+  }: { done: boolean; onclick: () => void; label: string; disabled?: boolean; title?: string } = $props()
 </script>
 
-<button class="check" class:done {onclick} aria-label={label} aria-pressed={done}>
+<button class="check" class:done {onclick} {disabled} {title} aria-label={label} aria-pressed={done}>
   <Icon name="check" size={14} />
 </button>
 
@@ -32,6 +38,16 @@
   .check:hover {
     border-color: var(--accent);
     color: var(--accent);
+  }
+  /* A routine before its day (D-110). */
+  .check:disabled {
+    border-style: dashed;
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .check:disabled:hover {
+    border-color: var(--faint);
+    color: transparent;
   }
   .check:active {
     transform: scale(0.85);

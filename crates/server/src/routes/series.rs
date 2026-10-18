@@ -563,6 +563,10 @@ pub async fn patch(
         next
     };
     let mut result = result;
+    if result.id != old.id {
+        crate::routes::goals::follow_routine(&mut tx, &old.id, &result.id, rev, &ts, &mut changes)
+            .await?;
+    }
     result.updated_at = ts;
     result.rev = rev;
     upsert_series(&mut tx, &result).await?;

@@ -1,5 +1,46 @@
 # Changelog
 
+## Unreleased (1.5.0)
+
+- Tracking has its own page (under Reflect in the menu, "Track" in the phone tab bar, or
+  g m): each day's values and entries, a 7-day strip, and past days.
+- Water is built in: tap +100 ml, +200 ml or +1 l and the day adds up. Any number metric
+  can have up to six quick amounts.
+- Settings → Tracking: give each metric an emoji, reorder or hide metrics, and add common
+  ones (sleep, steps, coffee, energy…) with one tap.
+- Routines: tick the weekdays a routine runs on straight away (all of them for every day);
+  every N days, monthly, yearly and custom rules are under "More options". "If not done in
+  time" now reads "Routine: missed if not done" or "Chore: carries on until done".
+- Chores don't pile up: when a chore's next day comes and the last one is still open, it
+  rolls on into the new one, keeping its place in your plan and its carried-over days.
+  Your streak isn't broken.
+- A routine can't be ticked off before its day (the tick shows "From Thursday"). Move it to
+  an earlier day to do it early, or skip it.
+- Change when a task was done: a done task shows "Done on" with a date and time, and the
+  day log, summary and weekly review count it on that day. On the Week planner, drag a done
+  task to the day you did it; ticking a task on a past day's page dates it on that day.
+- Goals can sit within goals ("Have a good life" → "Have good health" → a running
+  routine), with any number of top-level goals. A goal's progress is the average of its
+  parts: its own milestones and linked work, each attached routine (how often it was done
+  over the last four weeks) and each goal below it.
+- New Rules page for rules you keep for yourself ("Eat less junk"), for good or until a
+  date. Rules have no daily question; they sit under a goal and show as a reminder in the
+  weekly review.
+- Add a task, project or routine to a goal from its sheet or menu. A goal moved under a
+  shared goal is shared with it.
+- A deleted linked task no longer blocks editing its goal. Goals, reviews and habit answers
+  are now in the JSON export.
+- Day template blocks can hold routines and one-off tasks: on each day the template sets
+  up, the routines due that day (or with a slot left that week or month) and a fresh copy
+  of each task are planned into the block, one after another.
+- Several week templates: your usual week, one that alternates every other week, and ones
+  for dates (like a holiday week). Your weekday assignments become the usual week.
+- New week editor (Week → Templates, or Settings → Day templates): a week on an hour grid
+  where you draw, move and resize blocks, pick each weekday's day template and drag routines
+  and tasks into blocks, with a menu for everything you can drag.
+- The Week page previews days that aren't set up yet: their template's blocks, routines and
+  tasks, faded and marked "Preview".
+
 ## 1.4.0 (2026-10-16)
 
 - README badges: build status, latest release, licence, image, and what CI enforces.

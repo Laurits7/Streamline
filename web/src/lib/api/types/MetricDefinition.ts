@@ -5,9 +5,13 @@
  */
 export type MetricDefinition = { id: string, owner_user_id: string, 
 /**
- * `mood` or `weight` for the built-ins.
+ * `mood`, `weight` or `water` for the built-ins.
  */
-key: string | null, name: string, kind: 'number' | 'scale' | 'yes_no', 
+key: string | null, name: string, 
+/**
+ * Shown next to the name (may be empty).
+ */
+emoji: string, kind: 'number' | 'scale' | 'yes_no', 
 /**
  * Weight is stored in kg.
  */
@@ -19,4 +23,8 @@ aggregate: 'latest' | 'average' | 'sum' | 'max',
 /**
  * `HH:MM`: a reminder if nothing is logged by then.
  */
-reminder_time: string | null, archived: boolean, position: string, created_at: string, updated_at: string, deleted_at: string | null, rev: number, };
+reminder_time: string | null, 
+/**
+ * Quick amounts (number metrics): each is logged as one entry with a tap.
+ */
+presets: Array<number>, archived: boolean, position: string, created_at: string, updated_at: string, deleted_at: string | null, rev: number, };

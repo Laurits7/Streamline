@@ -49,7 +49,7 @@ export const TOUR: TourStep[] = [
     route: '/',
     targets: ['[data-tour="track"]'],
     title: 'Track how it went',
-    body: 'Mood, health, habits and a journal line, a tap each. It feeds the summary and trends.',
+    body: 'Mood, water, health, habits and a journal line, a tap each. The Tracking page has more, and it all feeds the summary and trends.',
   },
   {
     route: '/inbox',

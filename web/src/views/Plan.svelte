@@ -218,7 +218,11 @@
               <div class="review-row">
                 <span class="t">{i.task.title}</span>
                 <div class="acts">
-                  <button class="btn small" onclick={() => store.updateTask(i.task.id, { status: 'done' })}><Icon name="check" size={14} /> Done</button>
+                  <button
+                    class="btn small"
+                    disabled={store.tooEarly(i.task)}
+                    title={store.tooEarly(i.task) ? store.earlyTitle(i.task) : undefined}
+                    onclick={() => store.toggleDone(i.task.id, reviewDate)}><Icon name="check" size={14} /> Done</button>
                   {#if reviewDate !== date}
                     <button class="btn small" onclick={() => moveForward(i.task.id, i.task.title)}>→ {label}</button>
                   {/if}

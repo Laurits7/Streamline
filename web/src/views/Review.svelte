@@ -58,9 +58,11 @@
   const goals = $derived(
     store
       .goalList()
-      .filter((g) => g.status === 'active')
+      .filter((g) => g.status === 'active' && g.kind !== 'rule')
       .filter((g) => g.kind !== 'habit' || weekStrip(g, [], reviewed, store.today).some((d) => d.inPeriod && !d.future)),
   )
+  // Rules (D-112) only as a reminder: nothing to judge.
+  const rules = $derived(store.goalList().filter((g) => g.kind === 'rule' && g.status === 'active' && (!g.target_date || g.target_date >= reviewed)))
   const openEnds = $derived(ends.filter((l) => !handled.has(l.task.id) && store.tasks.get(l.task.id)?.status === 'open'))
   const counts = $derived([null, openEnds.length, waiting.length, bare.length + ideas.length, goals.length, null])
 
@@ -232,6 +234,16 @@
   {:else}
     <section class="card"><p class="muted">No active goals. <a href="/goals">Add one</a> if there's something bigger you're working towards.</p></section>
   {/each}
+  {#if rules.length}
+    <section class="card rules">
+      <div class="top"><a href="/rules"><strong>Your rules</strong></a><span class="muted small">a reminder</span></div>
+      <ul>
+        {#each rules as r (r.id)}
+          <li>{r.title}{#if r.target_date}<span class="muted small"> · until {longDate(r.target_date)}</span>{/if}</li>
+        {/each}
+      </ul>
+    </section>
+  {/if}
 {:else}
   <section class="card">
     <p class="muted lead">How {started ? 'this' : 'next'} week looks so far. Plan it in the week planner, then finish.</p>
@@ -372,9 +384,14 @@
   .ghost {
     background: transparent;
   }
-  .goal .top {
+  .goal .top,
+  .rules .top {
     display: flex;
     justify-content: space-between;
+  }
+  .rules ul {
+    margin: 6px 0 0;
+    padding-left: 18px;
   }
   .progress {
     height: 6px;

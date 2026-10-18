@@ -8,9 +8,13 @@
 // (any element) or `dropList` (an ordered list that reports an insert index).
 // Every drag action also has a non-drag alternative in the task sheet / menus.
 
+import type { TemplateItem } from './api/types/TemplateItem'
+
 export type DragItem =
   | { kind: 'task'; taskId: string; entryId?: string; durationMin: number; grabOffsetMin?: number }
   | { kind: 'project'; projectId: string }
+  /** A routine or a new one-off task going into a template block (the week editor). */
+  | { kind: 'template-item'; item: Omit<TemplateItem, 'id'> }
 
 export type DropAt = { x: number; y: number; el: HTMLElement }
 

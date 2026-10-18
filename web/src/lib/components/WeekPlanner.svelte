@@ -1,7 +1,8 @@
 <script lang="ts">
   // Week planner (D-94): a column per day with every planned task and the day's load
   // against its free time. Tasks drag between days (keeping their time) and in from the
-  // list of unplanned tasks; each day takes new tasks too.
+  // list of unplanned tasks; each day takes new tasks too. Days not set up yet preview what
+  // their template will plan (D-113).
   import type { Task } from '../api/types/Task'
   import { dayLabel, fmtMinutes, nowHHMM } from '../dates'
   import { announce } from '../announce.svelte'
@@ -9,6 +10,7 @@
   import { dayLoad } from '../planning'
   import { store } from '../store.svelte'
   import { ui } from '../ui.svelte'
+  import { hhmm } from '../weekTemplates'
   import Check from './Check.svelte'
   import Icon from './Icon.svelte'
 
@@ -35,8 +37,18 @@
     const entry = item.entryId ? store.entries.get(item.entryId) : store.entryForTask(item.taskId)
     if (entry?.date === date) return
     const t = store.tasks.get(item.taskId)
+    if (t?.status === 'done') {
+      store.moveDone(item.taskId, date)
+      announce(`“${t.title}” done ${dayLabel(date, store.today).toLowerCase()}`)
+      return
+    }
     store.plan(item.taskId, date, { startTime: entry?.start_time ?? null })
     announce(`“${t?.title}” planned for ${dayLabel(date, store.today)}`)
+  }
+  /** Open tasks go on today or later; a done one onto the day it was done, up to today (D-111). */
+  function accepts(item: DragItem, date: string): boolean {
+    if (item.kind !== 'task') return false
+    return store.tasks.get(item.taskId)?.status === 'done' ? date <= store.today : date >= store.today
   }
   function add(e: Event, date: string) {
     e.preventDefault()
@@ -73,6 +85,7 @@
     {#each days as date (date)}
       {@const l = load(date)}
       {@const past = date < store.today}
+      {@const pv = store.previewOf(date)}
       <section
         class="day card"
         class:today={date === store.today}
@@ -80,7 +93,7 @@
         class:over={over === date}
         aria-label={dayLabel(date, store.today)}
         use:droppable={{
-          accepts: (it) => it.kind === 'task' && !past,
+          accepts: (it) => accepts(it, date),
           over: () => (over = date),
           leave: () => over === date && (over = null),
           drop: (it) => drop(it, date),
@@ -102,19 +115,39 @@
               class:done={r.task.status !== 'open'}
               data-task={r.task.id}
               use:draggable={{
-                disabled: r.task.status !== 'open',
+                disabled: r.task.status !== 'open' && r.task.status !== 'done',
                 item: () => ({ kind: 'task', taskId: r.task.id, entryId: r.entry.id, durationMin: r.entry.duration_min ?? r.task.estimate_min ?? 30 }),
               }}>
-              <span data-nodrag class="chk"><Check done={r.task.status === 'done'} onclick={() => store.toggleDone(r.task.id)} label="Complete {r.task.title}" /></span>
+              <span data-nodrag class="chk" title={store.tooEarly(r.task) ? store.earlyTitle(r.task) : undefined}
+                ><Check
+                  done={r.task.status === 'done'}
+                  disabled={store.tooEarly(r.task)}
+                  title={store.tooEarly(r.task) ? store.earlyTitle(r.task) : undefined}
+                  onclick={() => store.toggleDone(r.task.id, date)}
+                  label="Complete {r.task.title}" /></span
+              >
               <button class="title main" title={r.task.title} onclick={() => (ui.editing = r.task.id)}>
                 {#if r.entry.start_time}<span class="time">{r.entry.start_time}</span>{/if}{r.task.title}
               </button>
               {#if r.task.estimate_min}<span class="est">{fmtMinutes(r.task.estimate_min)}</span>{/if}
             </li>
           {:else}
-            <li class="muted none">{past ? 'Nothing was planned.' : 'Free'}</li>
+            {#if !pv}<li class="muted none">{past ? 'Nothing was planned.' : 'Free'}</li>{/if}
           {/each}
         </ul>
+        {#if pv}
+          <ul class="pv" aria-label="Preview of {pv.template.name}">
+            <li class="pv-head" title="What “{pv.template.name}” will set up on this day (days are set up 8 days ahead)">Preview · {pv.template.name}</li>
+            {#each pv.blocks as b (b.key)}
+              <li class="pv-block"><span class="time">{hhmm(b.start)}</span>{b.title}</li>
+              {#each b.items as it (it.id)}
+                <li class="pv-row" title={it.maybe ? 'If it has a slot left that day' : undefined}>
+                  {#if it.start !== null}<span class="time">{hhmm(it.start)}</span>{/if}{it.title}{it.maybe ? '?' : ''}
+                </li>
+              {/each}
+            {/each}
+          </ul>
+        {/if}
         {#if !past}
           <form class="add" onsubmit={(e) => add(e, date)}>
             <Icon name="plus" size={14} />
@@ -271,6 +304,28 @@
     font-size: 11px;
     color: var(--muted);
     flex: none;
+  }
+  .pv {
+    opacity: 0.75;
+  }
+  .pv-head {
+    font-size: 11px;
+    font-weight: 650;
+    color: var(--accent);
+  }
+  .pv-block {
+    font-size: 12px;
+    font-weight: 650;
+    padding: 2px 2px 0;
+  }
+  .pv-row {
+    font-size: 12px;
+    padding: 4px 6px;
+    border-radius: var(--radius-sm);
+    border: 1px dashed var(--border);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .none {
     font-size: 12px;

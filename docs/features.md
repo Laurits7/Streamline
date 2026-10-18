@@ -13,8 +13,11 @@ Everything below is in the app today. *Help* inside the app explains each one st
   to another day.
 - **Week view**: a planner with a column per day and each day's load, or the week on an hour
   grid with events, timed tasks and time blocks; drag tasks between days and times.
-- **Time blocks and suggestions**: day templates with themed blocks (deep work, admin…) per
-  weekday; overlap warnings with quick fixes; an explainable "suggest times" in the planner.
+- **Time blocks and week templates**: day templates with themed blocks (deep work, admin,
+  chores…) that can hold routines and one-off tasks, planned into the block on each day;
+  several week templates (usual, alternating, for dates), edited on an hour grid and
+  previewed on the Week page; overlap warnings with quick fixes; an explainable "suggest
+  times" in the planner.
 - **End of day by task type**: *Carry on* tasks roll over to the next day (with a "carried N
   days" badge), *Expires* tasks are marked missed. The day ends at a time you choose (default
   04:00).
@@ -35,6 +38,8 @@ Everything below is in the app today. *Help* inside the app explains each one st
   Every project gets its own colour and shape.
 - **Quick-add**: type a task's steps while adding it, or add it as already done, as waiting for
   results, or as ongoing. Default tasks are suggested as you type, checklist included.
+- **Forgot to tick it off?** Change when a task was done in its sheet, drag it to the right day
+  on the Week planner, or tick it on that day's page.
 - **Process the inbox** one item at a time, with one key per decision.
 - **Search and keyboard shortcuts**: <kbd>Ctrl</kbd>+<kbd>K</kbd> (or <kbd>/</kbd>) finds tasks,
   projects, routines and pages and acts on a task; single-key shortcuts for the common
@@ -55,7 +60,9 @@ Everything below is in the app today. *Help* inside the app explains each one st
 ## Routines and chores
 
 - **Routines**: on a schedule (any iCalendar rule), at a fixed time, or N times a week/month.
-  Each occurrence is a normal task; skip or edit one, or change the routine from a date on with
+  Pick the weekdays straight away. A routine that isn't done is missed; a chore carries on
+  until done, as one task that rolls on. Nothing can be ticked off before its day. Each
+  occurrence is a normal task; skip or edit one, or change the routine from a date on with
   history kept; streaks per routine.
 - **Prerequisites and multi-step chores**: tasks can wait for other tasks (plus an extra wait,
   e.g. while the washing machine runs); chores like laundry (wash → dry → fold) with variants
@@ -87,13 +94,19 @@ More in [Integrations](guides/integrations.md).
 ## Reflect and grow
 
 - **Summary, journal and tracking**: a day summary (planned vs. done, routines, events,
-  focus), a private journal with prompts, mood, weight and custom metrics with reminders, a
-  daily health check-in, trend charts, CSV import/export and a full JSON export.
+  focus), a private journal with prompts, a daily health check-in, trend charts, CSV
+  import/export and a full JSON export.
+- **Tracking page**: mood, weight, water (+100 ml, +200 ml, +1 l taps that add up) and your own
+  metrics, each with an emoji, quick amounts and an optional reminder; choose and order them
+  in Settings.
 - **Activity log**: every day records what happened, in time order.
-- **Long-term goals**: milestones, links to projects and tasks, and progress that fills up as
-  work gets done (or set by hand).
-- **Habit goals**: things to keep up, like "eat less junk". Each day you answer yes, partly or
-  no; the Goals page shows the week, the streak and the share of good days.
+- **Long-term goals**: a tree of goals ("have a good life" → "have good health"), with
+  milestones, linked projects, tasks and routines, and progress that fills up from the parts
+  below (or set by hand).
+- **Habit goals**: things to keep up day by day. Each day you answer yes, partly or no; the
+  Goals page shows the week, the streak and the share of good days.
+- **Rules**: rules you keep for yourself, like "eat less junk", for good or until a date,
+  under any goal and listed in the weekly review.
 - **Weekly review**: the week in numbers, loose ends to plan or drop, waiting items, projects
   without a next step, a note (or verdict, for habits) per goal, then the coming week.
 

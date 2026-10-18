@@ -55,7 +55,7 @@ use crate::AppState;
         federation::create_invite, federation::remote_members, federation::remove_member, federation::join_here, federation::feed, federation::events, federation::forward, federation::leave_here, federation::list_joins, federation::create_join, federation::sync_join, federation::delete_join,
         forges::list, forges::test, forges::create, forges::patch, forges::sync_now, forges::delete,
         occasions::calendar, occasions::search, occasions::load, occasions::create_person, occasions::patch_person, occasions::delete_person, occasions::put_template,
-        blocks::create_template, blocks::patch_template, blocks::delete_template, blocks::apply_template, blocks::create_block, blocks::patch_block, blocks::delete_block, blocks::suggest,
+        blocks::create_template, blocks::patch_template, blocks::delete_template, blocks::create_week, blocks::patch_week, blocks::delete_week, blocks::apply_template, blocks::create_block, blocks::patch_block, blocks::delete_block, blocks::suggest,
         tracking::put_record, tracking::put_health, tracking::delete_health, tracking::summary, tracking::glance, tracking::create_metric, tracking::patch_metric, tracking::delete_metric, tracking::create_entry, tracking::patch_entry, tracking::delete_entry, tracking::metric_csv, tracking::import_csv, tracking::export,
         goals::create, goals::patch, goals::delete, goals::put_check, goals::delete_check, goals::all_progress, goals::review, goals::reviews,
         push::key, push::subscribe, push::unsubscribe, push::test,
@@ -249,6 +249,11 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/day-templates/{id}",
             patch(blocks::patch_template).delete(blocks::delete_template),
+        )
+        .route("/week-templates", post(blocks::create_week))
+        .route(
+            "/week-templates/{id}",
+            patch(blocks::patch_week).delete(blocks::delete_week),
         )
         .route("/days/{date}/apply-template", post(blocks::apply_template))
         .route("/days/{date}/blocks", post(blocks::create_block))

@@ -33,6 +33,7 @@ export type Route =
   | { name: 'plan'; date: string }
   | { name: 'agenda'; start: string | null }
   | { name: 'week'; start: string | null }
+  | { name: 'week-template' }
   | { name: 'inbox' }
   | { name: 'triage' }
   | { name: 'print'; date: string }
@@ -42,8 +43,10 @@ export type Route =
   | { name: 'routines' }
   | { name: 'occasions' }
   | { name: 'summary'; date: string | null }
+  | { name: 'tracking'; date: string | null }
   | { name: 'trends' }
   | { name: 'goals' }
+  | { name: 'rules' }
   | { name: 'review' }
   | { name: 'focus' }
   | { name: 'projects' }
@@ -62,6 +65,7 @@ export function match(path: string): Route {
   if ((m = p.match(/^\/agenda\/(\d{4}-\d{2}-\d{2})$/))) return { name: 'agenda', start: m[1] }
   if (p === '/week') return { name: 'week', start: null }
   if ((m = p.match(/^\/week\/(\d{4}-\d{2}-\d{2})$/))) return { name: 'week', start: m[1] }
+  if (p === '/week-template') return { name: 'week-template' }
   if (p === '/inbox') return { name: 'inbox' }
   if (p === '/inbox/process') return { name: 'triage' }
   if ((m = p.match(/^\/print\/(\d{4}-\d{2}-\d{2})$/))) return { name: 'print', date: m[1] }
@@ -72,8 +76,11 @@ export function match(path: string): Route {
   if (p === '/occasions') return { name: 'occasions' }
   if (p === '/summary') return { name: 'summary', date: null }
   if ((m = p.match(/^\/summary\/(\d{4}-\d{2}-\d{2})$/))) return { name: 'summary', date: m[1] }
+  if (p === '/tracking') return { name: 'tracking', date: null }
+  if ((m = p.match(/^\/tracking\/(\d{4}-\d{2}-\d{2})$/))) return { name: 'tracking', date: m[1] }
   if (p === '/trends') return { name: 'trends' }
   if (p === '/goals') return { name: 'goals' }
+  if (p === '/rules') return { name: 'rules' }
   // The goals review is part of the weekly review now (10.4); its old address still works.
   if (p === '/review' || p === '/goals/review') return { name: 'review' }
   if (p === '/focus') return { name: 'focus' }

@@ -21,6 +21,7 @@ pub mod planning;
 pub mod print;
 pub mod recurrence;
 pub mod rollover;
+pub mod templates;
 pub mod time;
 pub mod tracking;
 pub mod tree;

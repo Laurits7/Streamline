@@ -739,6 +739,80 @@ then the gate.
 
 ---
 
+### Phase 11: Tracking, routine days, done times, goal tree and rules (v1.5, D-107)
+
+Developed on the `v1.5` branch. Owner requests of 2026-10-17. Migrations: 0036 tracking,
+0037 goal tree and rules.
+
+- [x] **11.1 Tracking tab and metric choice** (D-108): `/tracking` in the sidebar and the
+      phone tab bar (log every shown metric for a day, with day navigation, the day's
+      entries, a 7-day strip, health and habit check-ins, link to Trends); metrics get an
+      emoji and quick amounts (`presets`); built-in **water** (ml, summed per day, buttons
+      +100 ml, +200 ml, +1 l, configurable); Settings: emoji, quick amounts, order, show or
+      hide, and suggestions to add (sleep, steps, coffee, energy); Today's Track card uses
+      the same widgets; tests; help and CHANGELOG.
+- [x] **11.2 Routine days, chores that roll on, nothing done early** (D-109, D-110): the
+      routine sheet shows day chips straight away for "on a schedule" and "at a fixed
+      time" (all days = every day); "If not done in time" reads *Routine: missed* /
+      *Chore: carries on until done*; a carry-on routine keeps **one** open occurrence (at
+      day start older open ones are folded into the newest: skipped as *rolled on*, plan
+      and carry count moved); an occurrence can't be completed before its day (server
+      refuses, rows show it as not yet due; skip and won't do stay allowed); domain +
+      server tests; help and CHANGELOG.
+- [x] **11.3 Change when a task was done** (D-111): `PATCH /tasks/{id}` takes
+      `completed_at` (not in the future; the completed event moves with it, so the day log
+      follows); task sheet shows and edits "Done on"; Week planner lets a done task be
+      dragged to an earlier day (also past days) to set its done day; completing from a
+      past day's page dates it on that day; tests; help and CHANGELOG.
+- [x] **11.4 Goal tree, attachments and rules** (D-112): `goals.parent_id` (any number of
+      top-level goals; a child has its parent's owner; no cycles, `domain::tree`),
+      `goals.series_ids` (routines attach, counted by how often they were done in the last
+      four weeks), parent progress from its children and its own linked work
+      (`domain::goals`, tested); a third kind **rule** ("eat less junk": no daily
+      question, a period that may have no end) with its own **Rules** tab; goals can be
+      attached from the task sheet, the project page, the routine sheet and the rule;
+      goals page shows the tree with sub-goals; only newly linked ids are checked (a
+      deleted linked task no longer blocks edits); goals in the JSON export; tests; help
+      and CHANGELOG.
+- [ ] **11.5 Phase gate** (Part D) for v1.5.
+      *Done 2026-10-17:* fmt, clippy, all tests (server, domain, web) and the web build green;
+      TS types regenerated; docs site builds with `--strict`; new migrations tried on a copy
+      of an older database; API smoke test of every new flow on a fresh server.
+      *2026-10-18:* resource log updated (image 16.7 MB, idle 9.4 MiB, 117.7 KB initial);
+      security review done, nothing to fix (D-114). *Left for the owner:* a look at the new
+      pages in a browser (desktop and phone width), the phone and HTTPS smoke test, push so
+      CI runs, and the release.
+
+---
+
+### Phase 12: Week templates with routines and tasks in blocks (v1.5, D-113)
+
+Owner request of 2026-10-18. On the `v1.5` branch, after Phase 11. Migration 0038.
+
+- [x] **12.1 Routines and tasks in template blocks**: a template block holds items (a
+      routine, or a one-off task with title, estimate and notes); on each day the template
+      sets up, the routine's occurrence due that day (or one open slot of an N-per-week
+      routine) is planned into that block, one after another from the block's start, and
+      one-off items become a fresh task there (once per day: deleted or moved ones don't
+      come back); days changed by hand are left alone as before (D-58); placement in
+      `domain` with tests; server tests.
+- [x] **12.2 Several week templates**: a week template maps each weekday to a day template
+      (or none); one is the default, one can alternate with it every other week, and others
+      apply for a date range ("Holiday week"); existing weekday assignments become the
+      default week template; which day template a date gets is resolved in `domain`
+      (tested) and used by the 8-day set-up.
+- [x] **12.3 Visual week editor**: `/week-template` (Settings and the Week view link to it):
+      pick a week template, 7 day columns on an hour grid; draw, move and resize blocks, set
+      their theme and energy; drag routines (searchable list) and new one-off tasks into
+      blocks, with a menu alternative for every drag (§6.12); choose a day template per
+      weekday; manage week templates (default, alternating, date range).
+- [x] **12.4 Preview on the Week view**: days not set up yet show their template's blocks
+      and the routines and tasks it will put there, marked as a preview; help and
+      CHANGELOG.
+- [ ] **12.5 Phase gate** (with 11.5): see 11.5.
+
+---
+
 ## Part C. Open questions with proposed defaults
 
 > **Status: all defaults below accepted by the owner on 2026-10-05** (recorded as D-1…D-23

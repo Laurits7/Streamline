@@ -19,6 +19,7 @@
     dragClosed = false,
     planButton = false,
     planDate = null,
+    doneDay = null,
   }: {
     task: Task
     entry?: DayEntry | null
@@ -29,6 +30,8 @@
     dragClosed?: boolean
     planButton?: boolean
     planDate?: string | null
+    /** The day shown: ticked on a past day's page, it was done that day (D-111). */
+    doneDay?: string | null
   } = $props()
 
   const project = $derived(task.project_id ? store.projects.get(task.project_id) : null)
@@ -41,6 +44,8 @@
   const prog = $derived(ongoing ? progress(task, store.today, store.me?.week_start ?? 1) : null)
   const overdue = $derived(task.status === 'open' && !ongoing && !!task.due_date && task.due_date < store.today)
   const closed = $derived(task.status !== 'open')
+  // A routine before its day can't be ticked yet (D-110).
+  const early = $derived(store.tooEarly(task))
   const waitingOn = $derived(
     task.blocked ? task.depends_on.map((id) => store.tasks.get(id)).filter((d) => d && d.status === 'open') : [],
   )
@@ -79,9 +84,11 @@
       onclick={() => store.markWorked(task.id, target, !workedOn(task, target))}
       label={workedOn(task, target) ? `Unmark working on ${task.title}` : `Worked on ${task.title}`} /></span>
   {:else if task.status === 'open' || task.status === 'done'}
-    <span data-nodrag class="check-wrap"><Check
+    <span data-nodrag class="check-wrap" title={early ? store.earlyTitle(task) : undefined}><Check
       done={task.status === 'done'}
-      onclick={() => store.toggleDone(task.id)}
+      disabled={early}
+      title={early ? store.earlyTitle(task) : undefined}
+      onclick={() => store.toggleDone(task.id, doneDay ?? undefined)}
       label={task.status === 'done' ? `Mark ${task.title} as not done` : `Complete ${task.title}`} /></span>
   {:else}
     <span class="status-dot" title={statusLabel[task.status]}><Icon name="x" size={12} /></span>

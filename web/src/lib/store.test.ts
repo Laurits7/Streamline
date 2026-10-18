@@ -128,7 +128,7 @@ function mockApi(handler: Handler) {
 function syncResponse(data: Partial<SyncResponse> = {}): SyncResponse {
   return { rev: 10, full: true, me: ME, today: '2026-10-06', task_types: [], projects: [], tasks: [], day_entries: [], day_plans: [],
     focus_timer: { task_id: null, phase: 'idle', running_since_ms: null, elapsed_ms: 0, length_min: 0, cycle_done: 0, mute: false, screens: 'off', rev: 0 },
-    focus_sessions: [], series: [], places: [], workflows: [], task_templates: [], groups: [], remote_projects: [], calendar_account: null, calendars: [], events: [], event_projects: [], people: [], occasion_templates: [], day_templates: [], time_blocks: [], day_records: [], metrics: [], metric_entries: [], habit_checks: [], health_days: [], goals: [], server_now: Date.now(), ...data }
+    focus_sessions: [], series: [], places: [], workflows: [], task_templates: [], groups: [], remote_projects: [], calendar_account: null, calendars: [], events: [], event_projects: [], people: [], occasion_templates: [], day_templates: [], week_templates: [], set_up_days: { dates: [] }, time_blocks: [], day_records: [], metrics: [], metric_entries: [], habit_checks: [], health_days: [], goals: [], server_now: Date.now(), ...data }
 }
 
 /** Load the store with a full sync of the given data. */
@@ -199,6 +199,42 @@ describe('optimistic updates', () => {
     store.updateTask('T1', { status: 'done' })
     expect(store.tasks.get('T1')).toMatchObject({ status: 'done', completed_by: 'U1' })
     expect(store.tasks.get('T1')?.completed_at).toBeTruthy()
+  })
+})
+
+describe('when a task can be and was done (D-110, D-111)', () => {
+  const tomorrow = (extra: Partial<Task> = {}) =>
+    task('R1', { series_id: 'S1', occurrence_key: '2026-10-07', occurrence_date: '2026-10-07', due_date: '2026-10-07', ...extra })
+
+  it("doesn't complete a routine before its day", async () => {
+    await load({ tasks: [tomorrow({ checklist: [{ id: 'a', text: 'Legs', done: false }] })] })
+    mockApi(() => new Promise(() => {}))
+    expect(store.tooEarly(store.tasks.get('R1')!)).toBe(true)
+    store.toggleDone('R1')
+    expect(store.tasks.get('R1')?.status).toBe('open')
+    expect(toasts.at(-1)?.text).toBe('Can be done from tomorrow')
+    expect(calls).toHaveLength(0)
+    // The last step ticks, the task stays open.
+    store.tickItem('R1', 'a')
+    expect(store.tasks.get('R1')).toMatchObject({ status: 'open', checklist: [{ done: true }] })
+    // Skipping is fine.
+    store.updateTask('R1', { status: 'skipped' })
+    expect(store.tasks.get('R1')?.status).toBe('skipped')
+  })
+
+  it('completes one moved to today', async () => {
+    await load({ tasks: [tomorrow({ due_date: '2026-10-06' })] })
+    mockApi(() => new Promise(() => {}))
+    store.toggleDone('R1')
+    expect(store.tasks.get('R1')?.status).toBe('done')
+  })
+
+  it('dates a completion from a past day on that day', async () => {
+    await load({ tasks: [task('T1')] })
+    mockApi(() => new Promise(() => {}))
+    store.toggleDone('T1', '2026-10-04')
+    expect(store.tasks.get('T1')?.completed_at).toBe('2026-10-04T12:00:00.000Z')
+    expect(calls[0].body).toMatchObject({ status: 'done', completed_at: '2026-10-04T12:00:00.000Z' })
   })
 })
 

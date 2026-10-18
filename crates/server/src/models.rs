@@ -1191,6 +1191,30 @@ pub struct TemplateBlock {
     pub end: String,
     /// `hard`, `medium` or `easy`: what kind of task the planner puts here.
     pub energy: Option<String>,
+    /// Routines and one-off tasks planned into the block on each day it's set up (D-113).
+    #[serde(default)]
+    pub items: Vec<TemplateItem>,
+}
+
+/// Something a template block plans on its days: a routine (when it has an occurrence
+/// that day) or a one-off task (a new one each day).
+#[derive(Debug, Clone, Serialize, serde::Deserialize, TS, utoipa::ToSchema, PartialEq)]
+#[ts(export)]
+pub struct TemplateItem {
+    /// ULID; one-off tasks are made once per item and day.
+    pub id: String,
+    #[ts(type = "'routine' | 'task'")]
+    pub kind: String,
+    /// The routine (kind `routine`).
+    #[serde(default)]
+    pub series_id: Option<String>,
+    /// The task's title (kind `task`).
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub estimate_min: Option<i32>,
+    #[serde(default)]
+    pub notes: Option<String>,
 }
 
 /// A reusable layout of time blocks (SPEC §6.8).
@@ -1224,6 +1248,49 @@ pub async fn upsert_day_template(conn: &mut SqliteConnection, t: &DayTemplate) -
     )
     .bind(&t.id).bind(&t.owner_user_id).bind(&t.name).bind(&t.weekdays).bind(&t.blocks).bind(&t.position)
     .bind(&t.created_at).bind(&t.updated_at).bind(&t.deleted_at).bind(t.rev)
+    .execute(conn)
+    .await
+    .map(|_| ())
+}
+
+/// Which day template each weekday gets (D-113): the default week, an alternating one, or
+/// one for a date range.
+#[derive(Debug, Clone, Serialize, FromRow, TS, utoipa::ToSchema)]
+#[ts(export)]
+pub struct WeekTemplate {
+    pub id: String,
+    pub owner_user_id: String,
+    pub name: String,
+    /// Day template ids (or `null`: no blocks), Monday first; always 7.
+    #[ts(as = "Vec<Option<String>>")]
+    #[schema(value_type = Vec<Option<String>>)]
+    pub days: sqlx::types::Json<Vec<Option<String>>>,
+    /// `default`, `alternate` (every other week from the week of `start_date`) or
+    /// `range` (`start_date` to `end_date`, inclusive).
+    #[ts(type = "'default' | 'alternate' | 'range'")]
+    pub mode: String,
+    pub start_date: Option<String>,
+    pub end_date: Option<String>,
+    pub position: String,
+    pub created_at: String,
+    pub updated_at: String,
+    pub deleted_at: Option<String>,
+    #[ts(type = "number")]
+    pub rev: i64,
+}
+
+pub async fn upsert_week_template(
+    conn: &mut SqliteConnection,
+    t: &WeekTemplate,
+) -> sqlx::Result<()> {
+    sqlx::query(
+        "INSERT INTO week_templates (id, owner_user_id, name, days, mode, start_date, end_date, position, created_at, updated_at, deleted_at, rev)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+         ON CONFLICT(id) DO UPDATE SET name=excluded.name, days=excluded.days, mode=excluded.mode, start_date=excluded.start_date,
+           end_date=excluded.end_date, position=excluded.position, updated_at=excluded.updated_at, deleted_at=excluded.deleted_at, rev=excluded.rev",
+    )
+    .bind(&t.id).bind(&t.owner_user_id).bind(&t.name).bind(&t.days).bind(&t.mode).bind(&t.start_date).bind(&t.end_date)
+    .bind(&t.position).bind(&t.created_at).bind(&t.updated_at).bind(&t.deleted_at).bind(t.rev)
     .execute(conn)
     .await
     .map(|_| ())
@@ -1335,9 +1402,11 @@ pub async fn upsert_day_record(conn: &mut SqliteConnection, r: &DayRecord) -> sq
 pub struct MetricDefinition {
     pub id: String,
     pub owner_user_id: String,
-    /// `mood` or `weight` for the built-ins.
+    /// `mood`, `weight` or `water` for the built-ins.
     pub key: Option<String>,
     pub name: String,
+    /// Shown next to the name (may be empty).
+    pub emoji: String,
     #[ts(type = "'number' | 'scale' | 'yes_no'")]
     pub kind: String,
     /// Weight is stored in kg.
@@ -1349,6 +1418,10 @@ pub struct MetricDefinition {
     pub aggregate: String,
     /// `HH:MM`: a reminder if nothing is logged by then.
     pub reminder_time: Option<String>,
+    /// Quick amounts (number metrics): each is logged as one entry with a tap.
+    #[ts(type = "Array<number>")]
+    #[schema(value_type = Vec<f64>)]
+    pub presets: sqlx::types::Json<Vec<f64>>,
     #[serde(skip)]
     #[ts(skip)]
     pub last_reminded: Option<String>,
@@ -1363,15 +1436,15 @@ pub struct MetricDefinition {
 
 pub async fn upsert_metric(conn: &mut SqliteConnection, m: &MetricDefinition) -> sqlx::Result<()> {
     sqlx::query(
-        "INSERT INTO metric_definitions (id, owner_user_id, key, name, kind, unit, scale_min, scale_max, aggregate, reminder_time, last_reminded,
-           archived, position, created_at, updated_at, deleted_at, rev)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-         ON CONFLICT(id) DO UPDATE SET name=excluded.name, unit=excluded.unit, scale_min=excluded.scale_min, scale_max=excluded.scale_max,
+        "INSERT INTO metric_definitions (id, owner_user_id, key, name, emoji, kind, unit, scale_min, scale_max, aggregate, reminder_time, presets,
+           last_reminded, archived, position, created_at, updated_at, deleted_at, rev)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+         ON CONFLICT(id) DO UPDATE SET name=excluded.name, emoji=excluded.emoji, presets=excluded.presets, unit=excluded.unit, scale_min=excluded.scale_min, scale_max=excluded.scale_max,
            aggregate=excluded.aggregate, reminder_time=excluded.reminder_time, last_reminded=excluded.last_reminded,
            archived=excluded.archived, position=excluded.position, updated_at=excluded.updated_at, deleted_at=excluded.deleted_at, rev=excluded.rev",
     )
-    .bind(&m.id).bind(&m.owner_user_id).bind(&m.key).bind(&m.name).bind(&m.kind).bind(&m.unit).bind(m.scale_min).bind(m.scale_max)
-    .bind(&m.aggregate).bind(&m.reminder_time).bind(&m.last_reminded).bind(m.archived).bind(&m.position)
+    .bind(&m.id).bind(&m.owner_user_id).bind(&m.key).bind(&m.name).bind(&m.emoji).bind(&m.kind).bind(&m.unit).bind(m.scale_min).bind(m.scale_max)
+    .bind(&m.aggregate).bind(&m.reminder_time).bind(&m.presets).bind(&m.last_reminded).bind(m.archived).bind(&m.position)
     .bind(&m.created_at).bind(&m.updated_at).bind(&m.deleted_at).bind(m.rev)
     .execute(conn)
     .await
@@ -1430,13 +1503,20 @@ pub struct Goal {
     pub owner_group_id: Option<String>,
     pub title: String,
     pub description: String,
-    /// Outcomes: the target date. Habits: when the period ends (`null` = for good).
+    /// Outcomes: the target date. Habits and rules: when the period ends (`null` = for good).
     pub target_date: Option<String>,
-    /// `outcome` (reached once: milestones, linked work) or `habit` (kept day by day; D-105).
-    #[ts(type = "'outcome' | 'habit'")]
+    /// `outcome` (reached once: milestones, linked work), `habit` (kept day by day; D-105)
+    /// or `rule` (a rule for oneself, no daily question or progress; D-112).
+    #[ts(type = "'outcome' | 'habit' | 'rule'")]
     pub kind: String,
-    /// Habits: when the period starts (`null` = from its creation).
+    /// Habits and rules: when the period starts (`null` = from its creation).
     pub start_date: Option<String>,
+    /// The goal it's part of (D-112); a child has its parent's owner.
+    pub parent_id: Option<String>,
+    /// Attached routines (D-112): each counts with its four-week rate.
+    #[ts(as = "Vec<String>")]
+    #[schema(value_type = Vec<String>)]
+    pub series_ids: sqlx::types::Json<Vec<String>>,
     #[ts(type = "'active' | 'paused' | 'achieved' | 'dropped'")]
     pub status: String,
     /// 0–1, set by hand; `null` = derived from milestones and linked work.
@@ -1493,17 +1573,18 @@ pub async fn upsert_habit_check(conn: &mut SqliteConnection, c: &HabitCheck) -> 
 pub async fn upsert_goal(conn: &mut SqliteConnection, g: &Goal) -> sqlx::Result<()> {
     sqlx::query(
         "INSERT INTO goals (id, owner_user_id, owner_group_id, title, description, target_date, status, progress_override, milestones,
-           project_ids, task_ids, position, created_at, updated_at, deleted_at, rev, kind, start_date)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+           project_ids, task_ids, position, created_at, updated_at, deleted_at, rev, kind, start_date, parent_id, series_ids)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
          ON CONFLICT(id) DO UPDATE SET owner_user_id=excluded.owner_user_id, owner_group_id=excluded.owner_group_id, title=excluded.title,
            description=excluded.description, target_date=excluded.target_date, status=excluded.status, progress_override=excluded.progress_override,
            milestones=excluded.milestones, project_ids=excluded.project_ids, task_ids=excluded.task_ids, position=excluded.position,
            updated_at=excluded.updated_at, deleted_at=excluded.deleted_at, rev=excluded.rev,
-           kind=excluded.kind, start_date=excluded.start_date",
+           kind=excluded.kind, start_date=excluded.start_date, parent_id=excluded.parent_id, series_ids=excluded.series_ids",
     )
     .bind(&g.id).bind(&g.owner_user_id).bind(&g.owner_group_id).bind(&g.title).bind(&g.description).bind(&g.target_date)
     .bind(&g.status).bind(g.progress_override).bind(&g.milestones).bind(&g.project_ids).bind(&g.task_ids).bind(&g.position)
     .bind(&g.created_at).bind(&g.updated_at).bind(&g.deleted_at).bind(g.rev).bind(&g.kind).bind(&g.start_date)
+    .bind(&g.parent_id).bind(&g.series_ids)
     .execute(conn)
     .await
     .map(|_| ())

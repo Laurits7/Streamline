@@ -280,6 +280,21 @@ fn check_metric(m: &MetricDefinition) -> ApiResult<()> {
     if let Some(t) = &m.reminder_time {
         check_hhmm(t)?;
     }
+    if m.emoji.len() > 32 || m.emoji.chars().any(char::is_control) {
+        return Err(bad("emoji must be at most 32 bytes"));
+    }
+    if !m.presets.is_empty() && m.kind != "number" {
+        return Err(bad("quick amounts are for number metrics"));
+    }
+    if m.presets.len() > 6 {
+        return Err(bad("at most 6 quick amounts"));
+    }
+    if m.presets
+        .iter()
+        .any(|v| !v.is_finite() || *v == 0.0 || v.abs() > 1e6)
+    {
+        return Err(bad("quick amounts must be non-zero numbers up to 1000000"));
+    }
     Ok(())
 }
 
@@ -296,6 +311,12 @@ pub struct CreateMetric {
     /// Defaults: number → latest, scale → average, yes_no → max.
     aggregate: Option<String>,
     reminder_time: Option<String>,
+    /// Shown next to the name.
+    #[serde(default)]
+    emoji: String,
+    /// Quick amounts (number metrics, at most 6), each logged as one entry with a tap.
+    #[serde(default)]
+    presets: Vec<f64>,
 }
 
 #[utoipa::path(post, path = "/metrics", tag = "tracking", summary = "Track something new (sleep, water, steps…)", request_body = CreateMetric, responses((status = 200, body = MetricDefinition), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
@@ -338,12 +359,14 @@ pub async fn create_metric(
         owner_user_id: user.id().into(),
         key: None,
         name: c.name.trim().into(),
+        emoji: c.emoji.trim().into(),
         kind: c.kind,
         unit: c.unit.trim().into(),
         scale_min,
         scale_max,
         aggregate,
         reminder_time: c.reminder_time,
+        presets: sqlx::types::Json(c.presets),
         last_reminded: None,
         archived: false,
         position: key_after(last.as_deref()),
@@ -370,6 +393,9 @@ pub struct PatchMetric {
     reminder_time: Option<Option<String>>,
     archived: Option<bool>,
     position: Option<String>,
+    emoji: Option<String>,
+    /// Replaces the quick amounts (`[]` clears them).
+    presets: Option<Vec<f64>>,
 }
 
 async fn load_metric(
@@ -385,7 +411,7 @@ async fn load_metric(
         .ok_or(AppError::NotFound)
 }
 
-#[utoipa::path(patch, path = "/metrics/{id}", tag = "tracking", summary = "Rename, archive or set a reminder for a metric", params(("id" = String, Path, description = "ULID")), request_body = PatchMetric, responses((status = 200, body = MetricDefinition), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
+#[utoipa::path(patch, path = "/metrics/{id}", tag = "tracking", summary = "Rename, archive, reorder or set a reminder, emoji or quick amounts for a metric", params(("id" = String, Path, description = "ULID")), request_body = PatchMetric, responses((status = 200, body = MetricDefinition), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
 pub async fn patch_metric(
     State(state): State<AppState>,
     user: AuthUser,
@@ -397,9 +423,16 @@ pub async fn patch_metric(
     if let Some(v) = c.name {
         m.name = v.trim().into();
     }
-    // The built-in weight is always stored in kg (shown in lb for imperial units).
-    if let Some(v) = c.unit.filter(|_| m.key.as_deref() != Some("weight")) {
+    // Built-ins keep their unit: weight is always stored in kg (shown in lb for imperial
+    // units), water in ml.
+    if let Some(v) = c.unit.filter(|_| m.key.is_none()) {
         m.unit = v.trim().into();
+    }
+    if let Some(v) = c.emoji {
+        m.emoji = v.trim().into();
+    }
+    if let Some(v) = c.presets {
+        m.presets = sqlx::types::Json(v);
     }
     if m.kind == "scale" && m.key.is_none() {
         if let Some(v) = c.scale_min {
@@ -740,9 +773,19 @@ pub async fn export(State(state): State<AppState>, user: AuthUser) -> ApiResult<
         let s: Option<String> = sqlx::query_scalar(&wrapped).bind(uid).fetch_one(db).await?;
         Ok(serde_json::from_str(&s.unwrap_or_else(|| "[]".into())).unwrap_or(Value::Array(vec![])))
     }
+    // `owner` is the owner column, or a whole condition on `?1` (the user).
     let obj = |table: &str, owner: &str| {
-        format!("json_object(*) AS j FROM {table} WHERE {owner} = ?1 AND deleted_at IS NULL")
+        if owner.contains("?1") {
+            format!("json_object(*) AS j FROM {table} WHERE {owner}")
+        } else {
+            format!("json_object(*) AS j FROM {table} WHERE {owner} = ?1 AND deleted_at IS NULL")
+        }
     };
+    // Goals you can see (yours and your groups'; D-112), and your own reviews and answers.
+    let visible_goals = format!(
+        "deleted_at IS NULL AND {}",
+        crate::visibility::OWNED_VISIBLE_SQL
+    );
     // SQLite has no json_object(*): build each table's object from its columns.
     let mut out = serde_json::Map::new();
     out.insert("exported_at".into(), json!(now()));
@@ -766,8 +809,16 @@ pub async fn export(State(state): State<AppState>, user: AuthUser) -> ApiResult<
         ("default_tasks", "task_templates", "owner_user_id"),
         ("people", "people", "owner_user_id"),
         ("day_templates", "day_templates", "owner_user_id"),
+        ("week_templates", "week_templates", "owner_user_id"),
         ("time_blocks", "time_blocks", "user_id"),
         ("event_projects", "event_projects", "user_id"),
+        ("goals", "goals", visible_goals.as_str()),
+        ("goal_reviews", "goal_reviews", "user_id = ?1"),
+        (
+            "habit_checks",
+            "habit_checks",
+            "user_id = ?1 AND deleted_at IS NULL",
+        ),
     ] {
         let cols: Vec<String> = sqlx::query_scalar("SELECT name FROM pragma_table_info(?)")
             .bind(table)

@@ -1328,20 +1328,22 @@ async fn routine_day_end_rules_and_streaks() {
     assert!(v["window_end"].as_str().unwrap() >= ymd(today).as_str());
     assert_eq!(v["carry_count"], 1);
 
-    // Streaks: completing the next vitamins (early) after yesterday's miss = 1.
+    // Streaks: completing the next vitamins (moved to today) after yesterday's miss = 1.
     let tomorrow = today + chrono::Duration::days(1);
     let today_vit = occurrences(&t, &admin, vit["id"].as_str().unwrap())
         .await
         .into_iter()
         .find(|o| o["occurrence_date"] == ymd(tomorrow))
         .unwrap();
-    t.req(
-        "PATCH",
-        &format!("/api/v1/tasks/{}", today_vit["id"].as_str().unwrap()),
-        Some(&admin),
-        Some(json!({"status": "done"})),
-    )
-    .await;
+    let (s, _, _) = t
+        .req(
+            "PATCH",
+            &format!("/api/v1/tasks/{}", today_vit["id"].as_str().unwrap()),
+            Some(&admin),
+            Some(json!({"due_date": ymd(today), "status": "done"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK);
     let (_, stats, _) = t
         .req("GET", "/api/v1/series/stats", Some(&admin), None)
         .await;
@@ -1353,6 +1355,244 @@ async fn routine_day_end_rules_and_streaks() {
         .unwrap();
     assert_eq!(s["streak"], 1);
     assert_eq!(s["next_date"], ymd(today));
+}
+
+#[tokio::test]
+async fn carry_on_routines_roll_on() {
+    let t = setup().await;
+    let admin = t.admin().await;
+    let today = today_of(&t, &admin).await;
+    let start = today - chrono::Duration::days(14);
+    let mk = |title: &'static str, ty: &'static str| {
+        let (t, admin) = (&t, admin.clone());
+        async move {
+            t.req("POST", "/api/v1/series", Some(&admin), Some(json!({"title": title, "mode": "repeat", "rrule": "FREQ=WEEKLY;BYDAY=MO,TH", "dtstart": ymd(start), "task_type_id": ty})))
+                .await
+                .1["id"]
+                .as_str()
+                .unwrap()
+                .to_string()
+        }
+    };
+    let chore = mk("Clean the bathroom", "tt_carry_on").await;
+    let gym = mk("Gym", "tt_expires").await;
+    // The past two weeks' Mondays and Thursdays, left undone (created by catching up).
+    sqlx::query("UPDATE series SET materialized_through = ?")
+        .bind(ymd(start - chrono::Duration::days(1)))
+        .execute(&t.state.db.write)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE users SET last_rollover_date = ?")
+        .bind(ymd(today))
+        .execute(&t.state.db.write)
+        .await
+        .unwrap();
+    t.req("GET", "/api/v1/sync", Some(&admin), None).await;
+    let past = |occ: Vec<Value>| -> Vec<Value> {
+        occ.into_iter()
+            .filter(|o| o["occurrence_date"].as_str().unwrap() <= ymd(today).as_str())
+            .collect()
+    };
+    let before = past(occurrences(&t, &admin, &chore).await);
+    assert!(before.len() >= 3, "{before:?}");
+    // The oldest was planned on its day and had been carried twice already.
+    let oldest = before[0].clone();
+    let oldest_day = oldest["occurrence_date"].as_str().unwrap().to_string();
+    let (s, _, _) = t
+        .req(
+            "POST",
+            &format!("/api/v1/days/{oldest_day}/entries"),
+            Some(&admin),
+            Some(json!({"task_id": oldest["id"]})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    sqlx::query("UPDATE tasks SET carry_count = 2 WHERE id = ?")
+        .bind(oldest["id"].as_str().unwrap())
+        .execute(&t.state.db.write)
+        .await
+        .unwrap();
+
+    // Day start: one open occurrence is left, the latest one whose day has come.
+    sqlx::query("UPDATE users SET last_rollover_date = NULL")
+        .execute(&t.state.db.write)
+        .await
+        .unwrap();
+    t.req("GET", "/api/v1/sync", Some(&admin), None).await;
+    let after = past(occurrences(&t, &admin, &chore).await);
+    let open: Vec<&Value> = after.iter().filter(|o| o["status"] == "open").collect();
+    assert_eq!(open.len(), 1, "{after:?}");
+    let newest = open[0];
+    assert_eq!(newest["id"], after.last().unwrap()["id"]);
+    assert!(
+        after[..after.len() - 1]
+            .iter()
+            .all(|o| o["status"] == "skipped")
+    );
+    let rolled: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM task_events WHERE kind = 'rolled_on' AND json_extract(data, '$.to') = ?")
+            .bind(newest["id"].as_str().unwrap())
+            .fetch_one(&t.state.db.read)
+            .await
+            .unwrap();
+    assert_eq!(rolled as usize, after.len() - 1);
+    // The plan entry moved to it (and on to today), with the time it has been carried.
+    let (_, day, _) = t
+        .req(
+            "GET",
+            &format!("/api/v1/days/{}", ymd(today)),
+            Some(&admin),
+            None,
+        )
+        .await;
+    assert!(
+        day["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|e| e["task_id"] == newest["id"])
+    );
+    let first = chrono::NaiveDate::parse_from_str(&oldest_day, "%Y-%m-%d").unwrap();
+    assert_eq!(newest["carry_count"], 2 + (today - first).num_days());
+
+    // Done counts for the latest day; the rolled-on ones don't break the streak.
+    t.req(
+        "PATCH",
+        &format!("/api/v1/tasks/{}", newest["id"].as_str().unwrap()),
+        Some(&admin),
+        Some(json!({"status": "done"})),
+    )
+    .await;
+    let (_, stats, _) = t
+        .req("GET", "/api/v1/series/stats", Some(&admin), None)
+        .await;
+    let st = stats
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["series_id"] == chore.as_str())
+        .unwrap()
+        .clone();
+    assert_eq!(st["streak"], 1);
+
+    // A routine that expires still goes missed, day by day.
+    let gym = past(occurrences(&t, &admin, &gym).await);
+    assert!(
+        gym.iter()
+            .filter(|o| o["occurrence_date"].as_str().unwrap() < ymd(today).as_str())
+            .all(|o| o["status"] == "missed"),
+        "{gym:?}"
+    );
+}
+
+#[tokio::test]
+async fn routine_not_done_before_its_day() {
+    let t = setup().await;
+    let admin = t.admin().await;
+    let today = today_of(&t, &admin).await;
+    let tomorrow = today + chrono::Duration::days(1);
+    let (_, s, _) = t
+        .req("POST", "/api/v1/series", Some(&admin), Some(json!({"title": "Stretch", "mode": "repeat", "rrule": "FREQ=DAILY", "checklist": [{"id": "a", "text": "Legs", "done": false}]})))
+        .await;
+    let occ = occurrences(&t, &admin, s["id"].as_str().unwrap()).await;
+    let next = occ
+        .iter()
+        .find(|o| o["occurrence_date"] == ymd(tomorrow))
+        .unwrap();
+    let path = format!("/api/v1/tasks/{}", next["id"].as_str().unwrap());
+    let (s, v, _) = t
+        .req(
+            "PATCH",
+            &path,
+            Some(&admin),
+            Some(json!({"status": "done"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    assert!(
+        v["detail"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("can be done from"),
+        "{v}"
+    );
+    // Ticking its last step ticks the step but doesn't complete it.
+    let (s, v, _) = t
+        .req(
+            "PATCH",
+            &path,
+            Some(&admin),
+            Some(json!({"checklist": [{"id": "a", "text": "Legs", "done": true}]})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(
+        (v["status"].as_str(), v["checklist"][0]["done"].as_bool()),
+        (Some("open"), Some(true))
+    );
+    // Skipping it is fine.
+    let (s, v, _) = t
+        .req(
+            "PATCH",
+            &path,
+            Some(&admin),
+            Some(json!({"status": "skipped"})),
+        )
+        .await;
+    assert_eq!((s, v["status"].as_str()), (StatusCode::OK, Some("skipped")));
+    t.req(
+        "PATCH",
+        &path,
+        Some(&admin),
+        Some(json!({"status": "open"})),
+    )
+    .await;
+    // Moved to today, it can be done.
+    let (s, v, _) = t
+        .req(
+            "PATCH",
+            &path,
+            Some(&admin),
+            Some(json!({"due_date": ymd(today), "status": "done"})),
+        )
+        .await;
+    assert_eq!((s, v["status"].as_str()), (StatusCode::OK, Some("done")));
+    // And once its day has come.
+    let other = occ
+        .iter()
+        .find(|o| o["occurrence_date"] == ymd(today))
+        .unwrap();
+    sqlx::query("UPDATE tasks SET occurrence_date = ?1, due_date = ?1 WHERE id = ?2")
+        .bind(ymd(tomorrow))
+        .bind(other["id"].as_str().unwrap())
+        .execute(&t.state.db.write)
+        .await
+        .unwrap();
+    let path = format!("/api/v1/tasks/{}", other["id"].as_str().unwrap());
+    let (s, _, _) = t
+        .req(
+            "PATCH",
+            &path,
+            Some(&admin),
+            Some(json!({"status": "done"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    sqlx::query("UPDATE tasks SET occurrence_date = ?1, due_date = ?1 WHERE id = ?2")
+        .bind(ymd(today))
+        .bind(other["id"].as_str().unwrap())
+        .execute(&t.state.db.write)
+        .await
+        .unwrap();
+    let (s, _, _) = t
+        .req(
+            "PATCH",
+            &path,
+            Some(&admin),
+            Some(json!({"status": "done"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK);
 }
 
 #[tokio::test]
@@ -1732,6 +1972,122 @@ async fn daily_activity_log() {
         )
         .await;
     assert_eq!(theirs, json!([]));
+}
+
+#[tokio::test]
+async fn changing_when_a_task_was_done() {
+    let t = setup().await;
+    let admin = t.admin().await;
+    let today = today_of(&t, &admin).await;
+    let yesterday = today - chrono::Duration::days(1);
+    let mk = |title: &'static str| {
+        let (t, admin) = (&t, admin.clone());
+        async move {
+            t.req(
+                "POST",
+                "/api/v1/tasks",
+                Some(&admin),
+                Some(json!({"title": title})),
+            )
+            .await
+            .1["id"]
+                .as_str()
+                .unwrap()
+                .to_string()
+        }
+    };
+    let (tap, bank) = (mk("Fix tap").await, mk("Call bank").await);
+    let log = |day: chrono::NaiveDate| {
+        let (t, admin) = (&t, admin.clone());
+        async move {
+            let (_, v, _) = t
+                .req(
+                    "GET",
+                    &format!("/api/v1/days/{}/log", ymd(day)),
+                    Some(&admin),
+                    None,
+                )
+                .await;
+            v.as_array()
+                .unwrap()
+                .iter()
+                .map(|x| x["text"].as_str().unwrap().to_string())
+                .collect::<Vec<_>>()
+        }
+    };
+    // Not on an open task.
+    let noon = format!("{}T12:00:00.000Z", ymd(yesterday));
+    let (s, _, _) = t
+        .req(
+            "PATCH",
+            &format!("/api/v1/tasks/{tap}"),
+            Some(&admin),
+            Some(json!({"completed_at": noon})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    // Done today, then moved to yesterday: logged on yesterday instead.
+    t.req(
+        "PATCH",
+        &format!("/api/v1/tasks/{tap}"),
+        Some(&admin),
+        Some(json!({"status": "done"})),
+    )
+    .await;
+    assert!(
+        log(today)
+            .await
+            .contains(&"Completed “Fix tap”".to_string())
+    );
+    let (s, v, _) = t
+        .req(
+            "PATCH",
+            &format!("/api/v1/tasks/{tap}"),
+            Some(&admin),
+            Some(json!({"completed_at": noon})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["completed_at"], noon);
+    assert!(
+        !log(today)
+            .await
+            .contains(&"Completed “Fix tap”".to_string())
+    );
+    assert!(
+        log(yesterday)
+            .await
+            .contains(&"Completed “Fix tap”".to_string())
+    );
+    // Done on an earlier day in one go, as from a past day's page.
+    let (s, v, _) = t
+        .req(
+            "PATCH",
+            &format!("/api/v1/tasks/{bank}"),
+            Some(&admin),
+            Some(json!({"status": "done", "completed_at": noon})),
+        )
+        .await;
+    assert_eq!(
+        (s, v["completed_at"].as_str()),
+        (StatusCode::OK, Some(noon.as_str()))
+    );
+    assert!(
+        log(yesterday)
+            .await
+            .contains(&"Completed “Call bank”".to_string())
+    );
+    // Not in the future.
+    let later = (chrono::Utc::now() + chrono::Duration::hours(1)).to_rfc3339();
+    let (s, _, _) = t
+        .req(
+            "PATCH",
+            &format!("/api/v1/tasks/{tap}"),
+            Some(&admin),
+            Some(json!({"completed_at": later})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
 }
 
 #[tokio::test]
@@ -3780,6 +4136,499 @@ async fn day_templates_blocks_conflicts_and_suggestions() {
 }
 
 #[tokio::test]
+async fn template_blocks_plan_routines_and_tasks() {
+    let t = setup().await;
+    let admin = t.admin().await;
+    let a = t.user(&admin, "anna").await;
+    let (_, today, _) = t.req("GET", "/api/v1/today", Some(&a), None).await;
+    let today =
+        chrono::NaiveDate::parse_from_str(today["date"].as_str().unwrap(), "%Y-%m-%d").unwrap();
+    let day = |n: i64| {
+        (today + chrono::Duration::days(n))
+            .format("%Y-%m-%d")
+            .to_string()
+    };
+    let (_, vit, _) = t
+        .req("POST", "/api/v1/series", Some(&a), Some(json!({"title": "Vitamins", "mode": "repeat", "rrule": "FREQ=DAILY", "estimate_min": 15})))
+        .await;
+    let (_, laundry, _) = t
+        .req("POST", "/api/v1/series", Some(&a), Some(json!({"title": "Laundry", "mode": "flexible", "times_per_window": 2, "window": "week", "estimate_min": 60})))
+        .await;
+    // Something already scheduled in the block on day 2.
+    let (_, write, _) = t
+        .req(
+            "POST",
+            "/api/v1/tasks",
+            Some(&a),
+            Some(json!({"title": "Write", "estimate_min": 30})),
+        )
+        .await;
+    t.req(
+        "POST",
+        &format!("/api/v1/days/{}/entries", day(2)),
+        Some(&a),
+        Some(json!({"task_id": write["id"], "start_time": "09:00"})),
+    )
+    .await;
+    let item = |v: Value| {
+        let mut v = v;
+        v["id"] = json!(ulid::Ulid::new().to_string());
+        v
+    };
+    let plan_item = item(
+        json!({"kind": "task", "title": "Plan the day", "estimate_min": 30, "notes": "Look at the week"}),
+    );
+    let block = |items: Vec<Value>| json!([{"title": "Deep work", "start": "09:00", "end": "11:00", "energy": "hard", "items": items}]);
+    let items = vec![
+        item(json!({"kind": "routine", "series_id": vit["id"]})),
+        plan_item.clone(),
+        item(json!({"kind": "routine", "series_id": laundry["id"]})),
+    ];
+
+    // Validation.
+    for bad in [
+        json!({"kind": "routine", "series_id": ulid::Ulid::new().to_string()}),
+        json!({"kind": "task", "title": " "}),
+        json!({"kind": "chore"}),
+    ] {
+        let (s, _, _) = t
+            .req(
+                "POST",
+                "/api/v1/day-templates",
+                Some(&a),
+                Some(json!({"name": "Bad", "blocks": block(vec![item(bad)])})),
+            )
+            .await;
+        assert_eq!(s, StatusCode::BAD_REQUEST);
+    }
+    let many: Vec<Value> = (0..21)
+        .map(|_| item(json!({"kind": "task", "title": "x"})))
+        .collect();
+    let (s, _, _) = t
+        .req(
+            "POST",
+            "/api/v1/day-templates",
+            Some(&a),
+            Some(json!({"name": "Bad", "blocks": block(many)})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    // Another user's routine isn't allowed.
+    let b = t.user(&admin, "ben").await;
+    let (s, _, _) = t
+        .req("POST", "/api/v1/day-templates", Some(&b), Some(json!({"name": "Mine", "blocks": block(vec![item(json!({"kind": "routine", "series_id": vit["id"]}))])})))
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+
+    let (s, work, _) = t
+        .req("POST", "/api/v1/day-templates", Some(&a), Some(json!({"name": "Workday", "weekdays": [1, 2, 3, 4, 5, 6, 7], "blocks": block(items)})))
+        .await;
+    assert_eq!(s, StatusCode::OK, "{work}");
+    assert_eq!(work["blocks"][0]["items"][1]["title"], "Plan the day");
+
+    // (title, start time) of the day's entries.
+    let plan_of = async |d: &str| -> Vec<(String, Option<String>)> {
+        let (_, v, _) = t
+            .req("GET", &format!("/api/v1/days/{d}"), Some(&a), None)
+            .await;
+        let mut out: Vec<(String, Option<String>)> = v["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| {
+                let task = v["tasks"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|t| t["id"] == e["task_id"])
+                    .unwrap();
+                (
+                    task["title"].as_str().unwrap().to_string(),
+                    e["start_time"].as_str().map(String::from),
+                )
+            })
+            .collect();
+        out.sort();
+        out
+    };
+    let p = |title: &str, at: Option<&str>| (title.to_string(), at.map(String::from));
+    // Today: one after another from the block's start.
+    assert_eq!(
+        plan_of(&day(0)).await,
+        vec![
+            p("Laundry", Some("09:45")),
+            p("Plan the day", Some("09:15")),
+            p("Vitamins", Some("09:00")),
+        ]
+    );
+    // Day 2: around "Write"; Laundry no longer fits the block (or none is left this week).
+    let d2 = plan_of(&day(2)).await;
+    assert!(d2.contains(&p("Vitamins", Some("09:30"))), "{d2:?}");
+    assert!(d2.contains(&p("Plan the day", Some("09:45"))), "{d2:?}");
+    assert!(d2.contains(&p("Write", Some("09:00"))), "{d2:?}");
+    assert!(
+        !d2.iter().any(|(t, at)| t == "Laundry" && at.is_some()),
+        "{d2:?}"
+    );
+    // A week's two laundry slots are planned once each, on different days.
+    let (_, full, _) = t.req("GET", "/api/v1/sync", Some(&a), None).await;
+    let laundry_tasks: Vec<&Value> = full["tasks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|x| x["series_id"] == laundry["id"])
+        .collect();
+    for lt in &laundry_tasks {
+        let n = full["day_entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|e| e["task_id"] == lt["id"] && e["deleted_at"].is_null())
+            .count();
+        assert!(n <= 1, "{lt}");
+    }
+
+    // Setting up again (sync) doesn't add anything.
+    let before = plan_of(&day(5)).await;
+    t.req("GET", "/api/v1/sync", Some(&a), None).await;
+    assert_eq!(plan_of(&day(5)).await, before);
+    assert_eq!(
+        before.iter().filter(|(t, _)| t == "Plan the day").count(),
+        1
+    );
+
+    // A one-off task that was deleted (or moved away) isn't made again when the template
+    // changes; a routine occurrence the user planned stays where it is; a day changed by
+    // hand gets nothing new.
+    let (_, today_view, _) = t
+        .req("GET", &format!("/api/v1/days/{}", day(0)), Some(&a), None)
+        .await;
+    let plan_task = today_view["tasks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|x| x["title"] == "Plan the day")
+        .unwrap()["id"]
+        .clone();
+    let (s, _, _) = t
+        .req(
+            "DELETE",
+            &format!("/api/v1/tasks/{}", plan_task.as_str().unwrap()),
+            Some(&a),
+            None,
+        )
+        .await;
+    assert_eq!(s, StatusCode::NO_CONTENT);
+    let (_, stretch, _) = t
+        .req(
+            "POST",
+            "/api/v1/series",
+            Some(&a),
+            Some(json!({"title": "Stretch", "mode": "repeat", "rrule": "FREQ=DAILY"})),
+        )
+        .await;
+    let (_, d3, _) = t
+        .req("GET", &format!("/api/v1/days/{}", day(3)), Some(&a), None)
+        .await;
+    let occ = d3["tasks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|x| x["series_id"] == stretch["id"] && x["occurrence_date"] == json!(day(3)))
+        .unwrap()["id"]
+        .clone();
+    t.req(
+        "POST",
+        &format!("/api/v1/days/{}/entries", day(3)),
+        Some(&a),
+        Some(json!({"task_id": occ, "start_time": "18:00"})),
+    )
+    .await;
+    let (s, _, _) = t
+        .req(
+            "POST",
+            &format!("/api/v1/days/{}/apply-template", day(4)),
+            Some(&a),
+            Some(json!({"template_id": null})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    let d4_before = plan_of(&day(4)).await;
+    let mut blocks = work["blocks"].clone();
+    blocks[0]["items"]
+        .as_array_mut()
+        .unwrap()
+        .push(item(json!({"kind": "routine", "series_id": stretch["id"]})));
+    let (s, patched, _) = t
+        .req(
+            "PATCH",
+            &format!("/api/v1/day-templates/{}", work["id"].as_str().unwrap()),
+            Some(&a),
+            Some(json!({"blocks": blocks})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{patched}");
+    let d0 = plan_of(&day(0)).await;
+    assert!(!d0.iter().any(|(t, _)| t == "Plan the day"), "{d0:?}");
+    assert!(d0.contains(&p("Vitamins", Some("09:00"))), "{d0:?}");
+    // Stretch takes the first free half hour (where the deleted task was).
+    assert!(d0.contains(&p("Stretch", Some("09:15"))), "{d0:?}");
+    assert_eq!(
+        plan_of(&day(3))
+            .await
+            .iter()
+            .filter(|(t, _)| t == "Stretch")
+            .collect::<Vec<_>>(),
+        vec![&p("Stretch", Some("18:00"))]
+    );
+    let d4 = plan_of(&day(4)).await;
+    assert!(!d4.iter().any(|(t, _)| t == "Stretch"), "{d4:?}");
+    assert_eq!(d4.len(), d4_before.len());
+    // The block itself followed the template change on days set up automatically.
+    let (_, full, _) = t.req("GET", "/api/v1/sync", Some(&a), None).await;
+    let blocks_on = |d: &str| {
+        full["time_blocks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|b| b["date"] == d && b["deleted_at"].is_null())
+            .count()
+    };
+    assert_eq!(blocks_on(&day(1)), 1);
+    assert_eq!(blocks_on(&day(4)), 0);
+    // A task made from the template remembers where it came from.
+    assert!(
+        full["tasks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|x| x["title"] == "Plan the day"
+                && x["ext_source"] == "template"
+                && x["notes"] == "Look at the week")
+    );
+}
+
+#[tokio::test]
+async fn week_templates_default_alternate_and_ranges() {
+    use chrono::Datelike;
+    let t = setup().await;
+    let admin = t.admin().await;
+    let a = t.user(&admin, "anna").await;
+    let (_, today, _) = t.req("GET", "/api/v1/today", Some(&a), None).await;
+    let today =
+        chrono::NaiveDate::parse_from_str(today["date"].as_str().unwrap(), "%Y-%m-%d").unwrap();
+    let date = |n: i64| today + chrono::Duration::days(n);
+    let day = |n: i64| date(n).format("%Y-%m-%d").to_string();
+    let monday = |d: chrono::NaiveDate| {
+        d - chrono::Duration::days(d.weekday().num_days_from_monday() as i64)
+    };
+    let tpl = async |name: &str, weekdays: Value, title: &str| {
+        let (s, v, _) = t
+            .req("POST", "/api/v1/day-templates", Some(&a), Some(json!({"name": name, "weekdays": weekdays, "blocks": [{"title": title, "start": "08:00", "end": "12:00", "energy": null}]})))
+            .await;
+        assert_eq!(s, StatusCode::OK, "{v}");
+        v["id"].as_str().unwrap().to_string()
+    };
+    let work = tpl("Workday", json!([1, 2, 3, 4, 5]), "Deep work").await;
+    let office = tpl("Office", json!([]), "Office").await;
+    let free = tpl("Free", json!([]), "Garden").await;
+
+    // The weekday assignments are the default week.
+    let (_, full, _) = t.req("GET", "/api/v1/sync", Some(&a), None).await;
+    let weeks = full["week_templates"].as_array().unwrap().clone();
+    assert_eq!(weeks.len(), 1);
+    assert_eq!(weeks[0]["mode"], "default");
+    let usual = weeks[0]["id"].as_str().unwrap().to_string();
+    assert_eq!(
+        weeks[0]["days"],
+        json!([work, work, work, work, work, null, null])
+    );
+    // ...and the other way round: Saturday becomes "Free" in the old weekday lists too.
+    let (s, _, _) = t
+        .req(
+            "PATCH",
+            &format!("/api/v1/week-templates/{usual}"),
+            Some(&a),
+            Some(json!({"days": [work, work, work, work, work, free, null]})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    let (_, full, _) = t.req("GET", "/api/v1/sync", Some(&a), None).await;
+    let weekdays = |v: &Value, id: &str| {
+        v["day_templates"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|x| x["id"] == id)
+            .unwrap()["weekdays"]
+            .clone()
+    };
+    assert_eq!(weekdays(&full, &free), json!([6]));
+    assert_eq!(weekdays(&full, &work), json!([1, 2, 3, 4, 5]));
+
+    // Validation.
+    let this_week = monday(today).format("%Y-%m-%d").to_string();
+    for (body, why) in [
+        (json!({"name": "Second", "mode": "default"}), "one default"),
+        (json!({"name": "B", "mode": "alternate"}), "start week"),
+        (
+            json!({"name": "Hol", "mode": "range", "start_date": day(3), "end_date": day(2)}),
+            "order",
+        ),
+        (
+            json!({"name": "Hol", "mode": "range", "start_date": day(3)}),
+            "end",
+        ),
+        (json!({"name": "X", "mode": "weekly"}), "mode"),
+        (
+            json!({"name": "X", "mode": "range", "start_date": day(1), "end_date": day(2), "days": [null]}),
+            "7 days",
+        ),
+        (
+            json!({"name": "X", "mode": "range", "start_date": day(1), "end_date": day(2), "days": [ulid::Ulid::new().to_string(), null, null, null, null, null, null]}),
+            "unknown template",
+        ),
+        (
+            json!({"name": " ", "mode": "range", "start_date": day(1), "end_date": day(2)}),
+            "name",
+        ),
+    ] {
+        let (s, _, _) = t
+            .req("POST", "/api/v1/week-templates", Some(&a), Some(body))
+            .await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "{why}");
+    }
+    // Every other week from this one: the office; a holiday on days 2–3 with no blocks.
+    let (s, alt, _) = t
+        .req("POST", "/api/v1/week-templates", Some(&a), Some(json!({"name": "Office week", "mode": "alternate", "start_date": this_week, "days": [office, office, office, office, office, office, office]})))
+        .await;
+    assert_eq!(s, StatusCode::OK, "{alt}");
+    let (s, _, _) = t
+        .req(
+            "POST",
+            "/api/v1/week-templates",
+            Some(&a),
+            Some(json!({"name": "Another", "mode": "alternate", "start_date": this_week})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST, "one alternate");
+    let (s, hol, _) = t
+        .req("POST", "/api/v1/week-templates", Some(&a), Some(json!({"name": "Holiday", "mode": "range", "start_date": day(2), "end_date": day(3)})))
+        .await;
+    assert_eq!(s, StatusCode::OK, "{hol}");
+
+    let titles = async |n: i64| -> Vec<String> {
+        let (_, v, _) = t
+            .req("GET", &format!("/api/v1/days/{}", day(n)), Some(&a), None)
+            .await;
+        v["blocks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|b| b["title"].as_str().unwrap().to_string())
+            .collect()
+    };
+    let usual_day = |d: chrono::NaiveDate| -> Vec<String> {
+        match d.weekday().number_from_monday() {
+            1..=5 => vec!["Deep work".into()],
+            6 => vec!["Garden".into()],
+            _ => vec![],
+        }
+    };
+    for n in 0..8 {
+        let want: Vec<String> = if (2..=3).contains(&n) {
+            vec![]
+        } else if monday(date(n)) == monday(today) {
+            vec!["Office".into()]
+        } else {
+            usual_day(date(n))
+        };
+        assert_eq!(titles(n).await, want, "day {n}");
+    }
+
+    // Without the alternating week, days follow the default again; a deleted day
+    // template leaves the weeks.
+    let (s, _, _) = t
+        .req(
+            "DELETE",
+            &format!("/api/v1/week-templates/{}", alt["id"].as_str().unwrap()),
+            Some(&a),
+            None,
+        )
+        .await;
+    assert_eq!(s, StatusCode::NO_CONTENT);
+    let (s, _, _) = t
+        .req(
+            "DELETE",
+            &format!("/api/v1/day-templates/{free}"),
+            Some(&a),
+            None,
+        )
+        .await;
+    assert_eq!(s, StatusCode::NO_CONTENT);
+    for n in [0, 1, 4, 5, 6, 7] {
+        let mut want = usual_day(date(n));
+        want.retain(|x| x != "Garden");
+        assert_eq!(titles(n).await, want, "day {n}");
+    }
+    let (_, full, _) = t.req("GET", "/api/v1/sync", Some(&a), None).await;
+    let usual_now = full["week_templates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|w| w["id"] == usual.as_str())
+        .unwrap()
+        .clone();
+    assert_eq!(usual_now["days"][5], Value::Null);
+    // Days set up are listed (the Week view previews the others): those of the next 8 that
+    // have a template, or had one.
+    let set_up = full["set_up_days"]["dates"].as_array().unwrap();
+    for n in 0..8 {
+        assert_eq!(
+            set_up.contains(&json!(day(n))),
+            !usual_day(date(n)).is_empty()
+                || (2..=3).contains(&n)
+                || monday(date(n)) == monday(today),
+            "day {n}"
+        );
+    }
+    assert!(!set_up.contains(&json!(day(8))));
+    // Weekday toggles of older clients keep working through the default week.
+    let (s, _, _) = t
+        .req(
+            "PATCH",
+            &format!("/api/v1/day-templates/{office}"),
+            Some(&a),
+            Some(json!({"weekdays": [7]})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    let (_, full, _) = t.req("GET", "/api/v1/sync", Some(&a), None).await;
+    let usual_now = full["week_templates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|w| w["id"] == usual.as_str())
+        .unwrap()
+        .clone();
+    assert_eq!(usual_now["days"][6], json!(office));
+    // Week templates are personal.
+    let b = t.user(&admin, "ben").await;
+    let (_, bs, _) = t.req("GET", "/api/v1/sync", Some(&b), None).await;
+    assert_eq!(bs["week_templates"], json!([]));
+    let (s, _, _) = t
+        .req(
+            "PATCH",
+            &format!("/api/v1/week-templates/{usual}"),
+            Some(&b),
+            Some(json!({"name": "Mine"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+    let _ = hol;
+}
+
+#[tokio::test]
 async fn tracking_summary_export_and_privacy() {
     let t = setup().await;
     let admin = t.admin().await;
@@ -4103,6 +4952,177 @@ async fn tracking_summary_export_and_privacy() {
 }
 
 #[tokio::test]
+async fn tracking_water_emoji_and_quick_amounts() {
+    let t = setup().await;
+    let admin = t.admin().await;
+    let anna = t.user(&admin, "anna").await;
+    let (_, me, _) = t.req("GET", "/api/v1/me", Some(&anna), None).await;
+    let uid = me["id"].as_str().unwrap().to_string();
+    let water_rows = || async {
+        sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM metric_definitions WHERE owner_user_id = ? AND key = 'water'",
+        )
+        .bind(&uid)
+        .fetch_one(&t.state.db.read)
+        .await
+        .unwrap()
+    };
+
+    // A new user gets water with mood and weight, once however often they sync.
+    let (_, full, _) = t.req("GET", "/api/v1/sync", Some(&anna), None).await;
+    t.req("GET", "/api/v1/sync", Some(&anna), None).await;
+    assert_eq!(water_rows().await, 1);
+    let metrics = full["metrics"].as_array().unwrap().clone();
+    let water = metrics
+        .iter()
+        .find(|m| m["key"] == "water")
+        .unwrap()
+        .clone();
+    assert_eq!(
+        (
+            &water["emoji"],
+            &water["unit"],
+            &water["aggregate"],
+            &water["presets"]
+        ),
+        (
+            &json!("💧"),
+            &json!("ml"),
+            &json!("sum"),
+            &json!([100.0, 200.0, 1000.0])
+        )
+    );
+    let mood = metrics.iter().find(|m| m["key"] == "mood").unwrap();
+    assert_eq!(mood["emoji"], "🙂");
+    let wid = water["id"].as_str().unwrap().to_string();
+
+    // An existing user (from before water) gets it on their next sync, as a change.
+    sqlx::query("DELETE FROM metric_definitions WHERE id = ?")
+        .bind(&wid)
+        .execute(&t.state.db.write)
+        .await
+        .unwrap();
+    let rev = full["rev"].as_i64().unwrap();
+    let (_, inc, _) = t
+        .req(
+            "GET",
+            &format!("/api/v1/sync?since={rev}"),
+            Some(&anna),
+            None,
+        )
+        .await;
+    assert_eq!(water_rows().await, 1);
+    let water = inc["metrics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|m| m["key"] == "water")
+        .expect("water in the incremental sync")
+        .clone();
+    let wid = water["id"].as_str().unwrap().to_string();
+
+    // Water sums over the day; its unit stays ml.
+    for v in [200.0, 200.0, 1000.0] {
+        let (s, _, _) = t
+            .req(
+                "POST",
+                &format!("/api/v1/metrics/{wid}/entries"),
+                Some(&anna),
+                Some(json!({"value": v})),
+            )
+            .await;
+        assert_eq!(s, StatusCode::OK);
+    }
+    let today = full["today"].as_str().unwrap();
+    let (_, sum, _) = t
+        .req(
+            "GET",
+            &format!("/api/v1/days/{today}/summary"),
+            Some(&anna),
+            None,
+        )
+        .await;
+    let day = sum["metrics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|m| m["metric_id"] == wid.as_str())
+        .unwrap()
+        .clone();
+    assert_eq!(
+        (day["value"].as_f64(), day["entries"].as_i64()),
+        (Some(1400.0), Some(3))
+    );
+    let (s, w, _) = t
+        .req(
+            "PATCH",
+            &format!("/api/v1/metrics/{wid}"),
+            Some(&anna),
+            Some(json!({"unit": "oz", "presets": [250, 500], "archived": true})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(
+        (&w["unit"], &w["presets"], &w["archived"]),
+        (&json!("ml"), &json!([250.0, 500.0]), &json!(true))
+    );
+
+    // Custom metrics take an emoji and quick amounts.
+    let (s, sleep, _) = t
+        .req(
+            "POST",
+            "/api/v1/metrics",
+            Some(&anna),
+            Some(json!({"name": "Sleep", "kind": "number", "unit": "h", "emoji": " 😴 ", "presets": [7, 8]})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{sleep}");
+    assert_eq!(
+        (&sleep["emoji"], &sleep["presets"]),
+        (&json!("😴"), &json!([7.0, 8.0]))
+    );
+    let sid = sleep["id"].as_str().unwrap();
+    let (s, p, _) = t
+        .req(
+            "PATCH",
+            &format!("/api/v1/metrics/{sid}"),
+            Some(&anna),
+            Some(json!({"emoji": "🛌", "presets": [], "position": "a5"})),
+        )
+        .await;
+    assert_eq!(
+        (s, &p["emoji"], &p["presets"], &p["position"]),
+        (StatusCode::OK, &json!("🛌"), &json!([]), &json!("a5"))
+    );
+    for bad in [
+        json!({"presets": [1, 2, 3, 4, 5, 6, 7]}),
+        json!({"presets": [0]}),
+        json!({"presets": [2e6]}),
+        json!({"emoji": "x".repeat(40)}),
+        json!({"emoji": "a\nb"}),
+    ] {
+        let (s, _, _) = t
+            .req(
+                "PATCH",
+                &format!("/api/v1/metrics/{sid}"),
+                Some(&anna),
+                Some(bad.clone()),
+            )
+            .await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "{bad}");
+    }
+    let (s, _, _) = t
+        .req(
+            "POST",
+            "/api/v1/metrics",
+            Some(&anna),
+            Some(json!({"name": "Energy", "kind": "scale", "presets": [1]})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST, "quick amounts are for numbers");
+}
+
+#[tokio::test]
 async fn goals_progress_sharing_and_reviews() {
     let t = setup().await;
     let admin = t.admin().await;
@@ -4342,6 +5362,237 @@ async fn goals_progress_sharing_and_reviews() {
         )
         .await;
     assert_eq!(s, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn goal_tree_routines_and_rules() {
+    let t = setup().await;
+    let admin = t.admin().await;
+    let anna = t.user(&admin, "anna").await;
+    let ben = t.user(&admin, "ben").await;
+    let (_, me_ben, _) = t.req("GET", "/api/v1/me", Some(&ben), None).await;
+    let today = today_of(&t, &anna).await;
+    let goal = |body: Value| {
+        let t = &t;
+        let anna = anna.clone();
+        async move {
+            let (s, g, _) = t
+                .req("POST", "/api/v1/goals", Some(&anna), Some(body))
+                .await;
+            assert_eq!(s, StatusCode::OK, "{g}");
+            g["id"].as_str().unwrap().to_string()
+        }
+    };
+    let patch = |id: String, body: Value, who: String| {
+        let t = &t;
+        async move {
+            t.req(
+                "PATCH",
+                &format!("/api/v1/goals/{id}"),
+                Some(&who),
+                Some(body),
+            )
+            .await
+        }
+    };
+    let progress = |who: String| {
+        let t = &t;
+        async move {
+            let (_, v, _) = t
+                .req("GET", "/api/v1/goals/progress", Some(&who), None)
+                .await;
+            v.as_array()
+                .unwrap()
+                .iter()
+                .map(|p| (p["goal_id"].as_str().unwrap().to_string(), p.clone()))
+                .collect::<std::collections::HashMap<_, _>>()
+        }
+    };
+
+    // A routine with one done and one missed run in the last four weeks.
+    let (_, run, _) = t
+        .req(
+            "POST",
+            "/api/v1/series",
+            Some(&anna),
+            Some(json!({"title": "Go running", "mode": "repeat", "rrule": "FREQ=DAILY"})),
+        )
+        .await;
+    let occ = occurrences(&t, &anna, run["id"].as_str().unwrap()).await;
+    for (o, days_ago, status) in [(&occ[0], 3, "done"), (&occ[1], 2, "missed")] {
+        sqlx::query("UPDATE tasks SET occurrence_date = ?, status = ? WHERE id = ?")
+            .bind(ymd(today - chrono::Duration::days(days_ago)))
+            .bind(status)
+            .bind(o["id"].as_str().unwrap())
+            .execute(&t.state.db.write)
+            .await
+            .unwrap();
+    }
+
+    // Have a good life > Earn good money (1 of 4 milestones), Have good health (+ running).
+    let life = goal(json!({"title": "Have a good life"})).await;
+    let ms = |done: [bool; 4]| {
+        json!(done.iter().enumerate().map(|(i, d)| json!({"id": format!("m{i}"), "title": "Step", "due_date": null, "done": d})).collect::<Vec<_>>())
+    };
+    let money = goal(json!({"title": "Earn good money", "parent_id": life, "milestones": ms([true, false, false, false])})).await;
+    let health =
+        goal(json!({"title": "Have good health", "parent_id": life, "series_ids": [run["id"]]}))
+            .await;
+    // A rule under health: no daily question, no progress.
+    let (s, junk, _) = t
+        .req(
+            "POST",
+            "/api/v1/goals",
+            Some(&anna),
+            Some(json!({"title": "Eat less junk", "kind": "rule", "parent_id": health})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{junk}");
+    assert_eq!(junk["start_date"], ymd(today));
+    let junk = junk["id"].as_str().unwrap().to_string();
+    let (s, _, _) = t
+        .req(
+            "PUT",
+            &format!("/api/v1/goals/{junk}/checks/{}", ymd(today)),
+            Some(&anna),
+            Some(json!({"result": "yes"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST, "rules aren't answered per day");
+
+    let p = progress(anna.clone()).await;
+    assert_eq!(p[&health]["routines"][0]["done"], 1);
+    assert_eq!(p[&health]["routines"][0]["missed"], 1);
+    assert_eq!(p[&health]["progress"], 0.5);
+    assert_eq!(p[&money]["progress"], 0.25);
+    assert_eq!(p[&life]["progress"], (0.25 + 0.5) / 2.0);
+    assert_eq!(p[&junk]["progress"], Value::Null);
+
+    // No cycles, and rules have no sub-goals.
+    let (s, _, _) = patch(life.clone(), json!({"parent_id": health}), anna.clone()).await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    let (s, _, _) = patch(life.clone(), json!({"parent_id": life}), anna.clone()).await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    let (s, _, _) = t
+        .req(
+            "POST",
+            "/api/v1/goals",
+            Some(&anna),
+            Some(json!({"title": "x", "parent_id": junk})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    let (s, _, _) = patch(health.clone(), json!({"kind": "rule"}), anna.clone()).await;
+    assert_eq!(s, StatusCode::BAD_REQUEST, "it has a sub-goal");
+
+    // Sharing the top-level goal shares the tree; a goal moved under it joins the group.
+    let (_, fam, _) = t
+        .req(
+            "POST",
+            "/api/v1/groups",
+            Some(&anna),
+            Some(json!({"name": "Family"})),
+        )
+        .await;
+    t.req(
+        "POST",
+        &format!("/api/v1/groups/{}/members", fam["id"].as_str().unwrap()),
+        Some(&anna),
+        Some(json!({"user_id": me_ben["id"]})),
+    )
+    .await;
+    let (s, _, _) = patch(
+        life.clone(),
+        json!({"owner_group_id": fam["id"]}),
+        anna.clone(),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK);
+    let (_, b, _) = t.req("GET", "/api/v1/sync", Some(&ben), None).await;
+    assert_eq!(b["goals"].as_array().unwrap().len(), 4);
+    let (s, _, _) = patch(money.clone(), json!({"owner_group_id": null}), anna.clone()).await;
+    assert_eq!(s, StatusCode::BAD_REQUEST, "shared with its tree");
+    let side = goal(json!({"title": "Side gig"})).await;
+    let (s, g, _) = patch(side.clone(), json!({"parent_id": money}), anna.clone()).await;
+    assert_eq!(s, StatusCode::OK, "{g}");
+    assert_eq!(
+        (&g["owner_group_id"], &g["owner_user_id"]),
+        (&fam["id"], &Value::Null)
+    );
+    // Ben doesn't see Anna's routine: for him health has nothing to measure.
+    let p = progress(ben.clone()).await;
+    assert_eq!(p[&health]["progress"], Value::Null);
+    assert_eq!(p[&money]["progress"], 0.25);
+
+    // A linked task that's deleted later doesn't block edits; a new unknown one does.
+    let (_, task, _) = t
+        .req(
+            "POST",
+            "/api/v1/tasks",
+            Some(&anna),
+            Some(json!({"title": "Ask for a raise"})),
+        )
+        .await;
+    let (s, _, _) = patch(
+        money.clone(),
+        json!({"task_ids": [task["id"]]}),
+        anna.clone(),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK);
+    t.req(
+        "DELETE",
+        &format!("/api/v1/tasks/{}", task["id"].as_str().unwrap()),
+        Some(&anna),
+        None,
+    )
+    .await;
+    let (s, _, _) = patch(money.clone(), json!({"title": "Earn well"}), ben.clone()).await;
+    assert_eq!(s, StatusCode::OK);
+    let (s, _, _) = patch(
+        money.clone(),
+        json!({"task_ids": [task["id"], "01JUNKJUNKJUNKJUNKJUNKJUNK"]}),
+        anna.clone(),
+    )
+    .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    let (s, _, _) = patch(money.clone(), json!({"series_ids": ["nope"]}), ben.clone()).await;
+    assert_eq!(s, StatusCode::BAD_REQUEST, "unknown routine");
+
+    // Deleting a goal moves its sub-goals up to its parent.
+    t.req(
+        "DELETE",
+        &format!("/api/v1/goals/{health}"),
+        Some(&anna),
+        None,
+    )
+    .await;
+    let (_, all, _) = t.req("GET", "/api/v1/sync", Some(&anna), None).await;
+    let rule = all["goals"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|g| g["id"] == junk.as_str())
+        .unwrap()
+        .clone();
+    assert_eq!(rule["parent_id"], life.as_str());
+
+    // Unsharing the tree takes it all away from Ben.
+    patch(life.clone(), json!({"owner_group_id": null}), anna.clone()).await;
+    let (_, b, _) = t.req("GET", "/api/v1/sync", Some(&ben), None).await;
+    assert_eq!(b["goals"], json!([]));
+
+    // The export has your goals.
+    let (_, ex, _) = t.req("GET", "/api/v1/export", Some(&anna), None).await;
+    let titles: Vec<&str> = ex["goals"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|g| g["title"].as_str().unwrap())
+        .collect();
+    assert!(titles.contains(&"Have a good life") && titles.contains(&"Eat less junk"));
+    assert!(!titles.contains(&"Have good health"), "deleted");
+    assert!(ex["goal_reviews"].is_array() && ex["habit_checks"].is_array());
 }
 
 // ----- Web Push (Phase 6.2): a mock push service that decrypts what it receives -----

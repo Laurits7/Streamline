@@ -92,9 +92,15 @@
             </button>
           </div>
         {:else}
+          {@const t = store.tasks.get(r.taskId)}
           <div class="row task" class:done={r.done}>
             <span class="time">{r.label}</span>
-            <Check done={r.done} onclick={() => store.toggleDone(r.taskId)} label="Complete {r.title}" />
+            <Check
+              done={r.done}
+              disabled={!!t && store.tooEarly(t)}
+              title={t && store.tooEarly(t) ? store.earlyTitle(t) : undefined}
+              onclick={() => store.toggleDone(r.taskId)}
+              label="Complete {r.title}" />
             <button class="what" onclick={() => (ui.editing = r.taskId)}>{r.title}</button>
           </div>
           {@const steps = store.tasks.get(r.taskId)?.checklist ?? []}

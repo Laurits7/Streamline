@@ -23,16 +23,37 @@ use crate::{
     util::{new_id, now},
 };
 
-/// Mood and weight exist for everyone; created on first use.
+/// A built-in metric: (key, name, emoji, kind, unit, scale, aggregate, quick amounts).
+struct Builtin(
+    &'static str,
+    &'static str,
+    &'static str,
+    &'static str,
+    &'static str,
+    Option<(i32, i32)>,
+    &'static str,
+    &'static [f64],
+);
+
+#[rustfmt::skip]
+const BUILTINS: [Builtin; 3] = [
+    Builtin("mood", "Mood", "🙂", "scale", "", Some((1, 5)), "average", &[]),
+    Builtin("weight", "Weight", "⚖️", "number", "kg", None, "latest", &[]),
+    // Water stays in ml for imperial units too (D-108).
+    Builtin("water", "Water", "💧", "number", "ml", None, "sum", &[100.0, 200.0, 1000.0]),
+];
+
+/// How many built-ins everyone has (sync checks this before writing).
+pub const BUILTIN_COUNT: i64 = BUILTINS.len() as i64;
+
+/// Mood, weight and water exist for everyone; created on first use (or, for a built-in
+/// added later, on the next sync). Hidden ones are archived, never deleted.
 pub async fn ensure_builtins(
     conn: &mut SqliteConnection,
     user_id: &str,
     changes: &mut Vec<Change>,
 ) -> anyhow::Result<()> {
-    for (key, name, kind, unit, min, max, agg) in [
-        ("mood", "Mood", "scale", "", Some(1), Some(5), "average"),
-        ("weight", "Weight", "number", "kg", None, None, "latest"),
-    ] {
+    for Builtin(key, name, emoji, kind, unit, scale, agg, presets) in BUILTINS {
         let exists: bool = sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM metric_definitions WHERE owner_user_id = ? AND key = ?)",
         )
@@ -54,12 +75,14 @@ pub async fn ensure_builtins(
             owner_user_id: user_id.into(),
             key: Some(key.into()),
             name: name.into(),
+            emoji: emoji.into(),
             kind: kind.into(),
             unit: unit.into(),
-            scale_min: min,
-            scale_max: max,
+            scale_min: scale.map(|s| s.0),
+            scale_max: scale.map(|s| s.1),
             aggregate: agg.into(),
             reminder_time: None,
+            presets: sqlx::types::Json(presets.to_vec()),
             last_reminded: None,
             archived: false,
             position: key_after(last.as_deref()),

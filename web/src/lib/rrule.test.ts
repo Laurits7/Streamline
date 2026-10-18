@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { describeRule, describeSeries, fromRule, toRule, type Preset } from './rrule'
+import { describeRule, describeSeries, fromDays, fromRule, presetDays, toRule, type Preset } from './rrule'
 
 describe('schedule presets <-> RRULE', () => {
   const cases: [Preset, string][] = [
@@ -20,6 +20,20 @@ describe('schedule presets <-> RRULE', () => {
   it('keeps anything else as a custom rule', () => {
     expect(fromRule('FREQ=MONTHLY;BYDAY=-1FR')).toEqual({ kind: 'custom', rule: 'FREQ=MONTHLY;BYDAY=-1FR' })
     expect(fromRule('RRULE:freq=daily')).toEqual({ kind: 'daily' })
+  })
+})
+
+describe('weekday picker (D-109)', () => {
+  it('maps day chips to rules', () => {
+    expect(toRule(fromDays(['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU']))).toBe('FREQ=DAILY')
+    expect(toRule(fromDays(['TH', 'MO']))).toBe('FREQ=WEEKLY;BYDAY=MO,TH')
+    expect(fromDays(['MO', 'TU', 'WE', 'TH', 'FR'])).toEqual({ kind: 'weekdays' })
+  })
+  it('shows the days of day presets only', () => {
+    expect(presetDays({ kind: 'daily' })).toHaveLength(7)
+    expect(presetDays({ kind: 'weekdays' })).toEqual(['MO', 'TU', 'WE', 'TH', 'FR'])
+    expect(presetDays({ kind: 'weekly', days: ['TH', 'MO'] })).toEqual(['MO', 'TH'])
+    expect(presetDays({ kind: 'interval', n: 2 })).toBeNull()
   })
 })
 
