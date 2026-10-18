@@ -4,6 +4,10 @@ A self-hosted todo list and day planner for a household. One small container, on
 folder, and it works from any phone, tablet or computer on your network, plus a Linux
 desktop app that also works offline.
 
+![Today: the plan, routines due, and the timeline with time blocks](assets/screenshots/today.png)
+
+More screenshots are on the [Features](features.md#screenshots) page.
+
 <div class="grid cards" markdown>
 
 -   :material-sun-clock: **Plan your day**

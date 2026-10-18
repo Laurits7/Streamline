@@ -16,6 +16,7 @@
   let { days }: { days: string[] } = $props()
 
   const PX = 0.8 // pixels per minute (48 px per hour)
+  const MIN_H = 30 // shortest an item is drawn (minutes): one line of text
   const SNAP = 15
   const toMin = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5))
   const hhmm = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
@@ -38,7 +39,7 @@
         lanes: 1,
       }))
     const events: EventBlock[] = store.dayEvents(date).timed.map((ev) => ({ kind: 'event' as const, ev, start: ev.start, dur: ev.dur, lane: 0, lanes: 1 }))
-    const all = layoutLanes<TaskBlock | EventBlock>([...events, ...tasks])
+    const all = layoutLanes<TaskBlock | EventBlock>([...events, ...tasks], MIN_H)
     const untimed = store.dayEntries(date).filter((e) => !e.start_time && store.tasks.get(e.task_id)?.status === 'open').length
     return { all, allDay: store.dayEvents(date).allDay, bands: store.blocksOn(date), untimed, preview: store.previewOf(date) }
   }
@@ -123,7 +124,7 @@
               <div
                 class="item pv-item"
                 style:top="{it.start! * PX}px"
-                style:height="{Math.max(it.dur, SNAP) * PX - 2}px"
+                style:height="{Math.max(it.dur, MIN_H) * PX - 2}px"
                 title="Preview: {it.title}{it.maybe ? ' (if it has a slot left)' : ''} · {hhmm(it.start!)}">
                 <span class="t">{it.title}{it.maybe ? '?' : ''}</span>
               </div>
@@ -139,7 +140,7 @@
                 class:free={!b.ev.event.busy}
                 style:--cal={b.ev.color}
                 style:top="{b.start * PX}px"
-                style:height="{Math.max(b.dur, SNAP) * PX - 2}px"
+                style:height="{Math.max(b.dur, MIN_H) * PX - 2}px"
                 style:left="{(b.lane / b.lanes) * 100}%"
                 style:width="calc({100 / b.lanes}% - 2px)"
                 title="{b.ev.event.title} · {timeRange(b.ev)}"
@@ -152,7 +153,7 @@
                 class:done={b.task.status !== 'open'}
                 data-task={b.task.id}
                 style:top="{b.start * PX}px"
-                style:height="{Math.max(b.dur, SNAP) * PX - 2}px"
+                style:height="{Math.max(b.dur, MIN_H) * PX - 2}px"
                 style:left="{(b.lane / b.lanes) * 100}%"
                 style:width="calc({100 / b.lanes}% - 2px)"
                 title="{b.task.title} · {b.entry.start_time}, {fmtMinutes(b.dur)}"

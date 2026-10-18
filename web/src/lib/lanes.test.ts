@@ -20,3 +20,11 @@ describe('time grid lanes', () => {
     expect(at(layoutLanes([s(540, 0), s(545, 10)]))).toEqual([[0, 2], [1, 2]])
   })
 })
+
+describe('layoutLanes with a taller minimum', () => {
+  it('gives short items drawn taller than they last their own lane', () => {
+    // 10:00 and 10:20, 10 min each: apart at the usual 15 min, side by side when drawn as 30.
+    expect(at(layoutLanes([s(600, 10), s(620, 10)]))).toEqual([[0, 1], [0, 1]])
+    expect(at(layoutLanes([s(600, 10), s(620, 10)], 30))).toEqual([[0, 2], [1, 2]])
+  })
+})

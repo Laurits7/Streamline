@@ -273,7 +273,7 @@
   <div class="weeks" role="tablist" aria-label="Week templates">
     {#each weeks as w (w.id)}
       <button role="tab" class="chip" class:on={w.id === week.id} aria-selected={w.id === week.id} onclick={() => (chosen = w.id)}>
-        {w.name} <span class="muted">· {MODE_LABEL[w.mode]}</span>
+        {w.name}{#if MODE_LABEL[w.mode] !== w.name} <span class="muted">· {MODE_LABEL[w.mode]}</span>{/if}
       </button>
     {/each}
     <button class="chip" onclick={newWeek}><Icon name="plus" size={14} /> New week</button>
@@ -549,7 +549,7 @@
     top: 0;
     z-index: 5;
     display: grid;
-    grid-template-columns: 48px repeat(7, minmax(132px, 1fr));
+    grid-template-columns: 48px repeat(7, minmax(108px, 1fr));
     border-bottom: 1px solid var(--border);
     background: var(--surface);
   }
@@ -580,7 +580,7 @@
   .grid {
     position: relative;
     display: grid;
-    grid-template-columns: 48px repeat(7, minmax(132px, 1fr));
+    grid-template-columns: 48px repeat(7, minmax(108px, 1fr));
   }
   .hours {
     position: relative;

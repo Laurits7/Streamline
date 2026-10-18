@@ -119,3 +119,51 @@ More in [Integrations](guides/integrations.md).
   See [Desktop app](getting-started/desktop.md).
 - **Daily automatic backups** and a versioned JSON [API](api.md).
 - **Built-in help** and a guided tour on first sign-in.
+
+## Screenshots
+
+The screenshots show made-up example data.
+
+<div class="grid" markdown>
+
+<figure markdown>
+![Today: the plan, routines due, and the timeline with time blocks](assets/screenshots/today.png)
+<figcaption>Today: the plan, what's due, and the timeline with time blocks</figcaption>
+</figure>
+
+<figure markdown>
+![Today in the dark theme](assets/screenshots/today-dark.png)
+<figcaption>The dark theme</figcaption>
+</figure>
+
+<figure markdown>
+![The week on an hour grid, with time blocks and the routines planned into them](assets/screenshots/week-calendar.png)
+<figcaption>Week: blocks and the routines planned into them</figcaption>
+</figure>
+
+<figure markdown>
+![The week editor: day templates per weekday, blocks with routines in them](assets/screenshots/week-template.png)
+<figcaption>Week templates: draw blocks, drag routines in</figcaption>
+</figure>
+
+<figure markdown>
+![Goals as a tree, with routines, habits and rules](assets/screenshots/goals.png)
+<figcaption>Goals: a tree, with routines, habits and rules</figcaption>
+</figure>
+
+<figure markdown>
+![Tracking: mood, weight, water and sleep](assets/screenshots/tracking.png)
+<figcaption>Tracking: quick amounts and a 7-day strip</figcaption>
+</figure>
+
+<figure markdown>
+![Today on a phone](assets/screenshots/phone-today.png){ width="300" }
+<figcaption>Today on a phone</figcaption>
+</figure>
+
+<figure markdown>
+![Tracking on a phone](assets/screenshots/phone-tracking.png){ width="300" }
+<figcaption>Tracking on a phone</figcaption>
+</figure>
+
+</div>

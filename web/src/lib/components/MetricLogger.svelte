@@ -79,7 +79,7 @@
   </div>
 {/if}
 <span class="today muted">
-  {#if v !== undefined && m.key === 'mood'}avg {Math.round(v * 10) / 10}/5{:else if v !== undefined}{valueText(m, v, imperial)}{#if m.aggregate === 'sum'} today{/if}{#if entries.length > 1} · {entries.length}×{/if}{/if}
+  {#if v !== undefined && m.key === 'mood'}avg {Math.round(v * 10) / 10}/5{:else if v !== undefined}{valueText(m, v, imperial)}{#if m.aggregate === 'sum'}{' today'}{/if}{#if entries.length > 1}{` · ${entries.length}×`}{/if}{/if}
 </span>
 {#if showEntries}
   <div class="log" aria-label="{m.name} logged that day">

@@ -572,6 +572,10 @@
     gap: 1px;
     flex: 1;
   }
+  /* On short screens the menu scrolls rather than squeezing Help and Settings together. */
+  .sidebar > a {
+    flex-shrink: 0;
+  }
   .group {
     margin: 16px 10px 4px;
     font-size: 11px;

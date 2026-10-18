@@ -71,6 +71,7 @@
   })
 
   const PX = 0.9 // pixels per minute (54 px per hour)
+  const MIN_H = 26 // shortest an item is drawn (minutes): one line of text
   const SNAP = 15
   const toMin = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5))
   const hhmm = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
@@ -92,7 +93,7 @@
       lanes: 1,
     }))
     const evs: EventBlock[] = events.map((d) => ({ ...d, lane: 0, lanes: 1 }))
-    layoutLanes<Slot>([...evs, ...tasks])
+    layoutLanes<Slot>([...evs, ...tasks], MIN_H)
     return { tasks, evs }
   })
   const blocks = $derived(layout.tasks)
@@ -257,7 +258,7 @@
             class:clash={clashes.has(ev.event.id)}
             style:--cal={ev.color}
             style:top="{ev.start * PX}px"
-            style:height="{Math.max(ev.dur, SNAP) * PX - 2}px"
+            style:height="{Math.max(ev.dur, MIN_H) * PX - 2}px"
             style:left="{(ev.lane / ev.lanes) * 100}%"
             style:width="calc({100 / ev.lanes}% - 3px)"
             title="{ev.event.title} · {timeRange(ev)}{ev.event.location ? ` · ${ev.event.location}` : ''}{project ? ` · ${project.name}` : ''}"
@@ -277,7 +278,7 @@
             class:short={b.dur < 40}
             class:has-steps={b.task.checklist.length > 0}
             style:top="{b.start * PX}px"
-            style:height="{Math.max(b.dur, SNAP) * PX - 2}px"
+            style:height="{Math.max(b.dur, MIN_H) * PX - 2}px"
             style:left="{(b.lane / b.lanes) * 100}%"
             style:width="calc({100 / b.lanes}% - 3px)"
             data-id={b.entry.id}

@@ -18,17 +18,33 @@ app that also works offline.
 
 **📖 Documentation: <https://laurits7.github.io/Streamline/>**
 
-- **Plan your day**: a Today view with a timeline, a planning ritual, a week view and time
-  blocks around your calendar.
+- **Plan your day**: a Today view with a timeline, a planning ritual, a week view, and week
+  templates whose time blocks hold your routines, around your calendar.
 - **Share the household**: groups share projects, chores and routines live; day plans and
   journals stay personal. Projects can even be shared with people on other Streamline servers.
 - **Routines and chores**: any schedule, multi-step chores, checklists, prerequisites, waiting
   for results and ongoing tasks.
-- **Reflect**: journal and tracking, long-term goals, habit goals and a weekly review.
+- **Reflect**: a journal, tracking (mood, weight, water and your own metrics), a tree of goals
+  with habits and rules, and a weekly review.
 - **Connect**: CalDAV calendars (read and write-back) and tasks from GitHub, GitLab and Gitea.
-- **Small**: a 16 MB image using about 9 MB of memory; one SQLite file on your own machine.
+- **Small**: a 17 MB image using about 9 MB of memory; one SQLite file on your own machine.
 
 The full list is on the [Features](https://laurits7.github.io/Streamline/features/) page.
+
+## Screenshots
+
+![Today: the plan, routines due, and the timeline with time blocks](docs/assets/screenshots/today.png)
+
+| | |
+|---|---|
+| ![The week on an hour grid, with time blocks and the routines planned into them](docs/assets/screenshots/week-calendar.png) | ![The week editor: day templates per weekday, blocks with routines in them](docs/assets/screenshots/week-template.png) |
+| Week: blocks and the routines planned into them | Week templates: draw blocks, drag routines in |
+| ![Goals as a tree, with routines, habits and rules](docs/assets/screenshots/goals.png) | ![Tracking: mood, weight, water and sleep](docs/assets/screenshots/tracking.png) |
+| Goals: a tree, with routines, habits and rules | Tracking: quick amounts and a 7-day strip |
+| ![Today in the dark theme](docs/assets/screenshots/today-dark.png) | <img src="docs/assets/screenshots/phone-today.png" alt="Today on a phone" width="49%"> <img src="docs/assets/screenshots/phone-tracking.png" alt="Tracking on a phone" width="49%"> |
+| Dark theme | On a phone |
+
+The screenshots show made-up example data.
 
 ## Quick start
 
