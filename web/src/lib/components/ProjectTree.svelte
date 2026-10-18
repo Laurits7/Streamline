@@ -25,7 +25,7 @@
       if (it.kind === 'task') {
         store.moveToProject(it.taskId, id)
         announce(`Moved “${store.tasks.get(it.taskId)?.title}” to ${target}`)
-      } else {
+      } else if (it.kind === 'project') {
         announce(`Moved project “${store.projects.get(it.projectId)?.name}” into ${target}`)
         store.moveProject(it.projectId, id)
         if (isCollapsed(id)) toggleCollapsed(id)

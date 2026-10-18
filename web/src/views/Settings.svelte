@@ -166,8 +166,8 @@
   const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
   function newTemplate() {
     store.createTemplate(store.dayTemplates.size ? 'New template' : 'Workday', store.dayTemplates.size ? [] : [1, 2, 3, 4, 5], [
-      { title: 'Deep work', start: '09:00', end: '12:00', energy: 'hard' },
-      { title: 'Admin and errands', start: '13:00', end: '15:00', energy: 'easy' },
+      { title: 'Deep work', start: '09:00', end: '12:00', energy: 'hard', items: [] },
+      { title: 'Admin and errands', start: '13:00', end: '15:00', energy: 'easy', items: [] },
     ])
   }
   function setBlocks(t: DayTemplate, i: number, patch: Partial<TemplateBlock> | null) {
@@ -179,7 +179,7 @@
     const last = t.blocks.at(-1)
     const start = last && last.end < '22:00' ? last.end : '09:00'
     const h = Math.min(23, Number(start.slice(0, 2)) + 1)
-    store.updateTemplate(t.id, { blocks: [...t.blocks, { title: 'Chores', start, end: `${String(h).padStart(2, '0')}:${start.slice(3)}`, energy: null }] })
+    store.updateTemplate(t.id, { blocks: [...t.blocks, { title: 'Chores', start, end: `${String(h).padStart(2, '0')}:${start.slice(3)}`, energy: null, items: [] }] })
   }
   function toggleDay(t: DayTemplate, d: number) {
     store.updateTemplate(t.id, { weekdays: t.weekdays.includes(d) ? t.weekdays.filter((x) => x !== d) : [...t.weekdays, d].sort() })
@@ -555,6 +555,11 @@
     Split days into time blocks with a theme (deep work, admin, chores…). A template is used automatically on its
     weekdays; any day can also use another template, or have its blocks changed, from the timeline's <em>Blocks…</em>
     menu. <em>Suggest times</em> in the planner puts hard tasks in “hard” blocks and easy ones in “easy” blocks.
+  </p>
+  <p class="help">
+    <a class="btn small" href="/week-template"><Icon name="columns" size={14} /> Open the week editor</a>
+    <span class="muted">Draw blocks on a week grid, put routines and tasks in them, and make week templates for every other
+      week or for dates.</span>
   </p>
   {#each store.templateList() as t (t.id)}
     <div class="group card">

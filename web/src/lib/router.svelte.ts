@@ -33,6 +33,7 @@ export type Route =
   | { name: 'plan'; date: string }
   | { name: 'agenda'; start: string | null }
   | { name: 'week'; start: string | null }
+  | { name: 'week-template' }
   | { name: 'inbox' }
   | { name: 'triage' }
   | { name: 'print'; date: string }
@@ -64,6 +65,7 @@ export function match(path: string): Route {
   if ((m = p.match(/^\/agenda\/(\d{4}-\d{2}-\d{2})$/))) return { name: 'agenda', start: m[1] }
   if (p === '/week') return { name: 'week', start: null }
   if ((m = p.match(/^\/week\/(\d{4}-\d{2}-\d{2})$/))) return { name: 'week', start: m[1] }
+  if (p === '/week-template') return { name: 'week-template' }
   if (p === '/inbox') return { name: 'inbox' }
   if (p === '/inbox/process') return { name: 'triage' }
   if ((m = p.match(/^\/print\/(\d{4}-\d{2}-\d{2})$/))) return { name: 'print', date: m[1] }

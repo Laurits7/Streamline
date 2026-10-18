@@ -15,6 +15,7 @@ const PAGES: [string, string][] = [
   ['Weekly review', '/review'],
   ['All tasks', '/tasks'],
   ['Week', '/week'],
+  ['Week templates', '/week-template'],
   ['Agenda', '/agenda'],
   ['Projects', '/projects'],
   ['Routines', '/routines'],

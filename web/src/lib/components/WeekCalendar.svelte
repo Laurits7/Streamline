@@ -1,6 +1,7 @@
 <script lang="ts">
   // Week calendar (D-94): seven days on an hour grid with calendar events, timed tasks and
   // time blocks. Drag a task to another day or time (15-minute steps); click to open it.
+  // Days not set up yet preview their template's blocks and what it will plan (D-113).
   import { tick, untrack } from 'svelte'
   import type { DayEntry } from '../api/types/DayEntry'
   import type { Task } from '../api/types/Task'
@@ -39,7 +40,7 @@
     const events: EventBlock[] = store.dayEvents(date).timed.map((ev) => ({ kind: 'event' as const, ev, start: ev.start, dur: ev.dur, lane: 0, lanes: 1 }))
     const all = layoutLanes<TaskBlock | EventBlock>([...events, ...tasks])
     const untimed = store.dayEntries(date).filter((e) => !e.start_time && store.tasks.get(e.task_id)?.status === 'open').length
-    return { all, allDay: store.dayEvents(date).allDay, bands: store.blocksOn(date), untimed }
+    return { all, allDay: store.dayEvents(date).allDay, bands: store.blocksOn(date), untimed, preview: store.previewOf(date) }
   }
   const cols = $derived(days.map((date) => ({ date, ...column(date) })))
 
@@ -82,6 +83,7 @@
           {#each c.allDay as d (d.event.id)}
             <button class="allday" style:--cal={d.color} onclick={() => (ui.event = d.event.id)}>{d.event.title}</button>
           {/each}
+          {#if c.preview}<span class="pv-label" title="What “{c.preview.template.name}” will set up on this day">Preview · {c.preview.template.name}</span>{/if}
           {#if c.untimed}<a class="untimed" href="/week" onclick={(e) => (e.preventDefault(), store.setPref('weekView', 'planner'))}>+{c.untimed} without a time</a>{/if}
         </div>
       {/each}
@@ -112,6 +114,20 @@
             <div class="band" style:top="{toMin(b.start_time) * PX}px" style:height="{(toMin(b.end_time) - toMin(b.start_time)) * PX}px" title="{b.title} · {b.start_time}–{b.end_time}">
               <span>{b.title}</span>
             </div>
+          {/each}
+          {#each c.preview?.blocks ?? [] as b (b.key)}
+            <div class="band pv" style:top="{b.start * PX}px" style:height="{(b.end - b.start) * PX}px" title="Preview: {b.title} · {hhmm(b.start)}–{hhmm(b.end)}">
+              <span>{b.title}</span>
+            </div>
+            {#each b.items.filter((i) => i.start !== null) as it (it.id)}
+              <div
+                class="item pv-item"
+                style:top="{it.start! * PX}px"
+                style:height="{Math.max(it.dur, SNAP) * PX - 2}px"
+                title="Preview: {it.title}{it.maybe ? ' (if it has a slot left)' : ''} · {hhmm(it.start!)}">
+                <span class="t">{it.title}{it.maybe ? '?' : ''}</span>
+              </div>
+            {/each}
           {/each}
           {#if preview?.date === c.date}
             <div class="preview" style:top="{preview.start * PX}px" style:height="{Math.max(preview.dur, SNAP) * PX}px">{hhmm(preview.start)}</div>
@@ -207,6 +223,26 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .pv-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--accent);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .band.pv {
+    background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--accent) 6%, transparent) 0 6px, transparent 6px 12px);
+    opacity: 0.8;
+  }
+  .pv-item {
+    left: 0;
+    width: calc(100% - 14px);
+    border: 1px dashed color-mix(in srgb, var(--accent) 55%, transparent);
+    background: color-mix(in srgb, var(--accent) 7%, var(--surface));
+    opacity: 0.75;
+    pointer-events: none;
   }
   .untimed {
     font-size: 11px;

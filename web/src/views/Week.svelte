@@ -28,6 +28,7 @@
       <button role="radio" aria-checked={mode === 'calendar'} class:on={mode === 'calendar'} onclick={() => store.setPref('weekView', 'calendar')}
         ><Icon name="calendar" size={15} /> Calendar</button>
     </div>
+    <a class="btn small" href="/week-template" title="Week templates: the blocks each weekday gets"><Icon name="grid" size={14} /> Templates</a>
     <nav class="weeknav" aria-label="Change week">
       <button class="icon-btn" onclick={() => go(addDays(start, -7))} aria-label="Previous week"><Icon name="left" /></button>
       {#if start !== thisWeek}<button class="btn small" onclick={() => go(null)}>This week</button>{/if}

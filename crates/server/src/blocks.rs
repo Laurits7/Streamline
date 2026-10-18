@@ -3,12 +3,17 @@
 //! it), so later edits and deletions stick. Conflicts are computed for a local calendar
 //! day from timed tasks, busy events and blocks (`domain::conflicts`).
 
-use std::{collections::HashSet, sync::Mutex};
+use std::{
+    collections::{BTreeMap, HashSet},
+    sync::Mutex,
+};
 
-use chrono::{Datelike, Duration, NaiveDate, NaiveTime, Timelike};
+use chrono::{Duration, NaiveDate, NaiveTime, Timelike};
 use sqlx::SqliteConnection;
 use streamline_domain::{
     conflicts::{self, Conflict, Item, Kind},
+    order::key_after,
+    templates::{Week, WeekMode, day_template_for, lay_out},
     time::{parse_hhmm, parse_tz, resolve_local},
 };
 
@@ -16,10 +21,15 @@ use crate::{
     AppState,
     db::next_rev,
     events::Change,
-    models::{CalendarEvent, DayTemplate, Task, TimeBlock, User, upsert_time_block},
+    models::{
+        CalendarEvent, DayEntry, DayTemplate, Series, Task, TemplateItem, TimeBlock, User,
+        WeekTemplate, upsert_day_template, upsert_entry, upsert_task, upsert_time_block,
+        upsert_week_template,
+    },
     notify::{self, Notification},
     rollover::today_for,
     util::{new_id, now},
+    visibility::OWNED_VISIBLE_SQL,
 };
 
 pub fn minutes(hhmm: &str) -> Option<u32> {
@@ -51,12 +61,13 @@ pub async fn mark_manual(
 }
 
 /// Replace the day's blocks with the template's (`None` clears them). Applying the
-/// template the day already has is a no-op.
+/// template the day already has is a no-op, unless `force` (the template changed).
 pub async fn apply(
     conn: &mut SqliteConnection,
     user_id: &str,
     date: &str,
     tpl: Option<&DayTemplate>,
+    force: bool,
 ) -> anyhow::Result<Vec<Change>> {
     let existing: Vec<TimeBlock> = sqlx::query_as(
         "SELECT * FROM time_blocks WHERE user_id = ? AND date = ? AND deleted_at IS NULL",
@@ -66,6 +77,7 @@ pub async fn apply(
     .fetch_all(&mut *conn)
     .await?;
     if let Some(t) = tpl
+        && !force
         && !existing.is_empty()
         && existing
             .iter()
@@ -103,7 +115,363 @@ pub async fn apply(
     Ok(changes)
 }
 
-/// Keep the user's next 8 days in line with their weekday templates, except days whose
+/// Plan the routines and one-off tasks of the template's blocks on the day (D-113): each
+/// block's items one after another from its start, around what's already scheduled; what
+/// doesn't fit is planned without a time. Each item is planned once per day (recorded in
+/// `block_days.placed`): a day set up again keeps what it got, wherever the user moved it,
+/// and only gets the items that are new.
+pub async fn place_items(
+    conn: &mut SqliteConnection,
+    user: &User,
+    day: NaiveDate,
+    tpl: &DayTemplate,
+) -> anyhow::Result<Vec<Change>> {
+    if tpl.blocks.0.iter().all(|b| b.items.is_empty()) {
+        return Ok(vec![]);
+    }
+    let date = fmt(day);
+    let mut placed: BTreeMap<String, String> = sqlx::query_scalar::<_, String>(
+        "SELECT placed FROM block_days WHERE user_id = ? AND date = ?",
+    )
+    .bind(&user.id)
+    .bind(&date)
+    .fetch_optional(&mut *conn)
+    .await?
+    .and_then(|p| serde_json::from_str(&p).ok())
+    .unwrap_or_default();
+    let mut busy: Vec<(u32, u32)> = day_items(conn, user, day)
+        .await?
+        .items
+        .into_iter()
+        .filter(|i| i.kind != Kind::Block)
+        .map(|i| (i.start, i.end))
+        .collect();
+    let mut changes = vec![];
+    for b in &tpl.blocks.0 {
+        let (Some(start), Some(end)) = (minutes(&b.start), minutes(&b.end)) else {
+            continue;
+        };
+        // (item, its task, whether the task is new)
+        let mut todo: Vec<(String, Task, bool)> = vec![];
+        for it in &b.items {
+            if placed.contains_key(&it.id) {
+                continue;
+            }
+            match it.kind.as_str() {
+                "routine" => {
+                    let taken: Vec<&String> = placed.values().collect();
+                    if let Some(t) = routine_occurrence(
+                        conn,
+                        user,
+                        it.series_id.as_deref().unwrap_or_default(),
+                        day,
+                        &taken,
+                        &mut changes,
+                    )
+                    .await?
+                    {
+                        todo.push((it.id.clone(), t, false));
+                    }
+                }
+                "task" => {
+                    let key = format!("{}:{date}", it.id);
+                    // Made before (even if deleted or moved since): never again.
+                    let existing: Option<String> = sqlx::query_scalar(
+                        "SELECT id FROM tasks WHERE ext_source = 'template' AND ext_id = ? ORDER BY deleted_at IS NULL DESC LIMIT 1",
+                    )
+                    .bind(&key)
+                    .fetch_optional(&mut *conn)
+                    .await?;
+                    if let Some(id) = existing {
+                        placed.insert(it.id.clone(), id);
+                        continue;
+                    }
+                    todo.push((it.id.clone(), one_off(conn, user, it, key).await?, true));
+                }
+                _ => {}
+            }
+        }
+        let dur = |t: &Task| t.estimate_min.filter(|&m| m > 0).unwrap_or(30) as u32;
+        let durations: Vec<u32> = todo.iter().map(|(_, t, _)| dur(t)).collect();
+        let times = lay_out((start, end), &busy, &durations);
+        for ((item_id, mut t, new), at) in todo.into_iter().zip(times) {
+            let rev = next_rev(conn).await?;
+            if new {
+                t.rev = rev;
+                upsert_task(conn, &t).await?;
+                changes.push(Change::task(&t));
+            }
+            if let Some(s) = at {
+                busy.push((s, s + dur(&t)));
+            }
+            let last: Option<String> = sqlx::query_scalar(
+                "SELECT MAX(position) FROM day_entries WHERE user_id = ? AND date = ? AND deleted_at IS NULL",
+            )
+            .bind(&user.id)
+            .bind(&date)
+            .fetch_one(&mut *conn)
+            .await?;
+            let ts = now();
+            let e = DayEntry {
+                id: new_id(),
+                user_id: user.id.clone(),
+                date: date.clone(),
+                task_id: t.id.clone(),
+                position: key_after(last.as_deref()),
+                start_time: at.map(hhmm),
+                duration_min: None,
+                created_at: ts.clone(),
+                updated_at: ts,
+                deleted_at: None,
+                rev,
+            };
+            upsert_entry(conn, &e).await?;
+            changes.push(Change::entry(&e));
+            placed.insert(item_id, t.id);
+        }
+    }
+    sqlx::query(
+        "INSERT INTO block_days (user_id, date, placed) VALUES (?, ?, ?)
+         ON CONFLICT(user_id, date) DO UPDATE SET placed = excluded.placed",
+    )
+    .bind(&user.id)
+    .bind(&date)
+    .bind(serde_json::to_string(&placed)?)
+    .execute(&mut *conn)
+    .await?;
+    Ok(changes)
+}
+
+/// The open occurrence of a routine (or of its current version, if it was changed since
+/// it went into the template) for a day: the one due that day, or for an N-per-week/month
+/// routine a slot of the window containing the day. Occurrences already planned (from
+/// today on), or `taken` by this day's other items, don't count: the user's own plan stays.
+async fn routine_occurrence(
+    conn: &mut SqliteConnection,
+    user: &User,
+    series_id: &str,
+    day: NaiveDate,
+    taken: &[&String],
+    changes: &mut Vec<Change>,
+) -> anyhow::Result<Option<Task>> {
+    let id = crate::routines::current_version(conn, series_id).await?;
+    let s: Option<Series> = sqlx::query_as(&format!(
+        "SELECT * FROM series WHERE {OWNED_VISIBLE_SQL} AND id = ?2 AND deleted_at IS NULL"
+    ))
+    .bind(&user.id)
+    .bind(&id)
+    .fetch_optional(&mut *conn)
+    .await?;
+    let Some(s) = s else { return Ok(None) };
+    let today = today_for(user);
+    // Occurrences exist up to tomorrow; days further ahead get theirs now.
+    if day > today + Duration::days(1) {
+        changes.extend(
+            crate::routines::materialize_series(conn, &s, user.week_start as u32, today, day, day)
+                .await?,
+        );
+    }
+    let ids = crate::routines::lineage(conn, &s).await?;
+    Ok(sqlx::query_as(
+        "SELECT t.* FROM tasks t
+         WHERE t.series_id IN (SELECT value FROM json_each(?1)) AND t.deleted_at IS NULL AND t.status = 'open'
+           AND (t.occurrence_date = ?2 OR t.window_end IS NOT NULL AND t.occurrence_date <= ?2 AND t.window_end >= ?2)
+           AND t.id NOT IN (SELECT value FROM json_each(?5))
+           AND NOT EXISTS (SELECT 1 FROM day_entries e WHERE e.task_id = t.id AND e.user_id = ?3
+                             AND e.deleted_at IS NULL AND e.date >= ?4)
+         ORDER BY t.occurrence_key LIMIT 1",
+    )
+    .bind(serde_json::to_string(&ids)?)
+    .bind(fmt(day))
+    .bind(&user.id)
+    .bind(fmt(today))
+    .bind(serde_json::to_string(taken)?)
+    .fetch_optional(&mut *conn)
+    .await?)
+}
+
+/// A one-off item's task for one day (not saved; `rev` is set when it is).
+async fn one_off(
+    conn: &mut SqliteConnection,
+    user: &User,
+    it: &TemplateItem,
+    key: String,
+) -> sqlx::Result<Task> {
+    let last: Option<String> = sqlx::query_scalar(
+        "SELECT MAX(position) FROM tasks WHERE project_id IS NULL AND owner_user_id = ? AND deleted_at IS NULL",
+    )
+    .bind(&user.id)
+    .fetch_one(&mut *conn)
+    .await?;
+    let ts = now();
+    Ok(Task {
+        id: new_id(),
+        owner_user_id: Some(user.id.clone()),
+        owner_group_id: None,
+        assignee_user_id: None,
+        project_id: None,
+        title: it.title.clone().unwrap_or_default(),
+        notes: it.notes.clone().unwrap_or_default(),
+        status: "open".into(),
+        position: key_after(last.as_deref()),
+        due_date: None,
+        estimate_min: it.estimate_min,
+        difficulty: None,
+        importance: None,
+        urgency: None,
+        actual_min: 0,
+        task_type_id: crate::routes::tasks::DEFAULT_TASK_TYPE.into(),
+        carry_count: 0,
+        started_at: None,
+        completed_at: None,
+        completed_by: None,
+        ext_source: Some("template".into()),
+        ext_id: Some(key),
+        ext_url: None,
+        place_id: None,
+        also_project_ids: sqlx::types::Json(vec![]),
+        depends_on: sqlx::types::Json(vec![]),
+        blocked: false,
+        wait_min: None,
+        ready_at: None,
+        workflow_instance_id: None,
+        workflow_step: None,
+        workflow_steps: None,
+        series_id: None,
+        occurrence_key: None,
+        occurrence_date: None,
+        event_id: None,
+        window_end: None,
+        waiting_since: None,
+        check_back_at: None,
+        waiting_note: String::new(),
+        waiting_by: None,
+        checklist: sqlx::types::Json(vec![]),
+        ongoing: false,
+        start_date: None,
+        worked_days: sqlx::types::Json(vec![]),
+        created_at: ts.clone(),
+        updated_at: ts,
+        deleted_at: None,
+        rev: 0,
+    })
+}
+
+/// A week template for `domain::templates` (`None` if its mode or dates don't parse).
+pub fn week(w: &WeekTemplate) -> Option<Week> {
+    let mut days: [Option<String>; 7] = Default::default();
+    for (d, id) in days.iter_mut().zip(w.days.0.iter()) {
+        d.clone_from(id);
+    }
+    let date = |s: &Option<String>| {
+        s.as_deref()
+            .and_then(|s| NaiveDate::parse_from_str(s, "%Y-%m-%d").ok())
+    };
+    Some(Week {
+        id: w.id.clone(),
+        mode: WeekMode::parse(&w.mode)?,
+        days,
+        start: date(&w.start_date),
+        end: date(&w.end_date),
+    })
+}
+
+pub async fn week_templates(
+    conn: &mut SqliteConnection,
+    user_id: &str,
+) -> sqlx::Result<Vec<WeekTemplate>> {
+    sqlx::query_as(
+        "SELECT * FROM week_templates WHERE owner_user_id = ? AND deleted_at IS NULL ORDER BY position, id",
+    )
+    .bind(user_id)
+    .fetch_all(conn)
+    .await
+}
+
+/// The default week changed: day templates' `weekdays` follow it (for older clients).
+pub async fn weekdays_from_default(
+    conn: &mut SqliteConnection,
+    user_id: &str,
+    changes: &mut Vec<Change>,
+) -> sqlx::Result<()> {
+    let weeks = week_templates(conn, user_id).await?;
+    let days = weeks
+        .iter()
+        .find(|w| w.mode == "default")
+        .map(|w| w.days.0.clone())
+        .unwrap_or_default();
+    let templates: Vec<DayTemplate> = sqlx::query_as(
+        "SELECT * FROM day_templates WHERE owner_user_id = ? AND deleted_at IS NULL",
+    )
+    .bind(user_id)
+    .fetch_all(&mut *conn)
+    .await?;
+    for mut t in templates {
+        let want: Vec<i32> = (1..=7)
+            .filter(|&d| days.get(d as usize - 1).cloned().flatten().as_deref() == Some(&t.id))
+            .collect();
+        if t.weekdays.0 != want {
+            t.weekdays = sqlx::types::Json(want);
+            t.updated_at = now();
+            t.rev = next_rev(conn).await?;
+            upsert_day_template(conn, &t).await?;
+            changes.push(Change::day_template(&t));
+        }
+    }
+    Ok(())
+}
+
+/// Day templates' `weekdays` changed (an older client, or the Settings page): the
+/// default week follows, and is made if there is none yet.
+pub async fn default_from_weekdays(
+    conn: &mut SqliteConnection,
+    user_id: &str,
+    changes: &mut Vec<Change>,
+) -> sqlx::Result<()> {
+    let templates: Vec<DayTemplate> = sqlx::query_as(
+        "SELECT * FROM day_templates WHERE owner_user_id = ? AND deleted_at IS NULL ORDER BY position",
+    )
+    .bind(user_id)
+    .fetch_all(&mut *conn)
+    .await?;
+    let days: Vec<Option<String>> = (1..=7)
+        .map(|d| {
+            templates
+                .iter()
+                .find(|t| t.weekdays.0.contains(&d))
+                .map(|t| t.id.clone())
+        })
+        .collect();
+    let weeks = week_templates(conn, user_id).await?;
+    let ts = now();
+    let mut w = match weeks.iter().find(|w| w.mode == "default") {
+        Some(w) if w.days.0 == days => return Ok(()),
+        Some(w) => w.clone(),
+        None if days.iter().all(Option::is_none) => return Ok(()),
+        None => WeekTemplate {
+            id: new_id(),
+            owner_user_id: user_id.into(),
+            name: "Usual week".into(),
+            days: sqlx::types::Json(vec![]),
+            mode: "default".into(),
+            start_date: None,
+            end_date: None,
+            position: key_after(weeks.last().map(|w| w.position.as_str())),
+            created_at: ts.clone(),
+            updated_at: ts.clone(),
+            deleted_at: None,
+            rev: 0,
+        },
+    };
+    w.days = sqlx::types::Json(days);
+    w.updated_at = ts;
+    w.rev = next_rev(conn).await?;
+    upsert_week_template(conn, &w).await?;
+    changes.push(Change::week_template(&w));
+    Ok(())
+}
+
+/// Keep the user's next 8 days in line with their week templates, except days whose
 /// blocks were changed by hand.
 pub async fn materialize_user(state: &AppState, user: &User) -> anyhow::Result<()> {
     let templates: Vec<DayTemplate> =
@@ -111,9 +479,14 @@ pub async fn materialize_user(state: &AppState, user: &User) -> anyhow::Result<(
             .bind(&user.id)
             .fetch_all(&state.db.read)
             .await?;
+    let weeks: Vec<Week> = week_templates(&mut *state.db.read.acquire().await?, &user.id)
+        .await?
+        .iter()
+        .filter_map(week)
+        .collect();
     let today = today_for(user);
-    // Nothing to keep in line: no weekday templates and no auto-set-up days ahead.
-    if templates.iter().all(|t| t.weekdays.0.is_empty()) {
+    // Nothing to keep in line: no week templates and no auto-set-up days ahead.
+    if weeks.iter().all(|w| w.days.iter().all(Option::is_none)) {
         let auto: bool = sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM block_days WHERE user_id = ? AND manual = 0 AND template_id IS NOT NULL AND date >= ?)",
         )
@@ -136,8 +509,8 @@ pub async fn materialize_user(state: &AppState, user: &User) -> anyhow::Result<(
                 .bind(&date)
                 .fetch_optional(&mut *tx)
                 .await?;
-        let wd = day.weekday().number_from_monday() as i32;
-        let want = templates.iter().find(|t| t.weekdays.0.contains(&wd));
+        let want =
+            day_template_for(day, &weeks).and_then(|id| templates.iter().find(|t| t.id == id));
         match (&row, want) {
             (Some((true, _, _)), _) | (None, None) => continue,
             (Some((false, id, rev)), Some(t))
@@ -148,7 +521,10 @@ pub async fn materialize_user(state: &AppState, user: &User) -> anyhow::Result<(
             (Some((false, None, _)), None) => continue,
             _ => {}
         }
-        changes.extend(apply(&mut tx, &user.id, &date, want).await?);
+        changes.extend(apply(&mut tx, &user.id, &date, want, true).await?);
+        if let Some(t) = want {
+            changes.extend(place_items(&mut tx, user, day, t).await?);
+        }
         sqlx::query(
             "INSERT INTO block_days (user_id, date, manual, template_id, template_rev) VALUES (?, ?, 0, ?, ?)
              ON CONFLICT(user_id, date) DO UPDATE SET template_id = excluded.template_id, template_rev = excluded.template_rev",
@@ -167,7 +543,7 @@ pub async fn materialize_user(state: &AppState, user: &User) -> anyhow::Result<(
 
 pub async fn materialize_all(state: &AppState) -> anyhow::Result<()> {
     let users: Vec<User> = sqlx::query_as(
-        "SELECT * FROM users WHERE deleted_at IS NULL AND home IS NULL AND (id IN (SELECT owner_user_id FROM day_templates WHERE deleted_at IS NULL AND weekdays <> '[]')
+        "SELECT * FROM users WHERE deleted_at IS NULL AND home IS NULL AND (id IN (SELECT owner_user_id FROM week_templates WHERE deleted_at IS NULL)
            OR id IN (SELECT user_id FROM block_days WHERE manual = 0 AND template_id IS NOT NULL))",
     )
     .fetch_all(&state.db.read)

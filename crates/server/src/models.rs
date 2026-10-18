@@ -1191,6 +1191,30 @@ pub struct TemplateBlock {
     pub end: String,
     /// `hard`, `medium` or `easy`: what kind of task the planner puts here.
     pub energy: Option<String>,
+    /// Routines and one-off tasks planned into the block on each day it's set up (D-113).
+    #[serde(default)]
+    pub items: Vec<TemplateItem>,
+}
+
+/// Something a template block plans on its days: a routine (when it has an occurrence
+/// that day) or a one-off task (a new one each day).
+#[derive(Debug, Clone, Serialize, serde::Deserialize, TS, utoipa::ToSchema, PartialEq)]
+#[ts(export)]
+pub struct TemplateItem {
+    /// ULID; one-off tasks are made once per item and day.
+    pub id: String,
+    #[ts(type = "'routine' | 'task'")]
+    pub kind: String,
+    /// The routine (kind `routine`).
+    #[serde(default)]
+    pub series_id: Option<String>,
+    /// The task's title (kind `task`).
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub estimate_min: Option<i32>,
+    #[serde(default)]
+    pub notes: Option<String>,
 }
 
 /// A reusable layout of time blocks (SPEC §6.8).
@@ -1224,6 +1248,49 @@ pub async fn upsert_day_template(conn: &mut SqliteConnection, t: &DayTemplate) -
     )
     .bind(&t.id).bind(&t.owner_user_id).bind(&t.name).bind(&t.weekdays).bind(&t.blocks).bind(&t.position)
     .bind(&t.created_at).bind(&t.updated_at).bind(&t.deleted_at).bind(t.rev)
+    .execute(conn)
+    .await
+    .map(|_| ())
+}
+
+/// Which day template each weekday gets (D-113): the default week, an alternating one, or
+/// one for a date range.
+#[derive(Debug, Clone, Serialize, FromRow, TS, utoipa::ToSchema)]
+#[ts(export)]
+pub struct WeekTemplate {
+    pub id: String,
+    pub owner_user_id: String,
+    pub name: String,
+    /// Day template ids (or `null`: no blocks), Monday first; always 7.
+    #[ts(as = "Vec<Option<String>>")]
+    #[schema(value_type = Vec<Option<String>>)]
+    pub days: sqlx::types::Json<Vec<Option<String>>>,
+    /// `default`, `alternate` (every other week from the week of `start_date`) or
+    /// `range` (`start_date` to `end_date`, inclusive).
+    #[ts(type = "'default' | 'alternate' | 'range'")]
+    pub mode: String,
+    pub start_date: Option<String>,
+    pub end_date: Option<String>,
+    pub position: String,
+    pub created_at: String,
+    pub updated_at: String,
+    pub deleted_at: Option<String>,
+    #[ts(type = "number")]
+    pub rev: i64,
+}
+
+pub async fn upsert_week_template(
+    conn: &mut SqliteConnection,
+    t: &WeekTemplate,
+) -> sqlx::Result<()> {
+    sqlx::query(
+        "INSERT INTO week_templates (id, owner_user_id, name, days, mode, start_date, end_date, position, created_at, updated_at, deleted_at, rev)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+         ON CONFLICT(id) DO UPDATE SET name=excluded.name, days=excluded.days, mode=excluded.mode, start_date=excluded.start_date,
+           end_date=excluded.end_date, position=excluded.position, updated_at=excluded.updated_at, deleted_at=excluded.deleted_at, rev=excluded.rev",
+    )
+    .bind(&t.id).bind(&t.owner_user_id).bind(&t.name).bind(&t.days).bind(&t.mode).bind(&t.start_date).bind(&t.end_date)
+    .bind(&t.position).bind(&t.created_at).bind(&t.updated_at).bind(&t.deleted_at).bind(t.rev)
     .execute(conn)
     .await
     .map(|_| ())

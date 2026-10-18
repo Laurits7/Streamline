@@ -1,7 +1,8 @@
 <script lang="ts">
   // Week planner (D-94): a column per day with every planned task and the day's load
   // against its free time. Tasks drag between days (keeping their time) and in from the
-  // list of unplanned tasks; each day takes new tasks too.
+  // list of unplanned tasks; each day takes new tasks too. Days not set up yet preview what
+  // their template will plan (D-113).
   import type { Task } from '../api/types/Task'
   import { dayLabel, fmtMinutes, nowHHMM } from '../dates'
   import { announce } from '../announce.svelte'
@@ -9,6 +10,7 @@
   import { dayLoad } from '../planning'
   import { store } from '../store.svelte'
   import { ui } from '../ui.svelte'
+  import { hhmm } from '../weekTemplates'
   import Check from './Check.svelte'
   import Icon from './Icon.svelte'
 
@@ -83,6 +85,7 @@
     {#each days as date (date)}
       {@const l = load(date)}
       {@const past = date < store.today}
+      {@const pv = store.previewOf(date)}
       <section
         class="day card"
         class:today={date === store.today}
@@ -129,9 +132,22 @@
               {#if r.task.estimate_min}<span class="est">{fmtMinutes(r.task.estimate_min)}</span>{/if}
             </li>
           {:else}
-            <li class="muted none">{past ? 'Nothing was planned.' : 'Free'}</li>
+            {#if !pv}<li class="muted none">{past ? 'Nothing was planned.' : 'Free'}</li>{/if}
           {/each}
         </ul>
+        {#if pv}
+          <ul class="pv" aria-label="Preview of {pv.template.name}">
+            <li class="pv-head" title="What “{pv.template.name}” will set up on this day (days are set up 8 days ahead)">Preview · {pv.template.name}</li>
+            {#each pv.blocks as b (b.key)}
+              <li class="pv-block"><span class="time">{hhmm(b.start)}</span>{b.title}</li>
+              {#each b.items as it (it.id)}
+                <li class="pv-row" title={it.maybe ? 'If it has a slot left that day' : undefined}>
+                  {#if it.start !== null}<span class="time">{hhmm(it.start)}</span>{/if}{it.title}{it.maybe ? '?' : ''}
+                </li>
+              {/each}
+            {/each}
+          </ul>
+        {/if}
         {#if !past}
           <form class="add" onsubmit={(e) => add(e, date)}>
             <Icon name="plus" size={14} />
@@ -288,6 +304,28 @@
     font-size: 11px;
     color: var(--muted);
     flex: none;
+  }
+  .pv {
+    opacity: 0.75;
+  }
+  .pv-head {
+    font-size: 11px;
+    font-weight: 650;
+    color: var(--accent);
+  }
+  .pv-block {
+    font-size: 12px;
+    font-weight: 650;
+    padding: 2px 2px 0;
+  }
+  .pv-row {
+    font-size: 12px;
+    padding: 4px 6px;
+    border-radius: var(--radius-sm);
+    border: 1px dashed var(--border);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .none {
     font-size: 12px;

@@ -30,6 +30,16 @@
   shared goal is shared with it.
 - A deleted linked task no longer blocks editing its goal. Goals, reviews and habit answers
   are now in the JSON export.
+- Day template blocks can hold routines and one-off tasks: on each day the template sets
+  up, the routines due that day (or with a slot left that week or month) and a fresh copy
+  of each task are planned into the block, one after another.
+- Several week templates: your usual week, one that alternates every other week, and ones
+  for dates (like a holiday week). Your weekday assignments become the usual week.
+- New week editor (Week → Templates, or Settings → Day templates): a week on an hour grid
+  where you draw, move and resize blocks, pick each weekday's day template and drag routines
+  and tasks into blocks, with a menu for everything you can drag.
+- The Week page previews days that aren't set up yet: their template's blocks, routines and
+  tasks, faded and marked "Preview".
 
 ## 1.4.0 (2026-10-16)
 

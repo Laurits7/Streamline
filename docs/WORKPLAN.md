@@ -784,6 +784,34 @@ Developed on the `v1.5` branch. Owner requests of 2026-10-17. Migrations: 0036 t
 
 ---
 
+### Phase 12: Week templates with routines and tasks in blocks (v1.5, D-113)
+
+Owner request of 2026-10-18. On the `v1.5` branch, after Phase 11. Migration 0038.
+
+- [x] **12.1 Routines and tasks in template blocks**: a template block holds items (a
+      routine, or a one-off task with title, estimate and notes); on each day the template
+      sets up, the routine's occurrence due that day (or one open slot of an N-per-week
+      routine) is planned into that block, one after another from the block's start, and
+      one-off items become a fresh task there (once per day: deleted or moved ones don't
+      come back); days changed by hand are left alone as before (D-58); placement in
+      `domain` with tests; server tests.
+- [x] **12.2 Several week templates**: a week template maps each weekday to a day template
+      (or none); one is the default, one can alternate with it every other week, and others
+      apply for a date range ("Holiday week"); existing weekday assignments become the
+      default week template; which day template a date gets is resolved in `domain`
+      (tested) and used by the 8-day set-up.
+- [x] **12.3 Visual week editor**: `/week-template` (Settings and the Week view link to it):
+      pick a week template, 7 day columns on an hour grid; draw, move and resize blocks, set
+      their theme and energy; drag routines (searchable list) and new one-off tasks into
+      blocks, with a menu alternative for every drag (§6.12); choose a day template per
+      weekday; manage week templates (default, alternating, date range).
+- [x] **12.4 Preview on the Week view**: days not set up yet show their template's blocks
+      and the routines and tasks it will put there, marked as a preview; help and
+      CHANGELOG.
+- [ ] **12.5 Phase gate** (with 11.5).
+
+---
+
 ## Part C. Open questions with proposed defaults
 
 > **Status: all defaults below accepted by the owner on 2026-10-05** (recorded as D-1…D-23

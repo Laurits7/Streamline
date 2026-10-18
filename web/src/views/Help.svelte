@@ -429,7 +429,16 @@
       above the timeline switches a day to another template, adds a block, or removes them all. A day you've changed by
       hand keeps your changes.
     </p>
+    <p>
+      The <a href="/week-template">week editor</a> (<em>Templates</em> on the Week page) shows a whole week on an hour grid:
+      choose a day template for each weekday, draw a block by dragging over empty time, drag a block to move it or its top
+      or bottom edge to resize it (15-minute steps), and tap a block to edit its theme, times and kind of work. Every drag
+      has a menu alternative in the block's sheet and the <em>Add block</em> buttons.
+    </p>
     <ul>
+      <li><strong>Routines and tasks in blocks:</strong> drag a routine, or a new task, from the list beside the grid into a block (or use <em>Add routine…</em> and <em>Add a task</em> in the block's sheet). On each day the template sets up, a routine due that day goes into the block (an N-per-week routine: one of the slots still open that week), and each task is made fresh for that day. They're laid one after another from the block's start, by their estimates (30 minutes if none), around what's already scheduled; what doesn't fit is planned for the day without a time. A routine you've already planned yourself stays where you put it, and a task you deleted or moved isn't made again. Fixed-time routines plan themselves at their own time.</li>
+      <li><strong>Week templates:</strong> the <em>usual week</em> applies by default; one week template can alternate with it every other week (from the week you choose), and others can cover dates, like a holiday week with no blocks. Dates win over the alternating week, and that over the usual week. The weekdays in Settings are the usual week's.</li>
+      <li><strong>Preview:</strong> days are set up 8 days ahead. Later days on the Week page show their template's blocks, routines and tasks faded and marked <em>Preview</em>; a “?” marks a routine that only comes if it has a slot left. Changing a template changes the days set up automatically too, except days you've changed by hand; what was already planned stays.</li>
       <li><strong>Overlaps:</strong> when a scheduled task overlaps a calendar event or another task, it's outlined in red and a banner offers <em>Move to free time</em>, <em>Shorten</em> or <em>Unschedule</em>. If a calendar change causes an overlap today or tomorrow, you get a notification.</li>
       <li><strong>Suggest times:</strong> in the planner's <em>Arrange</em> step, Streamline proposes times for the tasks you picked: overdue and due-soon first, then urgent and important; hard tasks in “hard” blocks, easy ones in “easy” blocks; always in free time. Each suggestion says why. Untick what you don't want and press <em>Use selected</em>.</li>
       <li>All-day events don't block time unless you tick <em>all-day = busy</em> for that calendar in Settings.</li>

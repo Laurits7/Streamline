@@ -23,7 +23,7 @@ use crate::{
     models::{
         Calendar, CalendarAccountView, CalendarEvent, DayEntry, DayPlan, DayTemplate, EventProject,
         FocusSession, FocusTimer, Group, Me, OccasionTemplate, Person, Place, Project, Series,
-        Task, TaskTemplate, TaskType, TimeBlock, WorkflowTemplate,
+        Task, TaskTemplate, TaskType, TimeBlock, WeekTemplate, WorkflowTemplate,
     },
     rollover,
 };
@@ -67,6 +67,11 @@ pub struct SyncResponse {
     /// Calendar events assigned to projects.
     pub event_projects: Vec<EventProject>,
     pub day_templates: Vec<DayTemplate>,
+    /// Which day template each weekday gets (D-113).
+    pub week_templates: Vec<WeekTemplate>,
+    /// Days from today on already set up from templates, or changed by hand (always
+    /// complete): the Week view previews the others.
+    pub set_up_days: SetUpDays,
     /// Time blocks (a full sync covers the last 30 days onwards).
     pub time_blocks: Vec<TimeBlock>,
     /// Reflections (a full sync covers the last 30 days onwards).
@@ -89,6 +94,13 @@ pub struct SyncResponse {
     /// The server's clock (Unix ms), so clients can correct for clock differences.
     #[ts(type = "number")]
     pub server_now: i64,
+}
+
+/// Dates (`YYYY-MM-DD`), as one object so offline copies keep it whole.
+#[derive(Serialize, TS, utoipa::ToSchema)]
+#[ts(export)]
+pub struct SetUpDays {
+    pub dates: Vec<String>,
 }
 
 #[utoipa::path(get, path = "/sync", tag = "sync", summary = "Everything visible to you, or only what changed after `since`", params(SyncQuery), responses((status = 200, body = SyncResponse), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
@@ -238,6 +250,22 @@ pub async fn sync(
     .bind(since)
     .fetch_all(db)
     .await?;
+    let week_templates = sqlx::query_as(
+        "SELECT * FROM week_templates WHERE owner_user_id = ?1 AND (?2 = 0 AND deleted_at IS NULL OR ?2 > 0 AND rev > ?2) ORDER BY position",
+    )
+    .bind(user.id())
+    .bind(since)
+    .fetch_all(db)
+    .await?;
+    let set_up_days = SetUpDays {
+        dates: sqlx::query_scalar(
+            "SELECT date FROM block_days WHERE user_id = ? AND date >= ? ORDER BY date",
+        )
+        .bind(user.id())
+        .bind(today.format("%Y-%m-%d").to_string())
+        .fetch_all(db)
+        .await?,
+    };
     let time_blocks = sqlx::query_as(
         "SELECT * FROM time_blocks WHERE user_id = ?1 AND (?2 = 0 AND deleted_at IS NULL AND date >= ?3 OR ?2 > 0 AND rev > ?2)",
     )
@@ -351,6 +379,8 @@ pub async fn sync(
         events,
         event_projects,
         day_templates,
+        week_templates,
+        set_up_days,
         time_blocks,
         day_records,
         metrics,

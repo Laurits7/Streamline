@@ -18,8 +18,12 @@ use crate::{
     db::next_rev,
     error::{ApiResult, AppError, bad},
     events::Change,
-    models::{DayTemplate, TemplateBlock, TimeBlock, upsert_day_template, upsert_time_block},
-    util::{check_position, double_option, id_or_new, now, parse_date},
+    models::{
+        DayTemplate, TemplateBlock, TimeBlock, WeekTemplate, upsert_day_template,
+        upsert_time_block, upsert_week_template,
+    },
+    util::{check_position, double_option, id_or_new, new_id, now, parse_date},
+    visibility::OWNED_VISIBLE_SQL,
 };
 
 const ENERGIES: [&str; 3] = ["hard", "medium", "easy"];
@@ -37,6 +41,80 @@ fn check_block(title: &str, start: &str, end: &str, energy: &Option<String>) -> 
     }
     if energy.as_deref().is_some_and(|e| !ENERGIES.contains(&e)) {
         return Err(bad("energy must be hard, medium or easy"));
+    }
+    Ok(())
+}
+
+/// Items of the template's blocks: at most 20 per block, routines the user can see, task
+/// titles of 1-200 characters. Items without an id get one.
+async fn check_items(
+    conn: &mut sqlx::SqliteConnection,
+    user: &AuthUser,
+    blocks: &mut [TemplateBlock],
+) -> ApiResult<()> {
+    let mut ids = std::collections::HashSet::new();
+    for b in blocks {
+        if b.items.len() > 20 {
+            return Err(bad("at most 20 routines and tasks in a block"));
+        }
+        let mut gone = vec![];
+        for it in &mut b.items {
+            it.id = if it.id.is_empty() {
+                new_id()
+            } else {
+                ulid::Ulid::from_string(&it.id)
+                    .map_err(|_| bad("item ids must be ULIDs"))?
+                    .to_string()
+            };
+            if !ids.insert(it.id.clone()) {
+                return Err(bad("item ids must be unique"));
+            }
+            match it.kind.as_str() {
+                "routine" => {
+                    // Kept pointing at the routine's current version; a deleted routine
+                    // leaves the template.
+                    let id = crate::routines::current_version(
+                        conn,
+                        it.series_id.as_deref().unwrap_or_default(),
+                    )
+                    .await?;
+                    let deleted: Option<bool> = sqlx::query_scalar(&format!(
+                        "SELECT deleted_at IS NOT NULL FROM series WHERE {OWNED_VISIBLE_SQL} AND id = ?2"
+                    ))
+                    .bind(user.id())
+                    .bind(&id)
+                    .fetch_optional(&mut *conn)
+                    .await?;
+                    match deleted {
+                        None => return Err(bad("unknown routine")),
+                        Some(true) => gone.push(it.id.clone()),
+                        Some(false) => {}
+                    }
+                    it.series_id = Some(id);
+                    (it.title, it.estimate_min, it.notes) = (None, None, None);
+                }
+                "task" => {
+                    let title = it.title.as_deref().unwrap_or_default().trim();
+                    if title.is_empty() || title.chars().count() > 200 {
+                        return Err(bad("a task needs a title (up to 200 characters)"));
+                    }
+                    it.title = Some(title.into());
+                    if it.estimate_min.is_some_and(|m| !(1..=1440).contains(&m)) {
+                        return Err(bad("estimate must be 1-1440 minutes"));
+                    }
+                    if it
+                        .notes
+                        .as_ref()
+                        .is_some_and(|n| n.chars().count() > 10_000)
+                    {
+                        return Err(bad("notes are too long"));
+                    }
+                    it.series_id = None;
+                }
+                _ => return Err(bad("an item is a routine or a task")),
+            }
+        }
+        b.items.retain(|it| !gone.contains(&it.id));
     }
     Ok(())
 }
@@ -102,9 +180,11 @@ pub async fn create_template(
     user: AuthUser,
     Json(c): Json<CreateTemplate>,
 ) -> ApiResult<Json<DayTemplate>> {
+    let mut c = c;
     check_template(&c.name, &c.weekdays, &c.blocks)?;
     let id = id_or_new(c.id)?;
     let mut tx = state.db.write.begin().await?;
+    check_items(&mut tx, &user, &mut c.blocks).await?;
     if let Some(t) = sqlx::query_as::<_, DayTemplate>("SELECT * FROM day_templates WHERE id = ?")
         .bind(&id)
         .fetch_optional(&mut *tx)
@@ -138,6 +218,9 @@ pub async fn create_template(
         rev: next_rev(&mut tx).await?,
     };
     upsert_day_template(&mut tx, &t).await?;
+    if !t.weekdays.0.is_empty() {
+        blocks::default_from_weekdays(&mut tx, user.id(), &mut changes).await?;
+    }
     tx.commit().await?;
     changes.push(Change::day_template(&t));
     state.bus.publish(changes);
@@ -168,8 +251,8 @@ async fn load_template(
     .ok_or(AppError::NotFound)
 }
 
-/// Days already set up keep their blocks; the change applies to days set up from now on
-/// (and to any day the template is applied to again).
+/// Days set up automatically follow the change (blocks again; routines and tasks only the
+/// new ones, D-113); days changed by hand keep theirs.
 #[utoipa::path(patch, path = "/day-templates/{id}", tag = "days", summary = "Change a day template", params(("id" = String, Path, description = "ULID")), request_body = PatchTemplate, responses((status = 200, body = DayTemplate), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
 pub async fn patch_template(
     State(state): State<AppState>,
@@ -183,11 +266,13 @@ pub async fn patch_template(
     if let Some(v) = c.name {
         t.name = v.trim().into();
     }
+    let weekdays = c.weekdays.is_some();
     if let Some(v) = c.weekdays {
         take_weekdays(&mut tx, user.id(), &t.id, &v, &mut changes).await?;
         t.weekdays = sqlx::types::Json(v);
     }
-    if let Some(v) = c.blocks {
+    if let Some(mut v) = c.blocks {
+        check_items(&mut tx, &user, &mut v).await?;
         t.blocks = sqlx::types::Json(v);
     }
     if let Some(v) = c.position {
@@ -198,6 +283,9 @@ pub async fn patch_template(
     t.updated_at = now();
     t.rev = next_rev(&mut tx).await?;
     upsert_day_template(&mut tx, &t).await?;
+    if weekdays {
+        blocks::default_from_weekdays(&mut tx, user.id(), &mut changes).await?;
+    }
     tx.commit().await?;
     changes.push(Change::day_template(&t));
     state.bus.publish(changes);
@@ -217,8 +305,250 @@ pub async fn delete_template(
     t.updated_at = now();
     t.rev = next_rev(&mut tx).await?;
     upsert_day_template(&mut tx, &t).await?;
+    let mut changes = vec![Change::day_template(&t)];
+    // Weekdays that had it get none.
+    for mut w in blocks::week_templates(&mut tx, user.id()).await? {
+        if w.days.0.iter().any(|d| d.as_deref() == Some(&t.id)) {
+            for d in w.days.0.iter_mut() {
+                if d.as_deref() == Some(&t.id) {
+                    *d = None;
+                }
+            }
+            w.updated_at = now();
+            w.rev = next_rev(&mut tx).await?;
+            upsert_week_template(&mut tx, &w).await?;
+            changes.push(Change::week_template(&w));
+        }
+    }
     tx.commit().await?;
-    state.bus.publish([Change::day_template(&t)]);
+    state.bus.publish(changes);
+    blocks::materialize_user(&state, &user.user).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+// ----- Week templates -----
+
+/// Name, 7 days of the user's day templates (or none), and a valid mode with its dates;
+/// one default week and one alternating week at most.
+async fn check_week(
+    conn: &mut sqlx::SqliteConnection,
+    user: &AuthUser,
+    w: &mut WeekTemplate,
+) -> ApiResult<()> {
+    if w.name.trim().is_empty() || w.name.chars().count() > 60 {
+        return Err(bad("name must be 1-60 characters"));
+    }
+    w.name = w.name.trim().into();
+    if w.days.0.len() != 7 {
+        return Err(bad("a week has 7 days (Monday first)"));
+    }
+    for id in w.days.0.iter().flatten() {
+        let ok: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM day_templates WHERE id = ? AND owner_user_id = ? AND deleted_at IS NULL)",
+        )
+        .bind(id)
+        .bind(user.id())
+        .fetch_one(&mut *conn)
+        .await?;
+        if !ok {
+            return Err(bad("unknown day template"));
+        }
+    }
+    for d in [&w.start_date, &w.end_date].into_iter().flatten() {
+        parse_date(d)?;
+    }
+    match w.mode.as_str() {
+        "default" => (w.start_date, w.end_date) = (None, None),
+        "alternate" => {
+            if w.start_date.is_none() {
+                return Err(bad(
+                    "an alternating week needs the date of a week it applies to",
+                ));
+            }
+            w.end_date = None;
+        }
+        "range" => match (&w.start_date, &w.end_date) {
+            (Some(s), Some(e)) if s <= e => {}
+            (Some(_), Some(_)) => return Err(bad("the range must end on or after its start")),
+            _ => return Err(bad("a date range needs a start and an end date")),
+        },
+        _ => return Err(bad("mode must be default, alternate or range")),
+    }
+    if w.mode != "range" {
+        let taken: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM week_templates WHERE owner_user_id = ? AND mode = ? AND id <> ? AND deleted_at IS NULL)",
+        )
+        .bind(user.id())
+        .bind(&w.mode)
+        .bind(&w.id)
+        .fetch_one(&mut *conn)
+        .await?;
+        if taken {
+            return Err(bad(if w.mode == "default" {
+                "there is a default week already"
+            } else {
+                "there is an alternating week already"
+            }));
+        }
+    }
+    Ok(())
+}
+
+#[derive(Deserialize, utoipa::ToSchema)]
+pub struct CreateWeek {
+    id: Option<String>,
+    name: String,
+    /// 7 day template ids or `null`, Monday first (default: none).
+    #[serde(default)]
+    days: Option<Vec<Option<String>>>,
+    /// `default`, `alternate` or `range`.
+    mode: String,
+    start_date: Option<String>,
+    end_date: Option<String>,
+}
+
+#[utoipa::path(post, path = "/week-templates", tag = "days", summary = "Create a week template (a day template for each weekday)", request_body = CreateWeek, responses((status = 200, body = WeekTemplate), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
+pub async fn create_week(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Json(c): Json<CreateWeek>,
+) -> ApiResult<Json<WeekTemplate>> {
+    let id = id_or_new(c.id)?;
+    let mut tx = state.db.write.begin().await?;
+    if let Some(w) = sqlx::query_as::<_, WeekTemplate>("SELECT * FROM week_templates WHERE id = ?")
+        .bind(&id)
+        .fetch_optional(&mut *tx)
+        .await?
+    {
+        return if w.owner_user_id == user.id() {
+            Ok(Json(w))
+        } else {
+            Err(AppError::Conflict("id already in use".into()))
+        };
+    }
+    let last: Option<String> = sqlx::query_scalar(
+        "SELECT MAX(position) FROM week_templates WHERE owner_user_id = ? AND deleted_at IS NULL",
+    )
+    .bind(user.id())
+    .fetch_one(&mut *tx)
+    .await?;
+    let ts = now();
+    let mut w = WeekTemplate {
+        id,
+        owner_user_id: user.id().into(),
+        name: c.name,
+        days: sqlx::types::Json(c.days.unwrap_or_else(|| vec![None; 7])),
+        mode: c.mode,
+        start_date: c.start_date,
+        end_date: c.end_date,
+        position: key_after(last.as_deref()),
+        created_at: ts.clone(),
+        updated_at: ts,
+        deleted_at: None,
+        rev: 0,
+    };
+    check_week(&mut tx, &user, &mut w).await?;
+    w.rev = next_rev(&mut tx).await?;
+    upsert_week_template(&mut tx, &w).await?;
+    let mut changes = vec![Change::week_template(&w)];
+    if w.mode == "default" {
+        blocks::weekdays_from_default(&mut tx, user.id(), &mut changes).await?;
+    }
+    tx.commit().await?;
+    state.bus.publish(changes);
+    blocks::materialize_user(&state, &user.user).await?;
+    Ok(Json(w))
+}
+
+#[derive(Deserialize, utoipa::ToSchema)]
+pub struct PatchWeek {
+    name: Option<String>,
+    days: Option<Vec<Option<String>>>,
+    mode: Option<String>,
+    #[serde(default, deserialize_with = "double_option")]
+    start_date: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
+    end_date: Option<Option<String>>,
+    position: Option<String>,
+}
+
+async fn load_week(
+    conn: &mut sqlx::SqliteConnection,
+    user: &AuthUser,
+    id: &str,
+) -> ApiResult<WeekTemplate> {
+    sqlx::query_as(
+        "SELECT * FROM week_templates WHERE id = ? AND owner_user_id = ? AND deleted_at IS NULL",
+    )
+    .bind(id)
+    .bind(user.id())
+    .fetch_optional(conn)
+    .await?
+    .ok_or(AppError::NotFound)
+}
+
+/// Days set up automatically follow the change, as with day templates.
+#[utoipa::path(patch, path = "/week-templates/{id}", tag = "days", summary = "Change a week template", params(("id" = String, Path, description = "ULID")), request_body = PatchWeek, responses((status = 200, body = WeekTemplate), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
+pub async fn patch_week(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<String>,
+    Json(c): Json<PatchWeek>,
+) -> ApiResult<Json<WeekTemplate>> {
+    let mut tx = state.db.write.begin().await?;
+    let mut w = load_week(&mut tx, &user, &id).await?;
+    let was_default = w.mode == "default";
+    if let Some(v) = c.name {
+        w.name = v;
+    }
+    if let Some(v) = c.days {
+        w.days = sqlx::types::Json(v);
+    }
+    if let Some(v) = c.mode {
+        w.mode = v;
+    }
+    if let Some(v) = c.start_date {
+        w.start_date = v;
+    }
+    if let Some(v) = c.end_date {
+        w.end_date = v;
+    }
+    if let Some(v) = c.position {
+        check_position(&v)?;
+        w.position = v;
+    }
+    check_week(&mut tx, &user, &mut w).await?;
+    w.updated_at = now();
+    w.rev = next_rev(&mut tx).await?;
+    upsert_week_template(&mut tx, &w).await?;
+    let mut changes = vec![Change::week_template(&w)];
+    if was_default || w.mode == "default" {
+        blocks::weekdays_from_default(&mut tx, user.id(), &mut changes).await?;
+    }
+    tx.commit().await?;
+    state.bus.publish(changes);
+    blocks::materialize_user(&state, &user.user).await?;
+    Ok(Json(w))
+}
+
+#[utoipa::path(delete, path = "/week-templates/{id}", tag = "days", summary = "Delete a week template (days already set up keep their blocks until it changes them)", params(("id" = String, Path, description = "ULID")), responses((status = 204, description = "Done"), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
+pub async fn delete_week(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<String>,
+) -> ApiResult<StatusCode> {
+    let mut tx = state.db.write.begin().await?;
+    let mut w = load_week(&mut tx, &user, &id).await?;
+    w.deleted_at = Some(now());
+    w.updated_at = now();
+    w.rev = next_rev(&mut tx).await?;
+    upsert_week_template(&mut tx, &w).await?;
+    let mut changes = vec![Change::week_template(&w)];
+    if w.mode == "default" {
+        blocks::weekdays_from_default(&mut tx, user.id(), &mut changes).await?;
+    }
+    tx.commit().await?;
+    state.bus.publish(changes);
     blocks::materialize_user(&state, &user.user).await?;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -244,7 +574,10 @@ pub async fn apply_template(
         Some(id) => Some(load_template(&mut tx, &user, id).await?),
         None => None,
     };
-    let changes = blocks::apply(&mut tx, user.id(), &date, tpl.as_ref()).await?;
+    let mut changes = blocks::apply(&mut tx, user.id(), &date, tpl.as_ref(), false).await?;
+    if let Some(t) = &tpl {
+        changes.extend(blocks::place_items(&mut tx, &user.user, parse_date(&date)?, t).await?);
+    }
     blocks::mark_manual(&mut tx, user.id(), &date).await?;
     let now_blocks: Vec<TimeBlock> = sqlx::query_as("SELECT * FROM time_blocks WHERE user_id = ? AND date = ? AND deleted_at IS NULL ORDER BY start_time")
         .bind(user.id())

@@ -68,6 +68,7 @@ pub fn sync_key(kind: &str) -> Option<&'static str> {
         "event_project" => "event_projects",
         "person" => "people",
         "day_template" => "day_templates",
+        "week_template" => "week_templates",
         "time_block" => "time_blocks",
         "day_record" => "day_records",
         "health_day" => "health_days",

@@ -13,8 +13,11 @@ Everything below is in the app today. *Help* inside the app explains each one st
   to another day.
 - **Week view**: a planner with a column per day and each day's load, or the week on an hour
   grid with events, timed tasks and time blocks; drag tasks between days and times.
-- **Time blocks and suggestions**: day templates with themed blocks (deep work, admin…) per
-  weekday; overlap warnings with quick fixes; an explainable "suggest times" in the planner.
+- **Time blocks and week templates**: day templates with themed blocks (deep work, admin,
+  chores…) that can hold routines and one-off tasks, planned into the block on each day;
+  several week templates (usual, alternating, for dates), edited on an hour grid and
+  previewed on the Week page; overlap warnings with quick fixes; an explainable "suggest
+  times" in the planner.
 - **End of day by task type**: *Carry on* tasks roll over to the next day (with a "carried N
   days" badge), *Expires* tasks are marked missed. The day ends at a time you choose (default
   04:00).

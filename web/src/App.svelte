@@ -219,7 +219,7 @@
     route.name === 'tasks' ? 'view:all' : route.name === 'inbox' ? 'view:inbox' : route.name === 'project' ? `view:project:${route.id}` : null,
   )
   const wideView = $derived(!!viewKey && store.pref<{ view?: string }>(viewKey, {}).view !== undefined && store.pref<{ view?: string }>(viewKey, {}).view !== 'list')
-  const isDayRoute = $derived(route.name === 'today' || route.name === 'day' || route.name === 'plan' || route.name === 'week' || wideView)
+  const isDayRoute = $derived(route.name === 'today' || route.name === 'day' || route.name === 'plan' || route.name === 'week' || route.name === 'week-template' || wideView)
 
   // Navigation links double as drop targets for tasks.
   const toProject = (projectId: string | null) => ({
@@ -359,6 +359,8 @@
         {#await import('./views/Triage.svelte') then m}<m.default />{/await}
       {:else if route.name === 'week'}
         {#await import('./views/Week.svelte') then m}<m.default start={route.start} />{/await}
+      {:else if route.name === 'week-template'}
+        {#await import('./views/WeekTemplate.svelte') then m}<m.default />{/await}
       {:else if route.name === 'agenda'}
         {#await import('./views/Agenda.svelte') then m}<m.default start={route.start} />{/await}
       {:else if route.name === 'routines'}

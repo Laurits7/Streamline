@@ -16,6 +16,7 @@ import type { DayRecord } from './api/types/DayRecord'
 import type { MetricDefinition } from './api/types/MetricDefinition'
 import type { MetricEntry } from './api/types/MetricEntry'
 import type { DayTemplate } from './api/types/DayTemplate'
+import type { WeekTemplate } from './api/types/WeekTemplate'
 import type { SuggestedPlan } from './api/types/SuggestedPlan'
 import type { TemplateBlock } from './api/types/TemplateBlock'
 import type { TimeBlock } from './api/types/TimeBlock'
@@ -60,6 +61,7 @@ import { doableFrom, doneAtOn, tooEarly } from './completion'
 import { dayLoad, type DayLoad } from './planning'
 import { DesktopEvents, desktop } from './desktop'
 import { allDefaults, matchDefaults, tasksFor, type DefaultMatch } from './defaults'
+import { dayTemplateFor, previewDay, type PreviewBlock } from './weekTemplates'
 
 type Kind =
   | 'task'
@@ -77,6 +79,7 @@ type Kind =
   | 'event_project'
   | 'person'
   | 'day_template'
+  | 'week_template'
   | 'time_block'
   | 'day_record'
   | 'health_day'
@@ -100,6 +103,7 @@ type Entity =
   | EventProject
   | Person
   | DayTemplate
+  | WeekTemplate
   | TimeBlock
   | DayRecord
   | HealthDay
@@ -206,6 +210,10 @@ class Store {
   remoteProjects = new SvelteMap<string, JoinView>()
   people = new SvelteMap<string, Person>()
   dayTemplates = new SvelteMap<string, DayTemplate>()
+  /** Which day template each weekday gets (D-113). */
+  weekTemplates = new SvelteMap<string, WeekTemplate>()
+  /** Days from today on already set up from templates or changed by hand (the rest are previewed). */
+  setUpDays = $state<Set<string>>(new Set())
   dayRecords = new SvelteMap<string, DayRecord>()
   /** Your day answers for habit goals (D-105), by id. */
   habitChecks = new SvelteMap<string, HabitCheck>()
@@ -278,6 +286,8 @@ class Store {
     this.remoteProjects.clear()
     this.people.clear()
     this.dayTemplates.clear()
+    this.weekTemplates.clear()
+    this.setUpDays = new Set()
     this.timeBlocks.clear()
     this.dayRecords.clear()
     this.habitChecks.clear()
@@ -355,6 +365,7 @@ class Store {
       this.events.clear()
       this.people.clear()
       this.dayTemplates.clear()
+      this.weekTemplates.clear()
       this.timeBlocks.clear()
       this.dayRecords.clear()
     this.habitChecks.clear()
@@ -393,6 +404,9 @@ class Store {
     for (const x of r.event_projects) this.applyRemote('event_project', x)
     for (const x of r.people) this.applyRemote('person', x)
     for (const x of r.day_templates) this.applyRemote('day_template', x)
+    for (const x of r.week_templates ?? []) this.applyRemote('week_template', x)
+    // Always complete (older servers don't send it: nothing is previewed then).
+    this.setUpDays = new Set(r.set_up_days?.dates ?? [])
     for (const x of r.time_blocks) this.applyRemote('time_block', x)
     for (const x of r.day_records) this.applyRemote('day_record', x)
     for (const x of r.health_days) this.applyRemote('health_day', x)
@@ -452,6 +466,7 @@ class Store {
         c.kind === 'event_project' ||
         c.kind === 'person' ||
         c.kind === 'day_template' ||
+        c.kind === 'week_template' ||
         c.kind === 'time_block' ||
         c.kind === 'day_record' ||
         c.kind === 'health_day' ||
@@ -497,6 +512,7 @@ class Store {
       event_project: this.eventProjects,
       person: this.people,
       day_template: this.dayTemplates,
+      week_template: this.weekTemplates,
       time_block: this.timeBlocks,
       day_record: this.dayRecords,
       health_day: this.healthDays,
@@ -1840,8 +1856,7 @@ class Store {
     return true
   }
 
-  createTemplate(name: string, weekdays: number[], blocks: TemplateBlock[]) {
-    const id = ulid()
+  createTemplate(name: string, weekdays: number[], blocks: TemplateBlock[], id = ulid()) {
     const ts = now()
     const t: DayTemplate = {
       id,
@@ -1881,7 +1896,78 @@ class Store {
     )
   }
 
+  weekTemplateList(): WeekTemplate[] {
+    return [...this.weekTemplates.values()].sort(byPosition)
+  }
+
+  createWeekTemplate(w: Pick<WeekTemplate, 'name' | 'days' | 'mode' | 'start_date' | 'end_date'>) {
+    const id = ulid()
+    const ts = now()
+    const t: WeekTemplate = {
+      id,
+      owner_user_id: this.me?.id ?? '',
+      ...w,
+      position: keyBetween(this.weekTemplateList().at(-1)?.position, null),
+      created_at: ts,
+      updated_at: ts,
+      deleted_at: null,
+      rev: 0,
+    }
+    return this.optimistic(
+      [['week_template', id]],
+      () => this.weekTemplates.set(id, t),
+      async () => [['week_template', await api.post<WeekTemplate>('/week-templates', { id, ...w })]],
+    )
+  }
+
+  updateWeekTemplate(id: string, patch: Partial<Pick<WeekTemplate, 'name' | 'days' | 'mode' | 'start_date' | 'end_date'>>) {
+    const cur = this.weekTemplates.get(id)
+    if (!cur) return
+    return this.optimistic(
+      [['week_template', id]],
+      () => this.weekTemplates.set(id, { ...cur, ...patch }),
+      async () => [['week_template', await api.patch<WeekTemplate>(`/week-templates/${id}`, patch)]],
+    )
+  }
+
+  deleteWeekTemplate(id: string) {
+    if (!this.weekTemplates.has(id)) return
+    return this.optimistic(
+      [['week_template', id]],
+      () => this.weekTemplates.delete(id),
+      () => api.del(`/week-templates/${id}`),
+    )
+  }
+
+  /**
+   * What the templates will set up on a day the server hasn't set up yet (D-113): from
+   * today on, not set up, no blocks. Null when there's nothing to preview.
+   */
+  previewOf(date: string): { template: DayTemplate; blocks: PreviewBlock[] } | null {
+    if (date < this.today || this.setUpDays.has(date) || this.blocksOn(date).length) return null
+    const id = dayTemplateFor(date, [...this.weekTemplates.values()])
+    const template = id ? this.dayTemplates.get(id) : undefined
+    if (!template || !template.blocks.length) return null
+    const busy = this.dayItems(date)
+      .filter((i) => i.kind !== 'block')
+      .map((i): [number, number] => [i.start, i.end])
+    return { template, blocks: previewDay(template, date, this.series, busy) }
+  }
+
+  /** Where a day template is used: (week template, weekday index 0 = Monday). */
+  templateUses(id: string): [WeekTemplate, number][] {
+    const out: [WeekTemplate, number][] = []
+    for (const w of this.weekTemplateList()) w.days.forEach((d, i) => d === id && out.push([w, i]))
+    return out
+  }
+
+  /** A day's blocks were changed by hand: it's set up (no preview) from now on. */
+  private markSetUp(date: string) {
+    if (!this.setUpDays.has(date)) this.setUpDays = new Set([...this.setUpDays, date])
+  }
+
   async applyTemplate(date: string, templateId: string | null) {
+    this.markSetUp(date)
     try {
       await api.post(`/days/${date}/apply-template`, { template_id: templateId })
       await this.sync()
@@ -1894,6 +1980,7 @@ class Store {
     const id = ulid()
     const ts = now()
     const block: TimeBlock = { id, user_id: this.me?.id ?? '', date, template_id: null, created_at: ts, updated_at: ts, deleted_at: null, rev: 0, ...b }
+    this.markSetUp(date)
     return this.optimistic(
       [['time_block', id]],
       () => this.timeBlocks.set(id, block),
@@ -1904,6 +1991,7 @@ class Store {
   updateBlock(id: string, patch: Partial<Pick<TimeBlock, 'title' | 'start_time' | 'end_time' | 'energy'>>) {
     const cur = this.timeBlocks.get(id)
     if (!cur) return
+    this.markSetUp(cur.date)
     return this.optimistic(
       [['time_block', id]],
       () => this.timeBlocks.set(id, { ...cur, ...patch }),
@@ -1912,7 +2000,9 @@ class Store {
   }
 
   deleteBlock(id: string) {
-    if (!this.timeBlocks.has(id)) return
+    const cur = this.timeBlocks.get(id)
+    if (!cur) return
+    this.markSetUp(cur.date)
     return this.optimistic(
       [['time_block', id]],
       () => this.timeBlocks.delete(id),

@@ -304,6 +304,25 @@ pub async fn lineage(conn: &mut SqliteConnection, s: &Series) -> sqlx::Result<Ve
     Ok(out)
 }
 
+/// The routine that carries on from this one now (itself, unless its schedule was
+/// changed since: then the newest version that replaced it).
+pub async fn current_version(conn: &mut SqliteConnection, id: &str) -> sqlx::Result<String> {
+    let mut id = id.to_string();
+    for _ in 0..50 {
+        let next: Option<String> = sqlx::query_scalar(
+            "SELECT id FROM series WHERE split_from = ? ORDER BY created_at DESC LIMIT 1",
+        )
+        .bind(&id)
+        .fetch_optional(&mut *conn)
+        .await?;
+        match next {
+            Some(n) => id = n,
+            None => break,
+        }
+    }
+    Ok(id)
+}
+
 /// Bring a user's routines up to date: occurrences through tomorrow (so tomorrow can be
 /// planned in the evening), catching up on missed days after downtime.
 pub async fn materialize_user(state: &AppState, user: &User) -> anyhow::Result<()> {

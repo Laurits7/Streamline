@@ -809,6 +809,7 @@ pub async fn export(State(state): State<AppState>, user: AuthUser) -> ApiResult<
         ("default_tasks", "task_templates", "owner_user_id"),
         ("people", "people", "owner_user_id"),
         ("day_templates", "day_templates", "owner_user_id"),
+        ("week_templates", "week_templates", "owner_user_id"),
         ("time_blocks", "time_blocks", "user_id"),
         ("event_projects", "event_projects", "user_id"),
         ("goals", "goals", visible_goals.as_str()),
