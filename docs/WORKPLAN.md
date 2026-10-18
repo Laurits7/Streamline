@@ -777,10 +777,11 @@ Developed on the `v1.5` branch. Owner requests of 2026-10-17. Migrations: 0036 t
 - [ ] **11.5 Phase gate** (Part D) for v1.5.
       *Done 2026-10-17:* fmt, clippy, all tests (server, domain, web) and the web build green;
       TS types regenerated; docs site builds with `--strict`; new migrations tried on a copy
-      of an older database; API smoke test of every new flow on a fresh server. *Left:*
-      resource measurements (`scripts/measure.sh`), a look at the new pages in a browser
-      (desktop and phone width), the security review, the phone and HTTPS smoke test, push
-      so CI runs, and the release.
+      of an older database; API smoke test of every new flow on a fresh server.
+      *2026-10-18:* resource log updated (image 16.7 MB, idle 9.4 MiB, 117.7 KB initial);
+      security review done, nothing to fix (D-114). *Left for the owner:* a look at the new
+      pages in a browser (desktop and phone width), the phone and HTTPS smoke test, push so
+      CI runs, and the release.
 
 ---
 
@@ -808,7 +809,7 @@ Owner request of 2026-10-18. On the `v1.5` branch, after Phase 11. Migration 003
 - [x] **12.4 Preview on the Week view**: days not set up yet show their template's blocks
       and the routines and tasks it will put there, marked as a preview; help and
       CHANGELOG.
-- [ ] **12.5 Phase gate** (with 11.5).
+- [ ] **12.5 Phase gate** (with 11.5): see 11.5.
 
 ---
 
