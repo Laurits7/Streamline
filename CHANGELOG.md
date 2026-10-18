@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased (1.5.0)
+## 1.5.0 (2026-10-18)
 
 - Tracking has its own page (under Reflect in the menu, "Track" in the phone tab bar, or
   g m): each day's values and entries, a 7-day strip, and past days.
@@ -40,6 +40,10 @@
   and tasks into blocks, with a menu for everything you can drag.
 - The Week page previews days that aren't set up yet: their template's blocks, routines and
   tasks, faded and marked "Preview".
+- Short tasks and routines on the timeline and the week calendar are tall enough to read,
+  and ones that would overlap sit side by side. On short screens the menu scrolls instead of
+  squeezing Help and Settings together.
+- The README shows screenshots.
 
 ## 1.4.0 (2026-10-16)
 

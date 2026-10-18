@@ -51,8 +51,8 @@ More screenshots are on the [Features](features.md#screenshots) page.
 The app has built-in help (*Help* in the sidebar) that explains every feature in detail;
 these pages cover running it. Everything it can do is listed under [Features](features.md).
 
-!!! info "Version 1.4"
-    1.4 adds search and keyboard shortcuts, a week view, inbox processing, a weekly review,
-    realistic estimates, a morning digest, printing the day, writing your plan to your
-    calendar, tasks from GitHub/GitLab/Gitea, sharing projects between servers, ongoing tasks,
-    habit goals and a richer quick-add. See the [changelog](changelog.md).
+!!! info "Version 1.5"
+    1.5 adds a Tracking page (with water and your own metrics), goals as a tree with routines
+    attached, rules for yourself, weekdays and roll-on for chores, no ticking off a routine
+    before its day, changing when a task was done, and week templates whose time blocks hold
+    your routines and tasks. See the [changelog](changelog.md).

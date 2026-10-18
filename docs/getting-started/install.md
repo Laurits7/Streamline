@@ -47,5 +47,5 @@ push notifications and GPS places. For those, [put it behind HTTPS](https.md).
 
 ## Resource use
 
-Measured for 1.4 (x86-64, `scripts/measure.sh`): a 16.2 MB image, about 9 MB of memory while
-idle, and 110 KB gzipped for the first load of the web app (other pages load as needed).
+Measured for 1.5 (x86-64, `scripts/measure.sh`): a 16.7 MB image, about 9 MB of memory while
+idle, and 118 KB gzipped for the first load of the web app (other pages load as needed).

@@ -36,6 +36,6 @@ Make a backup first (**Settings → Backups → Back up now**, or copy `data/`),
     git pull && docker compose up -d --build
     ```
 
-Pin a version with `image: ghcr.io/laurits7/streamline:1.4.0` instead of `latest` if you prefer
+Pin a version with `image: ghcr.io/laurits7/streamline:1.5.0` instead of `latest` if you prefer
 to update on your own schedule. Database migrations run automatically on startup; going back to
 an older version after a migration means restoring the backup.
