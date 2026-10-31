@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+- Household multi-step chores: a multi-step chore belongs to its project's owner, so one
+  in a project shared with your household is everyone's, and anyone in it can start it.
+  Sharing a project shares its multi-step chores too.
+- The Routines page lists your own routines and multi-step chores first, then each
+  household group's under "Shared with …".
+- Who does it: give a shared task to one person. Everyone still sees it ("→ Ben") and
+  anyone can tick it off, but it only shows up on that person's Today, planner and morning
+  digest.
+- Routines and multi-step chores can give what they make to one person by default, or let
+  people take turns (one occurrence or run each, in the order you pick). Starting a
+  multi-step chore shows whose turn it is; every step of a run goes to the same person.
+- Leaving a group hands your chores in it back to anyone, and takes you out of the turns.
+- Fixed: a routine shared with a group that starts a multi-step chore was always skipped;
+  it now starts the run. Sharing a project now also shares the routines in it (they used
+  to stay with their creator).
+
 ## 1.5.0 (2026-10-18)
 
 - Tracking has its own page (under Reflect in the menu, "Track" in the phone tab bar, or

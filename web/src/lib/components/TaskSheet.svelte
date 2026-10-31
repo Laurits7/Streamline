@@ -2,6 +2,7 @@
   import { addDays, fmtMinutes, longDate, shortDate } from '../dates'
   import { store } from '../store.svelte'
   import { ui } from '../ui.svelte'
+  import AssignPicker from './AssignPicker.svelte'
   import Check from './Check.svelte'
   import Icon from './Icon.svelte'
   import Sheet from './Sheet.svelte'
@@ -364,6 +365,9 @@
           {#each store.myGroups() as g (g.id)}<option value={g.id}>{g.name}</option>{/each}
         </select>
       </section>
+    {/if}
+    {#if task.owner_group_id && task.status === 'open'}
+      <AssignPicker groupId={task.owner_group_id} assignee={task.assignee_user_id ?? ''} onchange={(a) => store.updateTask(id, { assignee_user_id: a || null })} />
     {/if}
     {#if task.status === 'done' && task.owner_group_id && task.completed_by}
       <p class="muted help">✓ Done by {store.personName(task.completed_by)}</p>

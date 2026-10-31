@@ -426,6 +426,16 @@ pub struct WorkflowTemplate {
     #[ts(as = "Vec<WorkflowVariant>")]
     #[schema(value_type = Vec<WorkflowVariant>)]
     pub variants: sqlx::types::Json<Vec<WorkflowVariant>>,
+    /// Who each run goes to by default in a shared chore (D-116); every step of a run goes
+    /// to the same person.
+    pub assignee_user_id: Option<String>,
+    /// Members taking turns, one run each (empty = no rotation; D-116).
+    #[ts(type = "Array<string>")]
+    #[schema(value_type = Vec<String>)]
+    pub rotation_user_ids: sqlx::types::Json<Vec<String>>,
+    /// Runs started so far: the next one goes to the member at this turn.
+    #[ts(type = "number")]
+    pub rotation_turn: i64,
     pub created_at: String,
     pub updated_at: String,
     pub deleted_at: Option<String>,
@@ -524,13 +534,16 @@ pub async fn upsert_workflow(
     w: &WorkflowTemplate,
 ) -> sqlx::Result<()> {
     sqlx::query(
-        "INSERT INTO workflow_templates (id, owner_user_id, owner_group_id, name, description, project_id, steps, variants, created_at, updated_at, deleted_at, rev)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
-         ON CONFLICT(id) DO UPDATE SET name=excluded.name, description=excluded.description, project_id=excluded.project_id,
-           steps=excluded.steps, variants=excluded.variants, updated_at=excluded.updated_at, deleted_at=excluded.deleted_at, rev=excluded.rev",
+        "INSERT INTO workflow_templates (id, owner_user_id, owner_group_id, name, description, project_id, steps, variants,
+           assignee_user_id, rotation_user_ids, rotation_turn, created_at, updated_at, deleted_at, rev)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+         ON CONFLICT(id) DO UPDATE SET owner_user_id=excluded.owner_user_id, owner_group_id=excluded.owner_group_id, name=excluded.name, description=excluded.description, project_id=excluded.project_id,
+           steps=excluded.steps, variants=excluded.variants, assignee_user_id=excluded.assignee_user_id,
+           rotation_user_ids=excluded.rotation_user_ids, rotation_turn=excluded.rotation_turn,
+           updated_at=excluded.updated_at, deleted_at=excluded.deleted_at, rev=excluded.rev",
     )
     .bind(&w.id).bind(&w.owner_user_id).bind(&w.owner_group_id).bind(&w.name).bind(&w.description).bind(&w.project_id)
-    .bind(&w.steps).bind(&w.variants).bind(&w.created_at).bind(&w.updated_at).bind(&w.deleted_at).bind(w.rev)
+    .bind(&w.steps).bind(&w.variants).bind(&w.assignee_user_id).bind(&w.rotation_user_ids).bind(w.rotation_turn).bind(&w.created_at).bind(&w.updated_at).bind(&w.deleted_at).bind(w.rev)
     .execute(conn)
     .await
     .map(|_| ())
@@ -612,6 +625,15 @@ pub struct Series {
     #[ts(as = "Vec<ChecklistItem>")]
     #[schema(value_type = Vec<ChecklistItem>)]
     pub checklist: sqlx::types::Json<Vec<ChecklistItem>>,
+    /// Who each occurrence of a shared routine goes to by default (D-116). (Defaults keep
+    /// feeds from servers before 1.6 readable, Phase 8.)
+    #[serde(default)]
+    pub assignee_user_id: Option<String>,
+    /// Members taking turns, one occurrence each (empty = no rotation; D-116).
+    #[serde(default)]
+    #[ts(type = "Array<string>")]
+    #[schema(value_type = Vec<String>)]
+    pub rotation_user_ids: sqlx::types::Json<Vec<String>>,
     #[serde(skip)]
     #[ts(skip)]
     pub materialized_through: Option<String>,
@@ -776,22 +798,25 @@ pub async fn upsert_series(conn: &mut SqliteConnection, s: &Series) -> sqlx::Res
     sqlx::query(
         "INSERT INTO series (id, owner_user_id, owner_group_id, project_id, title, notes, mode, rrule, dtstart, until,
            start_time, duration_min, times_per_window, window, task_type_id, estimate_min, difficulty, importance, urgency,
-           materialized_through, split_from, place_id, workflow_template_id, workflow_variant_ids, checklist, created_at, updated_at, deleted_at, rev)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-         ON CONFLICT(id) DO UPDATE SET project_id=excluded.project_id, title=excluded.title, notes=excluded.notes,
+           materialized_through, split_from, place_id, workflow_template_id, workflow_variant_ids, checklist,
+           assignee_user_id, rotation_user_ids, created_at, updated_at, deleted_at, rev)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+         ON CONFLICT(id) DO UPDATE SET owner_user_id=excluded.owner_user_id, owner_group_id=excluded.owner_group_id, project_id=excluded.project_id, title=excluded.title, notes=excluded.notes,
            mode=excluded.mode, rrule=excluded.rrule, dtstart=excluded.dtstart, until=excluded.until,
            start_time=excluded.start_time, duration_min=excluded.duration_min, times_per_window=excluded.times_per_window,
            window=excluded.window, task_type_id=excluded.task_type_id, estimate_min=excluded.estimate_min,
            difficulty=excluded.difficulty, importance=excluded.importance, urgency=excluded.urgency,
            place_id=excluded.place_id, workflow_template_id=excluded.workflow_template_id,
            workflow_variant_ids=excluded.workflow_variant_ids, checklist=excluded.checklist,
+           assignee_user_id=excluded.assignee_user_id, rotation_user_ids=excluded.rotation_user_ids,
            materialized_through=excluded.materialized_through, updated_at=excluded.updated_at,
            deleted_at=excluded.deleted_at, rev=excluded.rev",
     )
     .bind(&s.id).bind(&s.owner_user_id).bind(&s.owner_group_id).bind(&s.project_id).bind(&s.title).bind(&s.notes)
     .bind(&s.mode).bind(&s.rrule).bind(&s.dtstart).bind(&s.until).bind(&s.start_time).bind(s.duration_min)
     .bind(s.times_per_window).bind(&s.window).bind(&s.task_type_id).bind(s.estimate_min).bind(s.difficulty)
-    .bind(s.importance).bind(s.urgency).bind(&s.materialized_through).bind(&s.split_from).bind(&s.place_id).bind(&s.workflow_template_id).bind(&s.workflow_variant_ids).bind(&s.checklist).bind(&s.created_at).bind(&s.updated_at)
+    .bind(s.importance).bind(s.urgency).bind(&s.materialized_through).bind(&s.split_from).bind(&s.place_id).bind(&s.workflow_template_id).bind(&s.workflow_variant_ids).bind(&s.checklist)
+    .bind(&s.assignee_user_id).bind(&s.rotation_user_ids).bind(&s.created_at).bind(&s.updated_at)
     .bind(&s.deleted_at).bind(s.rev)
     .execute(conn)
     .await

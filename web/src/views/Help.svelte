@@ -217,7 +217,9 @@
       <strong>Multi-step chores</strong> (on the <a href="/routines">Routines</a> page) do this for you. Laundry is a
       chain: wash → dry → iron → fold, with variants that leave steps out (delicates skip the dryer, towels skip
       ironing). <em>Start</em> it, pick the loads, and each load gets its own chain; only the current step of each shows
-      up in your lists. The dots on a step show how far along the chain is.
+      up in your lists. The dots on a step show how far along the chain is. A multi-step chore in a project shared
+      with your household is the household's: everyone sees it under <em>Shared with …</em> on the Routines page and
+      anyone can start it. With no project, or a project of your own, it's yours alone.
     </p>
   </section>
 
@@ -385,6 +387,10 @@
       <li>Everyone in the group sees shared things, and <strong>anyone can complete them</strong> — it shows who did (“✓ Anna”).</li>
       <li>Changes appear instantly for everyone: when someone takes out the garbage, it disappears from your list too.</li>
       <li>Repeating chores (bins out every Tuesday) have one shared occurrence, not one each.</li>
+      <li>Routines and multi-step chores in a shared project are listed on the Routines page under <em>Shared with …</em>, apart from your own.</li>
+      <li><strong>Who does it:</strong> a shared task can be given to one person (in the task, <em>Who does it</em>). Everyone still sees it with that person's name (“→ Ben”), and anyone can tick it off, but it only shows up in Ben's Today, planner and morning digest. <em>Anyone in …</em> leaves it up for grabs.</li>
+      <li>Routines and multi-step chores can give everything they make to one person, or let people <strong>take turns</strong> (switch it on under <em>Who does it</em>; tap people in the order they go): one occurrence each for a routine, one run each for a multi-step chore. When you start a multi-step chore it shows whose turn it is; pick someone else for just this run, and the turns stay where they were. Every step of a run goes to the same person.</li>
+      <li>Someone who leaves the group drops out of the turns, and what was theirs goes back to anyone.</li>
       <li>A shared routine with a fixed time (walk the dog at 7:30) lands on every member's timeline at that time. Whoever does it ticks it off, and it leaves everyone else's day at once.</li>
       <li>Each person plans their own day: you can put a shared chore on your plan without it landing on anyone else's.</li>
       <li>Your day plans, focus time, activity log and notes are never shared.</li>

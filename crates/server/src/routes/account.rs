@@ -640,6 +640,17 @@ pub async fn delete_user(
         .bind(&id)
         .execute(&mut *tx)
         .await?;
+    // Their household chores go back to anyone, and they leave the turns (D-116).
+    let groups: Vec<String> =
+        sqlx::query_scalar("SELECT group_id FROM group_members WHERE user_id = ?")
+            .bind(&id)
+            .fetch_all(&mut *tx)
+            .await?;
+    let mut changes = vec![];
+    for g in groups {
+        changes.extend(crate::ownership::unassign(&mut tx, &g, &id).await?);
+    }
     tx.commit().await?;
+    state.bus.publish(changes);
     Ok(StatusCode::NO_CONTENT)
 }

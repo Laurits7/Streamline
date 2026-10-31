@@ -277,6 +277,7 @@ async fn routine_occurrence(
          WHERE t.series_id IN (SELECT value FROM json_each(?1)) AND t.deleted_at IS NULL AND t.status = 'open'
            AND (t.occurrence_date = ?2 OR t.window_end IS NOT NULL AND t.occurrence_date <= ?2 AND t.window_end >= ?2)
            AND t.id NOT IN (SELECT value FROM json_each(?5))
+           AND (t.assignee_user_id IS NULL OR t.assignee_user_id = ?3)
            AND NOT EXISTS (SELECT 1 FROM day_entries e WHERE e.task_id = t.id AND e.user_id = ?3
                              AND e.deleted_at IS NULL AND e.date >= ?4)
          ORDER BY t.occurrence_key LIMIT 1",

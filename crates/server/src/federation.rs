@@ -212,6 +212,7 @@ pub async fn revoke(state: &AppState, link_id: &str) -> anyhow::Result<()> {
                 .bind(&link.remote_user_id)
                 .execute(&mut *tx)
                 .await?;
+            changes.extend(crate::ownership::unassign(&mut tx, &g, &link.remote_user_id).await?);
             bump_group(&mut tx, &g).await?;
             if let Some(gr) = crate::routes::groups::load(&mut tx, &g).await? {
                 changes.push(Change::group(&gr, &[]));

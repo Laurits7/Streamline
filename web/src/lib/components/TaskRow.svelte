@@ -125,6 +125,9 @@
       {/if}
       {#if task.status === 'done' && task.owner_group_id && task.completed_by && task.completed_by !== store.me?.id}
         <span class="by">✓ {store.personName(task.completed_by)}</span>
+      {:else if task.status === 'open' && task.assignee_user_id}
+        <span class="for" class:me={task.assignee_user_id === store.me?.id} title="Assigned to {store.personName(task.assignee_user_id)}"
+          >→ {store.personName(task.assignee_user_id)}</span>
       {/if}
       {#if task.place_id && store.places.get(task.place_id)}
         <span class="placechip" class:here={task.place_id === store.currentPlace}><Icon name="pin" size={12} />{store.places.get(task.place_id)?.name}</span>
@@ -244,6 +247,10 @@
   }
   .by {
     color: var(--ok);
+    font-weight: 600;
+  }
+  .for.me {
+    color: var(--accent);
     font-weight: 600;
   }
   .placechip.here {

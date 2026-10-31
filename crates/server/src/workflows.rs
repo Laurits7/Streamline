@@ -7,13 +7,26 @@ use streamline_domain::{order::key_after, workflow};
 use crate::{
     db::next_rev,
     events::Change,
-    models::{DayEntry, Task, WorkflowTemplate, upsert_entry, upsert_task},
+    models::{DayEntry, Task, WorkflowTemplate, upsert_entry, upsert_task, upsert_workflow},
     util::{new_id, now},
 };
+
+/// Who a run goes to (D-116).
+#[derive(Default)]
+pub enum Assignee {
+    /// The chore's default assignee, or whose turn it is (which moves the turns on).
+    #[default]
+    FromChore,
+    /// This person (`None` = anyone in the group).
+    Person(Option<String>),
+}
 
 /// Where the created tasks go and how they belong to a routine, if any.
 #[derive(Default)]
 pub struct RunOptions {
+    /// Who owns the steps when they have no project (a routine's owner; default: the starter).
+    pub owner: Option<crate::ownership::Owner>,
+    pub assignee: Assignee,
     pub project_id: Option<String>,
     /// Plan the first step of each chain into this day (at `start_time`, if given).
     pub day: Option<String>,
@@ -26,10 +39,12 @@ pub struct RunOptions {
 }
 
 /// Create the runs: for each chosen variant (or the whole template if it has none, or
-/// none were chosen) a chain of tasks where each step waits for the previous one.
+/// none were chosen) a chain of tasks where each step waits for the previous one. All of
+/// them go to one person, if any (D-116). `starter` is who pressed Start (`None` for a
+/// routine).
 pub async fn start(
     conn: &mut SqliteConnection,
-    owner_user_id: &str,
+    starter: Option<&str>,
     tpl: &WorkflowTemplate,
     variant_ids: &[String],
     opts: &RunOptions,
@@ -61,12 +76,12 @@ pub async fn start(
     let mut project_id = opts.project_id.clone().or(tpl.project_id.clone());
     // The template's project was checked when it was saved; the starter may have lost
     // access since (left the group). Then the run goes to their inbox instead.
-    if let Some(p) = &project_id {
+    if let (Some(p), Some(u)) = (&project_id, starter) {
         let visible: bool = sqlx::query_scalar(&format!(
             "SELECT EXISTS(SELECT 1 FROM projects WHERE id = ?2 AND deleted_at IS NULL AND {})",
             crate::visibility::OWNED_VISIBLE_SQL
         ))
-        .bind(owner_user_id)
+        .bind(u)
         .bind(p)
         .fetch_one(&mut *conn)
         .await?;
@@ -79,12 +94,42 @@ pub async fn start(
         Some(p) => crate::ownership::project_owner(conn, p).await?,
         None => None,
     }
+    .or(opts.owner.clone())
     .unwrap_or(crate::ownership::Owner {
-        user: Some(owner_user_id.into()),
+        user: starter.map(str::to_string),
         group: None,
     });
-    let mut tasks = vec![];
     let mut changes = vec![];
+    let assignee = match (&owner.group, &opts.assignee) {
+        (None, _) => None,
+        (Some(g), a) => {
+            let members = crate::ownership::members(conn, g).await?;
+            let turn = streamline_domain::assign::assignee_for(
+                tpl.assignee_user_id.as_deref(),
+                &tpl.rotation_user_ids.0,
+                &members,
+                tpl.rotation_turn.max(0) as u64,
+            );
+            let chosen = match a {
+                Assignee::FromChore => turn.clone(),
+                Assignee::Person(p) => p.clone().filter(|p| members.contains(p)),
+            };
+            // Whoever's turn it was took it: the turns move on (not for a routine's own
+            // assignee: the routine has its own turns).
+            let own = matches!(a, Assignee::FromChore) || opts.occurrence.is_none();
+            let rotating = tpl.rotation_user_ids.0.iter().any(|u| members.contains(u));
+            if own && rotating && chosen.is_some() && chosen == turn {
+                let mut next = tpl.clone();
+                next.rotation_turn += 1;
+                next.updated_at = now();
+                next.rev = next_rev(conn).await?;
+                upsert_workflow(conn, &next).await?;
+                changes.push(Change::workflow(&next));
+            }
+            chosen
+        }
+    };
+    let mut tasks = vec![];
     for (run_index, (variant, skip)) in runs.iter().enumerate() {
         let instance = new_id();
         let mut prev: Option<String> = None;
@@ -93,10 +138,11 @@ pub async fn start(
             let rev = next_rev(conn).await?;
             let ts = now();
             let last: Option<String> = sqlx::query_scalar(
-                "SELECT MAX(position) FROM tasks WHERE project_id IS ?1 AND (?1 IS NOT NULL OR owner_user_id = ?2) AND deleted_at IS NULL",
+                "SELECT MAX(position) FROM tasks WHERE project_id IS ?1 AND (?1 IS NOT NULL OR (owner_user_id IS ?2 AND owner_group_id IS ?3)) AND deleted_at IS NULL",
             )
             .bind(&project_id)
-            .bind(owner_user_id)
+            .bind(&owner.user)
+            .bind(&owner.group)
             .fetch_one(&mut *conn)
             .await?;
             let first = c.number == 1;
@@ -104,7 +150,7 @@ pub async fn start(
                 id: new_id(),
                 owner_user_id: owner.user.clone(),
                 owner_group_id: owner.group.clone(),
-                assignee_user_id: None,
+                assignee_user_id: assignee.clone(),
                 project_id: project_id.clone(),
                 title: match variant {
                     Some(v) => format!("{} ({v})", c.step.title),
@@ -166,24 +212,42 @@ pub async fn start(
             };
             upsert_task(conn, &t).await?;
             changes.push(Change::task(&t));
-            if first && let Some(day) = &opts.day {
+            // The first step goes on the day of the person doing it: the assignee, else
+            // whoever started it, else (a shared routine) everyone in the group.
+            let people = match (first, &opts.day) {
+                (false, _) | (_, None) => vec![],
+                _ => match (&assignee, starter) {
+                    (Some(_), _) | (None, None) => {
+                        crate::routines::planners(
+                            conn,
+                            owner.user.as_deref(),
+                            owner.group.as_deref(),
+                            assignee.as_deref(),
+                        )
+                        .await?
+                    }
+                    (None, Some(u)) => vec![u.to_string()],
+                },
+            };
+            for user_id in people {
+                let day = opts.day.clone().unwrap_or_default();
                 let last: Option<String> = sqlx::query_scalar(
                     "SELECT MAX(position) FROM day_entries WHERE user_id = ? AND date = ? AND deleted_at IS NULL",
                 )
-                .bind(owner_user_id)
-                .bind(day)
+                .bind(&user_id)
+                .bind(&day)
                 .fetch_one(&mut *conn)
                 .await?;
                 let e = DayEntry {
                     id: new_id(),
-                    user_id: owner_user_id.into(),
-                    date: day.clone(),
+                    user_id,
+                    date: day,
                     task_id: t.id.clone(),
                     position: key_after(last.as_deref()),
                     start_time: opts.start_time.clone(),
                     duration_min: None,
                     created_at: ts.clone(),
-                    updated_at: ts,
+                    updated_at: ts.clone(),
                     deleted_at: None,
                     rev,
                 };

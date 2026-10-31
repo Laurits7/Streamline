@@ -4,6 +4,7 @@
 
 import { SvelteMap } from 'svelte/reactivity'
 import { api, ApiError, withTouched } from './api/client'
+import { isForMe } from './assign'
 import type { Calendar } from './api/types/Calendar'
 import type { CalendarAccountView } from './api/types/CalendarAccountView'
 import type { CalendarEvent } from './api/types/CalendarEvent'
@@ -134,6 +135,7 @@ export type TaskPatch = Partial<
     | 'ongoing'
     | 'start_date'
     | 'completed_at'
+    | 'assignee_user_id'
   >
 >
 export type EntryPatch = Partial<Pick<DayEntry, 'date' | 'position' | 'start_time' | 'duration_min'>>
@@ -719,6 +721,11 @@ class Store {
     return !!t.project_id && this.projects.get(t.project_id)?.status === 'idea'
   }
 
+  /** Mine to do: not assigned to someone else in the group (D-116). */
+  forMe(t: Task): boolean {
+    return isForMe(t.assignee_user_id, this.me?.id)
+  }
+
   /** Ready to work on: no open prerequisite, and any wait time after them is over. */
   isReady(t: Task): boolean {
     return !t.blocked && (!t.ready_at || t.ready_at <= new Date().toISOString())
@@ -785,7 +792,8 @@ class Store {
           this.atCurrentPlace(t) &&
           !t.blocked &&
           !t.waiting_since &&
-          !this.inIdea(t),
+          !this.inIdea(t) &&
+          this.forMe(t),
       )
       .sort(byPosition)
   }
@@ -1550,7 +1558,14 @@ class Store {
     if (!t) return
     this.optimistic(
       [['task', id]],
-      () => this.tasks.set(id, { ...t, owner_group_id: groupId, owner_user_id: groupId ? null : (this.me?.id ?? null) }),
+      () =>
+        this.tasks.set(id, {
+          ...t,
+          owner_group_id: groupId,
+          owner_user_id: groupId ? null : (this.me?.id ?? null),
+          // The server keeps the assignee only if they're in the new group.
+          assignee_user_id: groupId && this.groups.get(groupId)?.members.some((m) => m.user_id === t.assignee_user_id) ? t.assignee_user_id : null,
+        }),
       async () => [['task', await api.patch<Task>(`/tasks/${id}`, { owner_group_id: groupId })]],
     )
   }
@@ -1660,9 +1675,11 @@ class Store {
   }
 
   /** Start a run: one chain per chosen variant. */
-  async startWorkflow(id: string, variantIds: string[], day: string | null): Promise<Task[]> {
+  async startWorkflow(id: string, variantIds: string[], day: string | null, assignee?: string | null): Promise<Task[]> {
     try {
-      const tasks = await api.post<Task[]>(`/workflows/${id}/start`, { variant_ids: variantIds, day })
+      // Leaving out the assignee lets the chore pick it (its default, or whose turn it is).
+      const who = assignee === undefined ? {} : { assignee_user_id: assignee }
+      const tasks = await api.post<Task[]>(`/workflows/${id}/start`, { variant_ids: variantIds, day, ...who })
       for (const t of tasks) this.applyRemote('task', t)
       return tasks
     } catch (e) {

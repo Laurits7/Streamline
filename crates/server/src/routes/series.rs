@@ -114,10 +114,22 @@ async fn check(conn: &mut sqlx::SqliteConnection, user: &AuthUser, s: &Series) -
     .await?;
     ok.map(|_| ()).ok_or_else(|| bad("unknown task type"))?;
     crate::routes::places::check_place(conn, user, &s.place_id).await?;
+    crate::ownership::check_assignee(
+        conn,
+        s.owner_group_id.as_deref(),
+        s.assignee_user_id.as_deref(),
+    )
+    .await?;
     if let Some(w) = &s.workflow_template_id {
         let tpl = crate::routes::workflows::load_visible(conn, user, w)
             .await
             .map_err(|_| bad("unknown workflow"))?;
+        // Its runs copy the chore's steps: both must belong to the same person or group.
+        if (&tpl.owner_user_id, &tpl.owner_group_id) != (&s.owner_user_id, &s.owner_group_id) {
+            return Err(bad(
+                "that multi-step chore is shared differently from this routine; put both in the same project",
+            ));
+        }
         if s.workflow_variant_ids
             .0
             .iter()
@@ -195,6 +207,11 @@ pub struct CreateSeries {
     workflow_variant_ids: Option<Vec<String>>,
     /// Share a routine without a project with a group (routines in a project follow it).
     owner_group_id: Option<String>,
+    /// For a shared routine: who each occurrence goes to (D-116).
+    assignee_user_id: Option<String>,
+    /// For a shared routine: members taking turns, one occurrence each (D-116).
+    #[serde(default)]
+    rotation_user_ids: Vec<String>,
     /// Checklist each occurrence starts with (D-71).
     #[serde(default)]
     checklist: Vec<crate::models::ChecklistItem>,
@@ -243,6 +260,8 @@ pub async fn create(
         workflow_template_id: c.workflow_template_id,
         workflow_variant_ids: sqlx::types::Json(c.workflow_variant_ids.unwrap_or_default()),
         checklist: sqlx::types::Json(crate::models::checklist(c.checklist).map_err(bad)?),
+        assignee_user_id: c.assignee_user_id,
+        rotation_user_ids: sqlx::types::Json(c.rotation_user_ids),
         materialized_through: None,
         split_from: None,
         created_at: ts.clone(),
@@ -266,6 +285,12 @@ pub async fn create(
         }
         return Err(AppError::Conflict("id already in use".into()));
     }
+    s.rotation_user_ids.0 = crate::ownership::check_rotation(
+        &mut tx,
+        s.owner_group_id.as_deref(),
+        std::mem::take(&mut s.rotation_user_ids.0),
+    )
+    .await?;
     check(&mut tx, &user, &s).await?;
     s.rev = next_rev(&mut tx).await?;
     upsert_series(&mut tx, &s).await?;
@@ -301,6 +326,11 @@ pub struct PatchSeries {
     workflow_variant_ids: Option<Vec<String>>,
     /// Checklist for occurrences from `from` on; open ones keep ticks of items still there.
     checklist: Option<Vec<crate::models::ChecklistItem>>,
+    /// Who occurrences from `from` on go to (`null` = anyone in the group; D-116).
+    #[serde(default, deserialize_with = "double_option")]
+    assignee_user_id: Option<Option<String>>,
+    /// Members taking turns from `from` on (empty = no rotation; D-116).
+    rotation_user_ids: Option<Vec<String>>,
     // Schedule: changing any of these splits the routine at `from`.
     mode: Option<String>,
     rrule: Option<String>,
@@ -421,6 +451,14 @@ pub async fn patch(
     }
     if let Some(v) = c.workflow_variant_ids {
         next.workflow_variant_ids = sqlx::types::Json(v);
+    }
+    let assignment_changed = c.assignee_user_id.is_some() || c.rotation_user_ids.is_some();
+    if let Some(v) = c.assignee_user_id {
+        next.assignee_user_id = v;
+    }
+    if let Some(v) = c.rotation_user_ids {
+        next.rotation_user_ids.0 =
+            crate::ownership::check_rotation(&mut tx, next.owner_group_id.as_deref(), v).await?;
     }
     let checklist_changed = c.checklist.is_some();
     if let Some(v) = c.checklist {
@@ -547,6 +585,72 @@ pub async fn patch(
             t.importance = next.importance;
             t.urgency = next.urgency;
             t.place_id = next.place_id.clone();
+            if assignment_changed && let Some(key) = t.occurrence_key.clone() {
+                let day = t.occurrence_date.as_deref().and_then(date).unwrap_or(from);
+                t.assignee_user_id = routines::occurrence_assignee(
+                    &mut tx,
+                    &next,
+                    &key,
+                    day,
+                    user.user.week_start as u32,
+                )
+                .await?;
+                // A fixed-time chore is on its people's timelines by itself: it moves to
+                // the new assignee's (or everyone's). Other routines' plans are people's own.
+                if next.mode == "anchored" {
+                    let people = routines::planners(
+                        &mut tx,
+                        next.owner_user_id.as_deref(),
+                        next.owner_group_id.as_deref(),
+                        t.assignee_user_id.as_deref(),
+                    )
+                    .await?;
+                    let entries: Vec<DayEntry> = sqlx::query_as(
+                        "SELECT * FROM day_entries WHERE task_id = ? AND deleted_at IS NULL",
+                    )
+                    .bind(&t.id)
+                    .fetch_all(&mut *tx)
+                    .await?;
+                    for e in &entries {
+                        if people.contains(&e.user_id) {
+                            continue;
+                        }
+                        let mut e = e.clone();
+                        e.deleted_at = Some(ts.clone());
+                        e.updated_at = ts.clone();
+                        e.rev = rev;
+                        upsert_entry(&mut tx, &e).await?;
+                        changes.push(Change::entry(&e));
+                    }
+                    for user_id in people {
+                        if entries.iter().any(|e| e.user_id == user_id) {
+                            continue;
+                        }
+                        let last: Option<String> = sqlx::query_scalar(
+                            "SELECT MAX(position) FROM day_entries WHERE user_id = ? AND date = ? AND deleted_at IS NULL",
+                        )
+                        .bind(&user_id)
+                        .bind(&t.occurrence_date)
+                        .fetch_one(&mut *tx)
+                        .await?;
+                        let e = DayEntry {
+                            id: crate::util::new_id(),
+                            user_id,
+                            date: t.occurrence_date.clone().unwrap_or_default(),
+                            task_id: t.id.clone(),
+                            position: streamline_domain::order::key_after(last.as_deref()),
+                            start_time: next.start_time.clone(),
+                            duration_min: next.duration_min,
+                            created_at: ts.clone(),
+                            updated_at: ts.clone(),
+                            deleted_at: None,
+                            rev,
+                        };
+                        upsert_entry(&mut tx, &e).await?;
+                        changes.push(Change::entry(&e));
+                    }
+                }
+            }
             if checklist_changed {
                 t.checklist =
                     sqlx::types::Json(crate::models::with_checklist(&next.checklist, |new| {

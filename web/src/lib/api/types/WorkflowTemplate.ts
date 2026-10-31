@@ -9,4 +9,17 @@ export type WorkflowTemplate = { id: string, owner_user_id: string | null, owner
 /**
  * Project the steps go into (optional).
  */
-project_id: string | null, steps: Array<WorkflowStep>, variants: Array<WorkflowVariant>, created_at: string, updated_at: string, deleted_at: string | null, rev: number, };
+project_id: string | null, steps: Array<WorkflowStep>, variants: Array<WorkflowVariant>, 
+/**
+ * Who each run goes to by default in a shared chore (D-116); every step of a run goes
+ * to the same person.
+ */
+assignee_user_id: string | null, 
+/**
+ * Members taking turns, one run each (empty = no rotation; D-116).
+ */
+rotation_user_ids: Array<string>, 
+/**
+ * Runs started so far: the next one goes to the member at this turn.
+ */
+rotation_turn: number, created_at: string, updated_at: string, deleted_at: string | null, rev: number, };

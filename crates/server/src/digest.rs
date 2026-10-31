@@ -76,6 +76,8 @@ pub async fn gather(state: &AppState, user: &User, day: NaiveDate) -> anyhow::Re
           WHERE {visible} AND t.deleted_at IS NULL AND t.status = 'open' AND t.due_date IS NOT NULL AND t.due_date <= ?2
             -- an ongoing task's end date is mentioned on its last day only (D-102)
             AND (t.ongoing = 0 OR t.due_date = ?2)
+            -- someone else's chore isn't yours to do (D-116)
+            AND (t.assignee_user_id IS NULL OR t.assignee_user_id = ?1)
             AND NOT EXISTS (SELECT 1 FROM day_entries e WHERE e.task_id = t.id AND e.date = ?2 AND e.deleted_at IS NULL)
           ORDER BY t.due_date LIMIT 20"
     ))
