@@ -184,7 +184,7 @@ pub async fn sync(
     let groups =
         crate::routes::groups::visible_groups(&mut *state.db.read.acquire().await?, &user).await?;
     let workflows = sqlx::query_as(
-        "SELECT * FROM workflow_templates WHERE owner_user_id = ?1 AND (?2 = 0 AND deleted_at IS NULL OR ?2 > 0 AND rev > ?2)",
+        "SELECT * FROM workflow_templates WHERE (owner_user_id = ?1 OR owner_group_id IN (SELECT group_id FROM group_members WHERE user_id = ?1)) AND (?2 = 0 AND deleted_at IS NULL OR ?2 > 0 AND rev > ?2)",
     )
     .bind(user.id())
     .bind(since)

@@ -234,14 +234,15 @@ pub async fn delete(
     let owned: i64 = sqlx::query_scalar(
         "SELECT (SELECT COUNT(*) FROM projects WHERE owner_group_id = ?1 AND deleted_at IS NULL)
               + (SELECT COUNT(*) FROM tasks WHERE owner_group_id = ?1 AND deleted_at IS NULL AND status = 'open')
-              + (SELECT COUNT(*) FROM series WHERE owner_group_id = ?1 AND deleted_at IS NULL)",
+              + (SELECT COUNT(*) FROM series WHERE owner_group_id = ?1 AND deleted_at IS NULL)
+              + (SELECT COUNT(*) FROM workflow_templates WHERE owner_group_id = ?1 AND deleted_at IS NULL)",
     )
     .bind(&id)
     .fetch_one(&mut *tx)
     .await?;
     if owned > 0 {
         return Err(AppError::Conflict(
-            "the group still has shared projects, tasks or routines; move or delete them first"
+            "the group still has shared projects, tasks, routines or multi-step chores; move or delete them first"
                 .into(),
         ));
     }
@@ -349,12 +350,15 @@ pub async fn remove_member(
         .bind(&member)
         .execute(&mut *tx)
         .await?;
+    // Their chores in the group go back to anyone (D-116).
+    let mut changes = crate::ownership::unassign(&mut tx, &id, &member).await?;
     bump(&mut tx, &id).await?;
     let g = load(&mut tx, &id).await?.ok_or(AppError::NotFound)?;
     tx.commit().await?;
-    state.bus.publish([
+    changes.extend([
         Change::group(&g, std::slice::from_ref(&member)),
         Change::membership(&member),
     ]);
+    state.bus.publish(changes);
     Ok(StatusCode::NO_CONTENT)
 }

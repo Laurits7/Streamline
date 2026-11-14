@@ -10,6 +10,7 @@
   import { ulid } from '../ulid'
   import Icon from './Icon.svelte'
   import Sheet from './Sheet.svelte'
+  import AssignPicker from './AssignPicker.svelte'
 
   let { id }: { id: string } = $props()
   const existing = untrack(() => (id === 'new' ? null : (store.workflows.get(id) ?? null)))
@@ -21,6 +22,11 @@
   )
   let variants = $state<WorkflowVariant[]>(existing ? existing.variants.map((v) => ({ ...v, skip: [...v.skip] })) : [])
   let saving = $state(false)
+  // A chore belongs to its project's owner (D-115).
+  const sharedGroup = $derived(store.projects.get(projectId)?.owner_group_id ?? '')
+  const sharedWith = $derived(store.groupName(sharedGroup))
+  let assignee = $state(existing?.assignee_user_id ?? '')
+  let rotation = $state<string[]>(existing ? [...existing.rotation_user_ids] : [])
 
   const close = () => (ui.workflow = null)
   const addStep = () => steps.push({ id: ulid(), title: '', estimate_min: null, wait_min: null, difficulty: null })
@@ -46,6 +52,8 @@
       name: name.trim(),
       description,
       project_id: projectId || null,
+      assignee_user_id: sharedGroup && !rotation.length ? assignee || null : null,
+      rotation_user_ids: sharedGroup ? rotation : [],
       steps: steps.map((s) => ({ ...s, title: s.title.trim() })),
       variants: variants.map((v) => ({ ...v, name: v.name.trim() })),
     })
@@ -109,12 +117,20 @@
   </section>
 
   <section>
-    <h3>Project for the steps</h3>
+    <h3>Project</h3>
     <select bind:value={projectId}>
-      <option value="">Inbox</option>
+      <option value="">None (steps go to the Inbox)</option>
       {#each store.projectTree() as { project: p, depth } (p.id)}<option value={p.id}>{'   '.repeat(depth)}{p.name}</option>{/each}
     </select>
+    <p class="muted hint">
+      {#if sharedWith}<Icon name="users" size={12} /> Shared with {sharedWith}: everyone in it sees this chore and can start it.
+      {:else}Only you see this chore. Pick a project shared with your household to make it a household chore.{/if}
+    </p>
   </section>
+
+  {#if sharedGroup}
+    <AssignPicker groupId={sharedGroup} bind:assignee bind:rotation turns each="run" />
+  {/if}
 
   <section>
     <h3>Notes</h3>
@@ -138,6 +154,10 @@
   }
   section {
     margin-top: 18px;
+  }
+  .hint {
+    font-size: 13px;
+    margin: 6px 2px 0;
   }
   h3 {
     font-size: 12px;

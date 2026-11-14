@@ -159,7 +159,8 @@ pub async fn get_day(
     let tasks: Vec<Task> = sqlx::query_as(&format!(
         "SELECT * FROM tasks WHERE {} AND deleted_at IS NULL AND (
             id IN (SELECT task_id FROM day_entries WHERE user_id = ?1 AND date = ?2 AND deleted_at IS NULL)
-            OR (status = 'open' AND due_date IS NOT NULL AND due_date <= ?2))
+            OR (status = 'open' AND due_date IS NOT NULL AND due_date <= ?2
+                AND (assignee_user_id IS NULL OR assignee_user_id = ?1)))
          ORDER BY position",
         visibility::OWNED_VISIBLE_SQL
     ))

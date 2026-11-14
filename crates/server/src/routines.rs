@@ -19,7 +19,7 @@ use crate::{
     },
     rollover::today_for,
     util::{new_id, now},
-    workflows::RunOptions,
+    workflows::{Assignee, RunOptions},
 };
 
 /// How far back occurrences are created when catching up after downtime.
@@ -43,6 +43,39 @@ pub fn schedule(s: &Series) -> Option<Schedule> {
             rule: s.rrule.clone()?,
         }),
     }
+}
+
+/// Who an occurrence of a shared routine goes to (D-116): its default assignee, or with a
+/// rotation, whose turn it is (turns count the routine's occurrences from its first day,
+/// so they don't depend on when occurrences are created; a new version starts again).
+pub async fn occurrence_assignee(
+    conn: &mut SqliteConnection,
+    s: &Series,
+    key: &str,
+    day: NaiveDate,
+    week_start: u32,
+) -> anyhow::Result<Option<String>> {
+    let Some(g) = &s.owner_group_id else {
+        return Ok(None);
+    };
+    if s.assignee_user_id.is_none() && s.rotation_user_ids.0.is_empty() {
+        return Ok(None);
+    }
+    let members = crate::ownership::members(conn, g).await?;
+    let mut turn = 0;
+    if !s.rotation_user_ids.0.is_empty()
+        && let (Some(sched), Some(dtstart)) = (schedule(s), date(&s.dtstart))
+    {
+        let until = s.until.as_deref().and_then(date);
+        turn = streamline_domain::assign::turn_of(&sched, dtstart, until, key, day, week_start)
+            .map_err(anyhow::Error::msg)?;
+    }
+    Ok(streamline_domain::assign::assignee_for(
+        s.assignee_user_id.as_deref(),
+        &s.rotation_user_ids.0,
+        &members,
+        turn,
+    ))
 }
 
 /// Create the occurrences of one routine within `[from, to]` that don't exist yet
@@ -107,7 +140,7 @@ pub async fn materialize_series(
             .fetch_optional(&mut *conn)
             .await?;
             if exists.is_none() {
-                changes.extend(start_run(conn, s, &o).await?);
+                changes.extend(start_run(conn, s, &o, week_start).await?);
             }
             continue;
         }
@@ -122,23 +155,21 @@ pub async fn materialize_series(
         }
         let rev = next_rev(conn).await?;
         let ts = now();
-        let t = occurrence_task(conn, s, &o, "open", rev).await?;
+        let mut t = occurrence_task(conn, s, &o, "open", rev).await?;
+        t.assignee_user_id = occurrence_assignee(conn, s, &o.key, o.date, week_start).await?;
         upsert_task(conn, &t).await?;
         changes.push(Change::task(&t));
         // Fixed-time routines are planned on their day's timeline right away: on the
-        // owner's, or for a shared routine on every member's (each gets their own entry).
+        // owner's, or for a shared routine on the assignee's or else every member's (each
+        // gets their own entry).
         if s.mode == "anchored" {
-            let people: Vec<String> = match (&s.owner_user_id, &s.owner_group_id) {
-                (Some(u), _) => vec![u.clone()],
-                (None, Some(g)) => {
-                    // Only people of this server: day plans stay on each person's server.
-                    sqlx::query_scalar("SELECT m.user_id FROM group_members m JOIN users u ON u.id = m.user_id WHERE m.group_id = ? AND u.home IS NULL")
-                        .bind(g)
-                        .fetch_all(&mut *conn)
-                        .await?
-                }
-                _ => vec![],
-            };
+            let people = planners(
+                conn,
+                s.owner_user_id.as_deref(),
+                s.owner_group_id.as_deref(),
+                t.assignee_user_id.as_deref(),
+            )
+            .await?;
             for user_id in people {
                 let last: Option<String> = sqlx::query_scalar(
                     "SELECT MAX(position) FROM day_entries WHERE user_id = ? AND date = ? AND deleted_at IS NULL",
@@ -166,6 +197,30 @@ pub async fn materialize_series(
         }
     }
     Ok(changes)
+}
+
+/// Whose day plans something lands on: its owner's; for a shared one its assignee's, or
+/// else every member's. Only people of this server: day plans stay on each person's server.
+pub async fn planners(
+    conn: &mut SqliteConnection,
+    owner_user: Option<&str>,
+    owner_group: Option<&str>,
+    assignee: Option<&str>,
+) -> sqlx::Result<Vec<String>> {
+    if let Some(u) = owner_user {
+        return Ok(vec![u.to_string()]);
+    }
+    let Some(g) = owner_group else {
+        return Ok(vec![]);
+    };
+    sqlx::query_scalar(
+        "SELECT m.user_id FROM group_members m JOIN users u ON u.id = m.user_id
+          WHERE m.group_id = ?1 AND u.home IS NULL AND (?2 IS NULL OR m.user_id = ?2)",
+    )
+    .bind(g)
+    .bind(assignee)
+    .fetch_all(conn)
+    .await
 }
 
 /// The task for one occurrence of a routine (not saved).
@@ -246,6 +301,7 @@ async fn start_run(
     conn: &mut SqliteConnection,
     s: &Series,
     o: &streamline_domain::recurrence::Occurrence,
+    week_start: u32,
 ) -> anyhow::Result<Vec<Change>> {
     let unfinished: Option<String> = sqlx::query_scalar(
         "SELECT id FROM tasks WHERE series_id = ? AND workflow_instance_id IS NOT NULL AND status = 'open'
@@ -259,23 +315,48 @@ async fn start_run(
             .bind(&s.workflow_template_id)
             .fetch_optional(&mut *conn)
             .await?;
-    let (Some(tpl), None, Some(owner)) = (tpl, unfinished, s.owner_user_id.as_deref()) else {
+    // The chore must still belong to whoever owns the routine (it may have moved since).
+    let tpl = tpl
+        .filter(|w| (&w.owner_user_id, &w.owner_group_id) == (&s.owner_user_id, &s.owner_group_id));
+    let (Some(tpl), None) = (&tpl, &unfinished) else {
         let rev = next_rev(conn).await?;
         let mut t = occurrence_task(conn, s, o, "skipped", rev).await?;
-        t.notes = "Skipped: the previous run of this routine wasn't finished yet.".into();
+        let (notes, reason) = if unfinished.is_some() {
+            (
+                "Skipped: the previous run of this routine wasn't finished yet.",
+                "previous run open",
+            )
+        } else {
+            (
+                "Skipped: its multi-step chore is gone or no longer shared like this routine.",
+                "no chore",
+            )
+        };
+        t.notes = notes.into();
         upsert_task(conn, &t).await?;
         log_task_event(
             conn,
             &t.id,
             None,
             "skipped",
-            Some(serde_json::json!({"reason": "previous run open"})),
+            Some(serde_json::json!({ "reason": reason })),
         )
         .await?;
         return Ok(vec![Change::task(&t)]);
     };
     let day = fmt(o.date);
+    // The routine's own assignment wins; without one, the chore's (D-116).
+    let assignee = if s.assignee_user_id.is_some() || !s.rotation_user_ids.0.is_empty() {
+        Assignee::Person(occurrence_assignee(conn, s, &o.key, o.date, week_start).await?)
+    } else {
+        Assignee::FromChore
+    };
     let opts = RunOptions {
+        owner: Some(crate::ownership::Owner {
+            user: s.owner_user_id.clone(),
+            group: s.owner_group_id.clone(),
+        }),
+        assignee,
         project_id: s.project_id.clone(),
         day: (s.mode == "anchored").then(|| day.clone()),
         start_time: s.start_time.clone().filter(|_| s.mode == "anchored"),
@@ -285,7 +366,7 @@ async fn start_run(
         due_date: Some(fmt(o.window_end.unwrap_or(o.date))),
     };
     let (_, changes) =
-        crate::workflows::start(conn, owner, &tpl, &s.workflow_variant_ids.0, &opts).await?;
+        crate::workflows::start(conn, None, tpl, &s.workflow_variant_ids.0, &opts).await?;
     Ok(changes)
 }
 

@@ -50,7 +50,7 @@
     weekStats([...store.tasks.values()], [...store.entries.values()], [...store.focusSessions.values()], reviewed, addDays(reviewed, 7), (iso) => localParts(iso, tz).date),
   )
   // Taken once when the review opens, so acting on an item doesn't reshuffle the list.
-  const ends: LooseEnd[] = untrack(() => looseEnds([...store.tasks.values()], (id) => !!store.entryForTask(id), store.today, Date.now()))
+  const ends: LooseEnd[] = untrack(() => looseEnds([...store.tasks.values()].filter((t) => store.forMe(t)), (id) => !!store.entryForTask(id), store.today, Date.now()))
   const waiting = $derived(store.waitingTasks().filter((t) => !handled.has(t.id)))
   const bare = $derived(projectsWithoutNextStep([...store.projects.values()], [...store.tasks.values()], (id) => store.subtree(id)).filter((p) => !handled.has(p.id)))
   const ideas = $derived([...store.projects.values()].filter((p) => p.status === 'idea' && !p.archived_at && !p.deleted_at && !p.parent_id && !handled.has(p.id)))

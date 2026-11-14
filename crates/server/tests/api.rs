@@ -2723,6 +2723,623 @@ async fn routine_week_score_and_rescheduling() {
 }
 
 #[tokio::test]
+async fn workflows_belong_to_their_project_owner() {
+    // D-115: a multi-step chore in a shared project is the group's; anyone in it can start it.
+    let t = setup().await;
+    let admin = t.admin().await;
+    let anna = t.user(&admin, "anna").await;
+    let ben = t.user(&admin, "ben").await;
+    let cid = t.user(&admin, "cid").await;
+    let id_of = |v: &Value| v["id"].as_str().unwrap().to_string();
+    let (_, me_ben, _) = t.req("GET", "/api/v1/me", Some(&ben), None).await;
+    let (_, fam, _) = t
+        .req(
+            "POST",
+            "/api/v1/groups",
+            Some(&anna),
+            Some(json!({"name": "Family"})),
+        )
+        .await;
+    let gid = id_of(&fam);
+    let (s, _, _) = t
+        .req(
+            "POST",
+            &format!("/api/v1/groups/{gid}/members"),
+            Some(&anna),
+            Some(json!({"user_id": id_of(&me_ben)})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    let (_, house, _) = t
+        .req(
+            "POST",
+            "/api/v1/projects",
+            Some(&anna),
+            Some(json!({"name": "House"})),
+        )
+        .await;
+    let house_id = id_of(&house);
+    let (_, mine, _) = t
+        .req(
+            "POST",
+            "/api/v1/projects",
+            Some(&anna),
+            Some(json!({"name": "Mine"})),
+        )
+        .await;
+    let workflow_names = |v: &Value| -> Vec<String> {
+        let mut out: Vec<String> = v["workflows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|w| w["deleted_at"].is_null())
+            .map(|w| w["name"].as_str().unwrap().to_string())
+            .collect();
+        out.sort();
+        out
+    };
+
+    // Made in a personal project: Anna's alone.
+    let (s, laundry, _) = t
+        .req(
+            "POST",
+            "/api/v1/workflows",
+            Some(&anna),
+            Some(json!({"name": "Laundry", "project_id": house_id,
+                "steps": [{"id": "wash", "title": "Wash"}, {"id": "fold", "title": "Fold"}]})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{laundry}");
+    let wid = id_of(&laundry);
+    assert!(laundry["owner_group_id"].is_null());
+    let (_, b, _) = t.req("GET", "/api/v1/sync", Some(&ben), None).await;
+    assert!(workflow_names(&b).is_empty());
+    let (s, _, _) = t
+        .req(
+            "POST",
+            &format!("/api/v1/workflows/{wid}/start"),
+            Some(&ben),
+            Some(json!({})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+
+    // A routine in the same project, to check it's shared along (its owner used to stay).
+    let (s, _, _) = t
+        .req(
+            "POST",
+            "/api/v1/series",
+            Some(&anna),
+            Some(json!({"title": "Hoover", "mode": "repeat", "rrule": "FREQ=WEEKLY", "project_id": house_id})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK);
+
+    // Sharing the project shares the chore with it.
+    let (s, _, _) = t
+        .req(
+            "PATCH",
+            &format!("/api/v1/projects/{house_id}"),
+            Some(&anna),
+            Some(json!({"owner_group_id": gid})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    let (_, b, _) = t.req("GET", "/api/v1/sync", Some(&ben), None).await;
+    assert_eq!(workflow_names(&b), ["Laundry"]);
+    assert_eq!(b["workflows"][0]["owner_group_id"], gid);
+    assert!(
+        b["series"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|r| r["title"] == "Hoover" && r["owner_group_id"] == gid),
+        "routines in the project are shared too"
+    );
+    let (_, c, _) = t.req("GET", "/api/v1/sync", Some(&cid), None).await;
+    assert!(workflow_names(&c).is_empty(), "non-members don't see it");
+
+    // Ben starts it; the steps are the group's.
+    let (s, steps, _) = t
+        .req(
+            "POST",
+            &format!("/api/v1/workflows/{wid}/start"),
+            Some(&ben),
+            Some(json!({})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{steps}");
+    assert!(
+        steps
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|x| x["owner_group_id"] == gid)
+    );
+    let (s, _, _) = t
+        .req(
+            "POST",
+            &format!("/api/v1/workflows/{wid}/start"),
+            Some(&cid),
+            Some(json!({})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+
+    // Made straight in a shared project: the group's from the start.
+    let (_, bins, _) = t
+        .req(
+            "POST",
+            "/api/v1/workflows",
+            Some(&ben),
+            Some(json!({"name": "Bins", "project_id": house_id,
+                "steps": [{"id": "out", "title": "Out"}, {"id": "in", "title": "In"}]})),
+        )
+        .await;
+    assert_eq!(bins["owner_group_id"], gid);
+    assert!(bins["owner_user_id"].is_null());
+
+    // Moving it to a personal project (or none) makes it that person's.
+    let (s, moved, _) = t
+        .req(
+            "PATCH",
+            &format!("/api/v1/workflows/{wid}"),
+            Some(&anna),
+            Some(json!({"project_id": mine["id"]})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{moved}");
+    assert!(moved["owner_group_id"].is_null());
+    let (_, b, _) = t.req("GET", "/api/v1/sync", Some(&ben), None).await;
+    assert_eq!(workflow_names(&b), ["Bins"]);
+    let (s, _, _) = t
+        .req(
+            "PATCH",
+            &format!("/api/v1/workflows/{}", id_of(&bins)),
+            Some(&ben),
+            Some(json!({"project_id": null})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    let (_, a, _) = t.req("GET", "/api/v1/sync", Some(&anna), None).await;
+    assert_eq!(workflow_names(&a), ["Laundry"]);
+
+    // Someone else's personal project can't be used.
+    let (s, _, _) = t
+        .req(
+            "PATCH",
+            &format!("/api/v1/workflows/{}", id_of(&bins)),
+            Some(&ben),
+            Some(json!({"project_id": mine["id"]})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn household_chores_can_be_assigned() {
+    // D-116: a shared chore can go to one member, by hand, by default or taking turns.
+    let t = setup().await;
+    let admin = t.admin().await;
+    let anna = t.user(&admin, "anna").await;
+    let ben = t.user(&admin, "ben").await;
+    let cid = t.user(&admin, "cid").await;
+    let id_of = |v: &Value| v["id"].as_str().unwrap().to_string();
+    let me = |v: Value| id_of(&v);
+    let anna_id = me(t.req("GET", "/api/v1/me", Some(&anna), None).await.1);
+    let ben_id = me(t.req("GET", "/api/v1/me", Some(&ben), None).await.1);
+    let cid_id = me(t.req("GET", "/api/v1/me", Some(&cid), None).await.1);
+    let (_, fam, _) = t
+        .req(
+            "POST",
+            "/api/v1/groups",
+            Some(&anna),
+            Some(json!({"name": "Family"})),
+        )
+        .await;
+    let gid = id_of(&fam);
+    t.req(
+        "POST",
+        &format!("/api/v1/groups/{gid}/members"),
+        Some(&anna),
+        Some(json!({"user_id": ben_id})),
+    )
+    .await;
+    let (_, house, _) = t
+        .req(
+            "POST",
+            "/api/v1/projects",
+            Some(&anna),
+            Some(json!({"name": "House", "owner_group_id": gid})),
+        )
+        .await;
+    let house_id = id_of(&house);
+    let today = today_of(&t, &anna).await;
+    let tomorrow = today + chrono::Duration::days(1);
+
+    // 13.2: a task by hand. Only people in the group, and only shared tasks.
+    let (s, bins, _) = t
+        .req(
+            "POST",
+            "/api/v1/tasks",
+            Some(&anna),
+            Some(json!({"title": "Bins out", "project_id": house_id, "due_date": ymd(today), "assignee_user_id": ben_id})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{bins}");
+    assert_eq!(bins["assignee_user_id"], ben_id);
+    let bins_id = id_of(&bins);
+    for (auth, body) in [
+        (
+            &anna,
+            json!({"title": "x", "project_id": house_id, "assignee_user_id": cid_id}),
+        ),
+        (&anna, json!({"title": "x", "assignee_user_id": anna_id})),
+    ] {
+        let (s, _, _) = t
+            .req("POST", "/api/v1/tasks", Some(auth), Some(body.clone()))
+            .await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "{body}");
+    }
+    // Everyone sees it; it's due on Ben's day only.
+    let day = |auth: &str| {
+        let auth = auth.to_string();
+        let t = &t;
+        async move {
+            let (_, v, _) = t
+                .req(
+                    "GET",
+                    &format!("/api/v1/days/{}", ymd(today)),
+                    Some(&auth),
+                    None,
+                )
+                .await;
+            v["tasks"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|x| x["title"].as_str().unwrap().to_string())
+                .collect::<Vec<_>>()
+        }
+    };
+    assert!(day(&ben).await.contains(&"Bins out".to_string()));
+    assert!(!day(&anna).await.contains(&"Bins out".to_string()));
+    let (s, v, _) = t
+        .req(
+            "GET",
+            &format!("/api/v1/tasks/{bins_id}"),
+            Some(&anna),
+            None,
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    // Back to anyone, and anyone can still complete an assigned one.
+    let (s, v, _) = t
+        .req(
+            "PATCH",
+            &format!("/api/v1/tasks/{bins_id}"),
+            Some(&ben),
+            Some(json!({"assignee_user_id": null})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    assert!(v["assignee_user_id"].is_null());
+    assert!(day(&anna).await.contains(&"Bins out".to_string()));
+
+    // 13.3: a routine's default assignee; a fixed-time one lands on their timeline only.
+    let (s, walk, _) = t
+        .req(
+            "POST",
+            "/api/v1/series",
+            Some(&anna),
+            Some(json!({"title": "Walk the dog", "mode": "anchored", "rrule": "FREQ=DAILY", "start_time": "07:30",
+                "project_id": house_id, "assignee_user_id": ben_id})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{walk}");
+    let occ = occurrences(&t, &anna, &id_of(&walk)).await;
+    assert!(!occ.is_empty() && occ.iter().all(|o| o["assignee_user_id"] == ben_id));
+    let planned_for = |sync: &Value, task: &str| {
+        sync["day_entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|e| e["task_id"] == task && e["deleted_at"].is_null())
+    };
+    let first = id_of(&occ[0]);
+    let (_, a, _) = t.req("GET", "/api/v1/sync", Some(&anna), None).await;
+    let (_, b, _) = t.req("GET", "/api/v1/sync", Some(&ben), None).await;
+    assert!(planned_for(&b, &first) && !planned_for(&a, &first));
+    let (s, _, _) = t
+        .req(
+            "POST",
+            "/api/v1/series",
+            Some(&anna),
+            Some(json!({"title": "x", "mode": "repeat", "rrule": "FREQ=DAILY", "assignee_user_id": ben_id})),
+        )
+        .await;
+    assert_eq!(
+        s,
+        StatusCode::BAD_REQUEST,
+        "a personal routine can't be assigned"
+    );
+
+    // 13.4: taking turns, one occurrence each, from the routine's first day.
+    let (s, dishes, _) = t
+        .req(
+            "POST",
+            "/api/v1/series",
+            Some(&anna),
+            Some(json!({"title": "Dishes", "mode": "repeat", "rrule": "FREQ=DAILY", "project_id": house_id,
+                "rotation_user_ids": [anna_id, ben_id]})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{dishes}");
+    let turns = |occ: Vec<Value>| {
+        let mut v: Vec<(String, String)> = occ
+            .iter()
+            .map(|o| {
+                (
+                    o["occurrence_date"].as_str().unwrap().to_string(),
+                    o["assignee_user_id"].as_str().unwrap_or("").to_string(),
+                )
+            })
+            .collect();
+        v.sort();
+        v
+    };
+    assert_eq!(
+        turns(occurrences(&t, &anna, &id_of(&dishes)).await),
+        [
+            (ymd(today), anna_id.clone()),
+            (ymd(tomorrow), ben_id.clone())
+        ]
+    );
+    // Changing the turns re-assigns the open ones.
+    let (s, _, _) = t
+        .req(
+            "PATCH",
+            &format!("/api/v1/series/{}", id_of(&dishes)),
+            Some(&anna),
+            Some(json!({"rotation_user_ids": [ben_id, anna_id]})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(
+        turns(occurrences(&t, &anna, &id_of(&dishes)).await),
+        [
+            (ymd(today), ben_id.clone()),
+            (ymd(tomorrow), anna_id.clone())
+        ]
+    );
+    let (s, _, _) = t
+        .req(
+            "PATCH",
+            &format!("/api/v1/series/{}", id_of(&dishes)),
+            Some(&anna),
+            Some(json!({"rotation_user_ids": [ben_id, cid_id]})),
+        )
+        .await;
+    assert_eq!(
+        s,
+        StatusCode::BAD_REQUEST,
+        "only people in the group take turns"
+    );
+
+    // Multi-step chores: one person per run, all steps; turns move on per run.
+    let (s, laundry, _) = t
+        .req(
+            "POST",
+            "/api/v1/workflows",
+            Some(&anna),
+            Some(json!({"name": "Laundry", "project_id": house_id, "rotation_user_ids": [ben_id, anna_id],
+                "steps": [{"id": "wash", "title": "Wash"}, {"id": "fold", "title": "Fold"}]})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{laundry}");
+    let wid = id_of(&laundry);
+    let start = |body: Value| {
+        let t = &t;
+        let anna = anna.clone();
+        let wid = wid.clone();
+        async move {
+            let (s, v, _) = t
+                .req(
+                    "POST",
+                    &format!("/api/v1/workflows/{wid}/start"),
+                    Some(&anna),
+                    Some(body),
+                )
+                .await;
+            assert_eq!(s, StatusCode::OK, "{v}");
+            let who: Vec<Value> = v
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|x| x["assignee_user_id"].clone())
+                .collect();
+            assert!(
+                who.windows(2).all(|w| w[0] == w[1]),
+                "every step to the same person"
+            );
+            who[0].clone()
+        }
+    };
+    assert_eq!(start(json!({})).await, ben_id);
+    assert_eq!(start(json!({})).await, anna_id);
+    assert_eq!(start(json!({"assignee_user_id": null})).await, Value::Null);
+    assert_eq!(
+        start(json!({})).await,
+        ben_id,
+        "a run for anyone doesn't use a turn"
+    );
+    let (s, _, _) = t
+        .req(
+            "POST",
+            &format!("/api/v1/workflows/{wid}/start"),
+            Some(&anna),
+            Some(json!({"assignee_user_id": cid_id})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+
+    // A shared routine that starts a multi-step chore runs it (it used to be skipped),
+    // for the routine's assignee.
+    let (s, wash, _) = t
+        .req(
+            "POST",
+            "/api/v1/series",
+            Some(&ben),
+            Some(json!({"title": "Laundry", "mode": "repeat", "rrule": "FREQ=DAILY", "project_id": house_id,
+                "workflow_template_id": wid, "assignee_user_id": anna_id})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{wash}");
+    let run = occurrences(&t, &ben, &id_of(&wash)).await;
+    assert_eq!(run.len(), 2, "{run:?}");
+    assert!(run.iter().all(|o| o["status"] == "open"
+        && o["owner_group_id"] == gid
+        && o["assignee_user_id"] == anna_id));
+
+    // A routine and its chore must be shared alike.
+    let (_, mine, _) = t
+        .req(
+            "POST",
+            "/api/v1/workflows",
+            Some(&anna),
+            Some(json!({"name": "Mine", "steps": [{"id": "a", "title": "A"}]})),
+        )
+        .await;
+    let (s, _, _) = t
+        .req(
+            "POST",
+            "/api/v1/series",
+            Some(&anna),
+            Some(json!({"title": "x", "mode": "repeat", "rrule": "FREQ=DAILY", "project_id": house_id,
+                "workflow_template_id": mine["id"]})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    // A replayed create of a shared chore gets the record (D-79).
+    let (s, again, _) = t
+        .req(
+            "POST",
+            "/api/v1/workflows",
+            Some(&ben),
+            Some(json!({"id": wid, "name": "Laundry", "project_id": house_id, "steps": [{"id": "wash", "title": "Wash"}]})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{again}");
+
+    // Giving the fixed-time walk to Anna moves it from Ben's timeline to hers.
+    let (s, _, _) = t
+        .req(
+            "PATCH",
+            &format!("/api/v1/series/{}", id_of(&walk)),
+            Some(&anna),
+            Some(json!({"assignee_user_id": anna_id})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    let (_, a, _) = t.req("GET", "/api/v1/sync", Some(&anna), None).await;
+    let (_, b, _) = t.req("GET", "/api/v1/sync", Some(&ben), None).await;
+    assert!(planned_for(&a, &first) && !planned_for(&b, &first));
+    let (s, _, _) = t
+        .req(
+            "PATCH",
+            &format!("/api/v1/series/{}", id_of(&walk)),
+            Some(&anna),
+            Some(json!({"assignee_user_id": ben_id})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK);
+
+    // Ben leaves: what was his goes back to anyone, and he's out of the turns.
+    let (s, _, _) = t
+        .req(
+            "PATCH",
+            &format!("/api/v1/tasks/{bins_id}"),
+            Some(&anna),
+            Some(json!({"assignee_user_id": ben_id})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    let (s, _, _) = t
+        .req(
+            "DELETE",
+            &format!("/api/v1/groups/{gid}/members/{ben_id}"),
+            Some(&ben),
+            None,
+        )
+        .await;
+    assert_eq!(s, StatusCode::NO_CONTENT);
+    let (_, v, _) = t
+        .req(
+            "GET",
+            &format!("/api/v1/tasks/{bins_id}"),
+            Some(&anna),
+            None,
+        )
+        .await;
+    assert!(v["assignee_user_id"].is_null());
+    let (_, a, _) = t.req("GET", "/api/v1/sync", Some(&anna), None).await;
+    let find = |key: &str, id: &str| {
+        a[key]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|x| x["id"] == id)
+            .cloned()
+            .unwrap()
+    };
+    assert!(find("series", &id_of(&walk))["assignee_user_id"].is_null());
+    assert_eq!(
+        find("series", &id_of(&dishes))["rotation_user_ids"],
+        json!([anna_id])
+    );
+    assert_eq!(
+        find("workflows", &wid)["rotation_user_ids"],
+        json!([anna_id])
+    );
+
+    // Deleting someone does the same.
+    t.req(
+        "POST",
+        &format!("/api/v1/groups/{gid}/members"),
+        Some(&anna),
+        Some(json!({"user_id": cid_id})),
+    )
+    .await;
+    let (s, _, _) = t
+        .req(
+            "PATCH",
+            &format!("/api/v1/tasks/{bins_id}"),
+            Some(&anna),
+            Some(json!({"assignee_user_id": cid_id})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    let (s, _, _) = t
+        .req(
+            "DELETE",
+            &format!("/api/v1/users/{cid_id}"),
+            Some(&admin),
+            None,
+        )
+        .await;
+    assert_eq!(s, StatusCode::NO_CONTENT);
+    let (_, v, _) = t
+        .req(
+            "GET",
+            &format!("/api/v1/tasks/{bins_id}"),
+            Some(&anna),
+            None,
+        )
+        .await;
+    assert!(v["assignee_user_id"].is_null());
+}
+
+#[tokio::test]
 async fn routines_start_workflow_runs() {
     let t = setup().await;
     let admin = t.admin().await;

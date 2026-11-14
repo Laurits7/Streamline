@@ -55,7 +55,13 @@
     [...store.tasks.values()]
       .filter(
         (t) =>
-          t.status === 'open' && t.window_end && t.occurrence_date! <= date && date <= t.window_end && !plannedIds.has(t.id) && !store.inIdea(t),
+          t.status === 'open' &&
+          t.window_end &&
+          t.occurrence_date! <= date &&
+          date <= t.window_end &&
+          !plannedIds.has(t.id) &&
+          !store.inIdea(t) &&
+          store.forMe(t),
       )
       .sort((a, b) => a.title.localeCompare(b.title) || (a.occurrence_key ?? '').localeCompare(b.occurrence_key ?? '')),
   )
@@ -70,7 +76,8 @@
           t.due_date <= date &&
           !plannedIds.has(t.id) &&
           !store.isUpcoming(t, date) &&
-          !store.inIdea(t),
+          !store.inIdea(t) &&
+          store.forMe(t),
       )
       .sort((a, b) => (a.due_date! < b.due_date! ? -1 : 1)),
   )
@@ -82,6 +89,7 @@
         (t) =>
           !plannedIds.has(t.id) &&
           !store.inIdea(t) &&
+          store.forMe(t) &&
           (onFor(t, date) || (isToday && t.ongoing && t.status === 'open' && !t.deleted_at && !!t.due_date && t.due_date < date)),
       )
       .sort((a, b) => a.title.localeCompare(b.title)),

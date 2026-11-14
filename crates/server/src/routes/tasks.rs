@@ -187,6 +187,8 @@ pub struct CreateTask {
     day_entry_id: Option<String>,
     /// Share a task without a project with a group (tasks in a project follow the project).
     owner_group_id: Option<String>,
+    /// For a shared task: the member who does it (D-116).
+    assignee_user_id: Option<String>,
     /// Steps inside the task (D-71).
     #[serde(default)]
     checklist: Vec<ChecklistItem>,
@@ -249,6 +251,12 @@ pub async fn create(
             .unwrap_or_else(|| crate::ownership::Owner::me(&user)),
         None => crate::ownership::chosen(&state, &user, c.owner_group_id.as_deref()).await?,
     };
+    crate::ownership::check_assignee(
+        &mut tx,
+        owner.group.as_deref(),
+        c.assignee_user_id.as_deref(),
+    )
+    .await?;
     check_task_type(&mut tx, &user, &task_type_id).await?;
     crate::routes::places::check_place(&mut tx, &user, &c.place_id).await?;
     check_event(&mut tx, &user, &c.event_id).await?;
@@ -281,7 +289,7 @@ pub async fn create(
         id,
         owner_user_id: owner.user.clone(),
         owner_group_id: owner.group.clone(),
-        assignee_user_id: None,
+        assignee_user_id: c.assignee_user_id,
         project_id: c.project_id,
         title,
         notes: c.notes,
@@ -399,6 +407,9 @@ pub struct PatchTask {
     /// For a task without a project: share it with a group (`null` = just you).
     #[serde(default, deserialize_with = "double_option")]
     owner_group_id: Option<Option<String>>,
+    /// For a shared task: the member who does it (`null` = anyone in the group; D-116).
+    #[serde(default, deserialize_with = "double_option")]
+    assignee_user_id: Option<Option<String>>,
     /// Waiting for results (D-70): `true` starts waiting (or changes the check-back time
     /// and note while waiting), `false` ends it; the task stays in progress.
     waiting: Option<bool>,
@@ -530,6 +541,7 @@ pub async fn patch(
     }
     let old_audience =
         visibility::audience(t.owner_user_id.as_deref(), t.owner_group_id.as_deref());
+    let old_owner = (t.owner_user_id.clone(), t.owner_group_id.clone());
     let old_project = t.project_id.clone();
     if let Some(v) = c.project_id {
         check_project(&mut tx, &user, &v).await?;
@@ -554,6 +566,22 @@ pub async fn patch(
         let o = crate::ownership::chosen(&state, &user, g.as_deref()).await?;
         t.owner_user_id = o.user;
         t.owner_group_id = o.group;
+    }
+    // A new owner keeps the assignee only if they're in its group; then an explicit one.
+    if (t.owner_user_id.as_deref(), t.owner_group_id.as_deref())
+        != (old_owner.0.as_deref(), old_owner.1.as_deref())
+    {
+        t.assignee_user_id = crate::ownership::kept_assignee(
+            &mut tx,
+            t.owner_group_id.as_deref(),
+            t.assignee_user_id.take(),
+        )
+        .await?;
+    }
+    if let Some(a) = c.assignee_user_id {
+        crate::ownership::check_assignee(&mut tx, t.owner_group_id.as_deref(), a.as_deref())
+            .await?;
+        t.assignee_user_id = a;
     }
     if let Some(v) = c.wait_min {
         check_range("wait_min", v, 0, 24 * 60)?;

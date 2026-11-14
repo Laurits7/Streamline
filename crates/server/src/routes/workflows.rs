@@ -17,6 +17,7 @@ use crate::{
         Series, Task, WorkflowStep, WorkflowTemplate, WorkflowVariant, upsert_series,
         upsert_workflow,
     },
+    ownership::Owner,
     util::{check_range, double_option, id_or_new, now, parse_date},
     visibility,
     workflows::{self, RunOptions},
@@ -87,6 +88,27 @@ fn check(name: &str, steps: &[WorkflowStep], variants: &[WorkflowVariant]) -> Ap
     Ok(name.to_string())
 }
 
+/// The owner a template gets from its project (D-115): a shared project's group, else you.
+async fn owner_for(
+    conn: &mut sqlx::SqliteConnection,
+    state: &AppState,
+    user: &AuthUser,
+    project_id: Option<&str>,
+) -> ApiResult<Owner> {
+    let Some(p) = project_id else {
+        return Ok(Owner::me(user));
+    };
+    let project = crate::routes::projects::load_visible(conn, user, p)
+        .await
+        .map_err(|_| bad("unknown project"))?;
+    if crate::federation::is_replica_project(state, p).await {
+        return Err(bad(
+            "multi-step chores can't use a project shared from another server yet",
+        ));
+    }
+    Ok(Owner::of_project(&project))
+}
+
 #[utoipa::path(get, path = "/workflows", tag = "workflows", summary = "List workflow templates", responses((status = 200, body = Vec<WorkflowTemplate>), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
 pub async fn list(
     State(state): State<AppState>,
@@ -112,6 +134,11 @@ pub struct CreateWorkflow {
     steps: Vec<WorkflowStep>,
     #[serde(default)]
     variants: Vec<WorkflowVariant>,
+    /// For a shared chore: who each run goes to (D-116).
+    assignee_user_id: Option<String>,
+    /// For a shared chore: members taking turns, one run each (D-116).
+    #[serde(default)]
+    rotation_user_ids: Vec<String>,
 }
 
 #[utoipa::path(post, path = "/workflows", tag = "workflows", summary = "Create a workflow template", request_body = CreateWorkflow, responses((status = 200, body = WorkflowTemplate), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
@@ -129,26 +156,39 @@ pub async fn create(
             .fetch_optional(&mut *tx)
             .await?
     {
-        if existing.owner_user_id.as_deref() == Some(user.id()) {
+        // A replayed create (offline outbox, D-79) gets the record, shared ones too.
+        if visibility::can_see(
+            &user,
+            existing.owner_user_id.as_deref(),
+            existing.owner_group_id.as_deref(),
+        ) {
             return Ok(Json(existing));
         }
         return Err(AppError::Conflict("id already in use".into()));
     }
-    if let Some(p) = &c.project_id {
-        crate::routes::projects::load_visible(&mut tx, &user, p)
-            .await
-            .map_err(|_| bad("unknown project"))?;
-    }
+    let owner = owner_for(&mut tx, &state, &user, c.project_id.as_deref()).await?;
+    crate::ownership::check_assignee(
+        &mut tx,
+        owner.group.as_deref(),
+        c.assignee_user_id.as_deref(),
+    )
+    .await?;
+    let rotation =
+        crate::ownership::check_rotation(&mut tx, owner.group.as_deref(), c.rotation_user_ids)
+            .await?;
     let ts = now();
     let w = WorkflowTemplate {
         id,
-        owner_user_id: Some(user.id().into()),
-        owner_group_id: None,
+        owner_user_id: owner.user,
+        owner_group_id: owner.group,
         name,
         description: c.description,
         project_id: c.project_id,
         steps: sqlx::types::Json(c.steps),
         variants: sqlx::types::Json(c.variants),
+        assignee_user_id: c.assignee_user_id,
+        rotation_user_ids: sqlx::types::Json(rotation),
+        rotation_turn: 0,
         created_at: ts.clone(),
         updated_at: ts,
         deleted_at: None,
@@ -168,6 +208,12 @@ pub struct PatchWorkflow {
     project_id: Option<Option<String>>,
     steps: Option<Vec<WorkflowStep>>,
     variants: Option<Vec<WorkflowVariant>>,
+    /// Who runs go to (`null` = anyone in the group; D-116).
+    #[serde(default, deserialize_with = "double_option")]
+    assignee_user_id: Option<Option<String>>,
+    /// Members taking turns (empty = no rotation; D-116). A changed rotation starts with
+    /// its first person.
+    rotation_user_ids: Option<Vec<String>>,
 }
 
 /// Edit a template. Runs already started keep their tasks.
@@ -186,13 +232,37 @@ pub async fn patch(
     if let Some(v) = c.description {
         w.description = v;
     }
+    let old_audience =
+        visibility::audience(w.owner_user_id.as_deref(), w.owner_group_id.as_deref());
     if let Some(v) = c.project_id {
-        if let Some(p) = &v {
-            crate::routes::projects::load_visible(&mut tx, &user, p)
-                .await
-                .map_err(|_| bad("unknown project"))?;
+        // A template belongs to its project's owner: moving it into a shared project hands
+        // it to the group, out of one (or to no project) makes it yours.
+        let owner = owner_for(&mut tx, &state, &user, v.as_deref()).await?;
+        if (&owner.user, &owner.group) != (&w.owner_user_id, &w.owner_group_id) {
+            // Assignments only carry over to people in the new group.
+            let members = match &owner.group {
+                Some(g) => crate::ownership::members(&mut tx, g).await?,
+                None => vec![],
+            };
+            w.assignee_user_id = w.assignee_user_id.take().filter(|a| members.contains(a));
+            w.rotation_user_ids.0 =
+                streamline_domain::assign::clean_rotation(&w.rotation_user_ids.0, &members);
         }
+        w.owner_user_id = owner.user;
+        w.owner_group_id = owner.group;
         w.project_id = v;
+    }
+    if let Some(a) = c.assignee_user_id {
+        crate::ownership::check_assignee(&mut tx, w.owner_group_id.as_deref(), a.as_deref())
+            .await?;
+        w.assignee_user_id = a;
+    }
+    if let Some(r) = c.rotation_user_ids {
+        let r = crate::ownership::check_rotation(&mut tx, w.owner_group_id.as_deref(), r).await?;
+        if r != w.rotation_user_ids.0 {
+            w.rotation_turn = 0;
+        }
+        w.rotation_user_ids.0 = r;
     }
     if let Some(v) = c.steps {
         w.steps = sqlx::types::Json(v);
@@ -205,7 +275,9 @@ pub async fn patch(
     w.rev = next_rev(&mut tx).await?;
     upsert_workflow(&mut tx, &w).await?;
     tx.commit().await?;
-    state.bus.publish([Change::workflow(&w)]);
+    let change = Change::workflow(&w);
+    let gone = crate::ownership::gone_for(&change, &old_audience, &w.updated_at);
+    state.bus.publish(gone.into_iter().chain([change]));
     Ok(Json(w))
 }
 
@@ -252,8 +324,13 @@ pub struct StartWorkflow {
     variant_ids: Vec<String>,
     /// Put the steps in this project (default: the template's).
     project_id: Option<String>,
-    /// Plan the first step of each chain into this day (`YYYY-MM-DD`).
+    /// Plan the first step of each chain into this day (`YYYY-MM-DD`): the day of whoever
+    /// does it.
     day: Option<String>,
+    /// For a shared chore: who does this run (`null` = anyone in the group). Left out: the
+    /// chore's default, or whose turn it is (D-116).
+    #[serde(default, deserialize_with = "double_option")]
+    assignee_user_id: Option<Option<String>>,
 }
 
 #[utoipa::path(post, path = "/workflows/{id}/start", tag = "workflows", summary = "Start a workflow: one chain of tasks per chosen variant", params(("id" = String, Path, description = "ULID")), request_body = StartWorkflow, responses((status = 200, description = "The created step tasks", body = Vec<Task>), (status = 400, description = "Invalid input", body = crate::error::Problem), (status = 401, description = "Not signed in", body = crate::error::Problem)))]
@@ -286,12 +363,30 @@ pub async fn start(
             "workflows can't be started in a project shared from another server yet; add its steps as tasks",
         ));
     }
+    let owner = match c.project_id.as_ref().or(w.project_id.as_ref()) {
+        Some(p) => crate::ownership::project_owner(&mut tx, p).await?,
+        None => None,
+    };
+    let assignee = match c.assignee_user_id {
+        Some(a) => {
+            crate::ownership::check_assignee(
+                &mut tx,
+                owner.as_ref().and_then(|o| o.group.as_deref()),
+                a.as_deref(),
+            )
+            .await?;
+            workflows::Assignee::Person(a)
+        }
+        None => workflows::Assignee::FromChore,
+    };
     let opts = RunOptions {
+        assignee,
         project_id: c.project_id,
         day: c.day,
         ..Default::default()
     };
-    let (tasks, changes) = workflows::start(&mut tx, user.id(), &w, &c.variant_ids, &opts).await?;
+    let (tasks, changes) =
+        workflows::start(&mut tx, Some(user.id()), &w, &c.variant_ids, &opts).await?;
     tx.commit().await?;
     state.bus.publish(changes);
     Ok(Json(tasks))

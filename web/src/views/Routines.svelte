@@ -9,11 +9,25 @@
   import { ui } from '../lib/ui.svelte'
 
   const active = $derived(store.activeSeries())
-  const groups = $derived([
-    { title: 'At a fixed time', items: active.filter((s) => s.mode === 'anchored') },
-    { title: 'N times a week or month', items: active.filter((s) => s.mode === 'flexible') },
-    { title: 'On a schedule', items: active.filter((s) => s.mode === 'repeat') },
+  const workflows = $derived([...store.workflows.values()].sort((a, b) => a.name.localeCompare(b.name)))
+  // Yours first, then each household group's own (D-115): shared chores aren't mixed in with yours.
+  const owners = $derived([
+    { id: null, title: '', routines: active.filter((s) => !s.owner_group_id), workflows: workflows.filter((w) => !w.owner_group_id) },
+    ...[...store.groups.values()]
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((g) => ({
+        id: g.id,
+        title: `Shared with ${g.name}`,
+        routines: active.filter((s) => s.owner_group_id === g.id),
+        workflows: workflows.filter((w) => w.owner_group_id === g.id),
+      }))
+      .filter((o) => o.routines.length || o.workflows.length),
   ])
+  const byMode = (items: typeof active) => [
+    { title: 'At a fixed time', items: items.filter((s) => s.mode === 'anchored') },
+    { title: 'N times a week or month', items: items.filter((s) => s.mode === 'flexible') },
+    { title: 'On a schedule', items: items.filter((s) => s.mode === 'repeat') },
+  ]
 
   // Streaks and progress are computed by the server; refresh when tasks change.
   let stats = $state<Record<string, SeriesStats>>({})
@@ -72,8 +86,9 @@
   </div>
 {/if}
 
+{#snippet routineList(items: typeof active)}
 <div class="groups">
-{#each groups.filter((g) => g.items.length) as g (g.title)}
+{#each byMode(items).filter((g) => g.items.length) as g (g.title)}
   <div>
   <h2 class="section-title">{g.title}</h2>
   <div class="card list">
@@ -87,6 +102,7 @@
           <span class="meta">
             {describeSeries(s)}
             {#if project}· {project.name}{/if}
+            {#if s.rotation_user_ids.length}· taking turns{:else if s.assignee_user_id}· → {store.personName(s.assignee_user_id)}{/if}
             {#if st?.next_date && s.mode !== 'flexible'}· next {dayLabel(st.next_date, store.today).toLowerCase()}{/if}
             {#if s.mode === 'flexible' && st?.window_total}· {st.window_done} of {st.window_total} this {s.window}{/if}
             {#if s.mode !== 'flexible' && st && st.week_total > 1}· {st.week_done} of {st.week_total} this week{/if}
@@ -99,25 +115,46 @@
   </div>
 {/each}
 </div>
+{/snippet}
 
-<h2 class="section-title">Multi-step chores</h2>
-<p class="muted intro">Chores done in steps, like laundry: wash → dry → fold. Each step appears when the one before is done.</p>
-<div class="card list">
-  {#each [...store.workflows.values()].sort((a, b) => a.name.localeCompare(b.name)) as w (w.id)}
+{#snippet workflowList(items: typeof workflows, mine: boolean)}
+  {#each items as w (w.id)}
+    {@const project = w.project_id ? store.projects.get(w.project_id) : null}
     <div class="item wf">
       <button class="main" onclick={() => (ui.workflow = w.id)}>
         <span class="title">{w.name}</span>
-        <span class="meta">{w.steps.map((s) => s.title).join(' → ')}{w.variants.length ? ` · ${w.variants.length} variants` : ''}</span>
+        <span class="meta">{w.steps.map((s) => s.title).join(' → ')}{w.variants.length ? ` · ${w.variants.length} variants` : ''}{#if project}{` · ${project.name}`}{/if}{#if w.rotation_user_ids.length}{' · taking turns'}{:else if w.assignee_user_id}{` · → ${store.personName(w.assignee_user_id)}`}{/if}</span>
       </button>
       <button class="btn small primary" onclick={() => (ui.startWorkflow = w.id)}><Icon name="play" size={14} /> Start</button>
     </div>
   {:else}
-    <div class="item"><span class="main muted">None yet.</span>
-      <button class="btn small" onclick={addLaundry}>Add example: Laundry</button>
-    </div>
+    {#if mine}
+      <div class="item"><span class="main muted">None yet.</span>
+        <button class="btn small" onclick={addLaundry}>Add example: Laundry</button>
+      </div>
+    {/if}
   {/each}
-</div>
-<button class="btn small new-wf" onclick={() => (ui.workflow = 'new')}><Icon name="plus" size={14} /> New multi-step chore</button>
+{/snippet}
+
+{#each owners as o (o.id)}
+  {#if o.id}
+    <h2 class="owner"><Icon name="users" size={20} /> {o.title}</h2>
+    <p class="muted intro">Everyone in the group sees these, and anyone can do or start them. Make one by choosing a project shared with the group.</p>
+  {:else if owners.length > 1}
+    <h2 class="owner">Yours</h2>
+  {/if}
+  {@render routineList(o.routines)}
+  {#if !o.id || o.workflows.length}
+    <h2 class="section-title">Multi-step chores</h2>
+    {#if !o.id}<p class="muted intro">Chores done in steps, like laundry: wash → dry → fold. Each step appears when the one before is done.</p>{/if}
+    <div class="card list">
+      {@render workflowList(o.workflows, !o.id)}
+    </div>
+  {/if}
+  {#if !o.id}
+    <button class="btn small new-wf" onclick={() => (ui.workflow = 'new')}><Icon name="plus" size={14} /> New multi-step chore</button>
+  {/if}
+{/each}
 
 <style>
   .groups {
@@ -140,6 +177,14 @@
   }
   .new-wf {
     margin-top: 8px;
+  }
+  .owner {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 20px;
+    font-weight: 700;
+    margin: 28px 0 8px;
   }
   .head {
     display: flex;

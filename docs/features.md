@@ -71,7 +71,9 @@ Everything below is in the app today. *Help* inside the app explains each one st
 ## Household
 
 - **Groups**: share projects, tasks, routines and goals with a group; anyone can complete a
-  shared chore (who did is shown), and changes appear live for everyone. Day plans, focus time,
+  shared chore (who did is shown), and changes appear live for everyone. Multi-step chores in a
+  shared project belong to the household, and anyone in it can start them. Give a chore to
+  one person, or let people take turns; it then shows up only on that person's day. Day plans, focus time,
   journals and logs stay personal.
 - **Namedays and birthdays**: a shared nameday calendar (the official Estonian list by
   default); everyone picks their own people and gets tasks like "buy a present" → "wish a happy

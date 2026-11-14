@@ -42,6 +42,15 @@ workflow_template_id: string | null, workflow_variant_ids: Array<string>,
  */
 checklist: Array<ChecklistItem>, 
 /**
+ * Who each occurrence of a shared routine goes to by default (D-116). (Defaults keep
+ * feeds from servers before 1.6 readable, Phase 8.)
+ */
+assignee_user_id: string | null, 
+/**
+ * Members taking turns, one occurrence each (empty = no rotation; D-116).
+ */
+rotation_user_ids: Array<string>, 
+/**
  * The routine this one replaced when its schedule changed (progress and streaks
  * continue across versions).
  */

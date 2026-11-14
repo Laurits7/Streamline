@@ -813,6 +813,38 @@ Owner request of 2026-10-18. On the `v1.5` branch, after Phase 11. Migration 003
 
 ---
 
+### Phase 13: Household chores and assignment (D-115, D-116)
+
+Owner request of 2026-10-30. Next version not planned yet.
+
+- [x] **13.1 Household multi-step chores** (D-115): a workflow template belongs to its
+      project's owner (on create, on moving it, and when its project is shared or unshared);
+      group members sync, see, start and edit it; refused for projects copied from another
+      server; the Routines page lists yours first and each group's under "Shared with …";
+      server test; help and CHANGELOG.
+- [x] **13.2 Assign a task to a member** (D-116): `assignee_user_id` settable on shared
+      tasks (members of the owning group only; cleared when they leave); the name shows on
+      the task everywhere; assigned tasks only appear in the assignee's Today, ready stack,
+      planner and reminders; visibility tests stay green; client store and task sheet.
+- [x] **13.3 Default assignee on routines and multi-step chores** (D-116): routines give
+      each occurrence their default assignee; multi-step chores give every step of a run the
+      same person, chosen at Start (defaulting to the chore's); routine and chore sheets.
+- [x] **13.4 Rotation, and shared routines that start chores** (D-116, D-115): optional
+      rotation between chosen members per occurrence or run (off by default, switched on in
+      the routine's or chore's options; pure turn order in `domain` with tests); fix
+      group-owned routines with a multi-step chore, which are skipped today.
+- [x] **13.5 Phase gate**: Part D checklist, including a security review of assignment.
+      *Done 2026-10-30:* fmt, clippy, all tests (server, domain, web) green; TS types
+      regenerated; docs site builds with `--strict`; web payload 119.6 KB initial; the new
+      screens tried in the real app (headless Chromium, scratch data: Routines page split,
+      Start with whose turn it is, turns in the routine sheet, assignee on tasks, an
+      assigned task left out of the others' Today); security review done and fixed (D-117).
+      *Left for the owner:* image size and idle memory (`make measure`, needs a Docker
+      build), the phone and HTTPS smoke test, a look on a phone, push so CI runs, and the
+      release.
+
+---
+
 ## Part C. Open questions with proposed defaults
 
 > **Status: all defaults below accepted by the owner on 2026-10-05** (recorded as D-1…D-23
@@ -827,7 +859,7 @@ column says when it must be settled.
 | Q-1 | Default task types; custom types in v1? | One-off → `carry_on`; anchored routine → `expires`; flexible routine → `window`; tasks with due date may opt into `deadline`; workflow steps inherit from the template (default `carry_on`). Users **can** create custom types in v1, since types are just config. | 2.3 |
 | Q-2 | Day-end rollover | Configurable per user, **default 04:00**. | 2.1 |
 | Q-3 | Flexible routine window | **Fixed calendar periods** (ISO week with configurable week start; calendar month), not rolling. Easier to reason about and to show as "1 of 2 this week". | 3.4 |
-| Q-4 | Assign to a member within a group | Not in v1. The schema keeps a nullable `assignee_user_id` so it can be added later without a migration. | 4.2 |
+| Q-4 | Assign to a member within a group | Not in v1. The schema keeps a nullable `assignee_user_id` so it can be added later without a migration. **Answered later (D-116):** yes, with a default assignee and optional turns; built in Phase 13. | 4.2 |
 | Q-5 | Reminders on HTTP-only | In-app (SSE banner/toast) always; **optional ntfy** backend in Phase 6; Web Push when HTTPS is available. | 2a.3 |
 | Q-6 | Prerequisite skipped or deleted | **Auto-unblock**, with a visible note on the dependent task ("prerequisite X was skipped"). `wont_do` counts the same as skipped. | 3b.1 |
 | Q-7 | Routine spawns a workflow while the previous instance is unfinished | **Don't spawn**; log the occurrence as skipped ("previous run still open"). Can be changed per routine. | 3b.6 |

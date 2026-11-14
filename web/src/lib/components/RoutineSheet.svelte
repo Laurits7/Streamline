@@ -11,6 +11,7 @@
   import Icon from './Icon.svelte'
   import Sheet from './Sheet.svelte'
   import GoalLinks from './GoalLinks.svelte'
+  import AssignPicker from './AssignPicker.svelte'
 
   let { id }: { id: string } = $props()
   const existing = untrack(() => (id === 'new' ? null : (store.series.get(id) ?? null)))
@@ -27,6 +28,10 @@
   let projectId = $state(existing?.project_id ?? '')
   let placeId = $state(existing?.place_id ?? '')
   let groupId = $state(existing?.owner_group_id ?? '')
+  let assignee = $state(existing?.assignee_user_id ?? '')
+  let rotation = $state<string[]>(existing ? [...existing.rotation_user_ids] : [])
+  // A shared routine (through its project, or on its own) can go to someone (D-116).
+  const sharedWith = $derived(projectId ? (store.projects.get(projectId)?.owner_group_id ?? '') : (existing?.owner_group_id ?? groupId))
   let workflowId = $state(existing?.workflow_template_id ?? '')
   let variantIds = $state<string[]>(existing ? [...existing.workflow_variant_ids] : [])
   const workflow = $derived(workflowId ? store.workflows.get(workflowId) : null)
@@ -109,6 +114,8 @@
       difficulty,
       checklist: workflowId ? [] : checklist,
       until: until || null,
+      assignee_user_id: sharedWith && !rotation.length ? assignee || null : null,
+      rotation_user_ids: sharedWith ? rotation : [],
     }
     const ok = existing
       ? await store.updateSeries(existing.id, { ...body, from })
@@ -244,6 +251,10 @@
         {#each store.myGroups() as g (g.id)}<option value={g.id}>{g.name} (anyone can do it)</option>{/each}
       </select>
     </section>
+  {/if}
+
+  {#if sharedWith}
+    <AssignPicker groupId={sharedWith} bind:assignee bind:rotation turns each="time" />
   {/if}
 
   {#if store.workflows.size && mode !== 'flexible'}
