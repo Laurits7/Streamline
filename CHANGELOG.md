@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.6.0 (2026-11-14)
 
 - Household multi-step chores: a multi-step chore belongs to its project's owner, so one
   in a project shared with your household is everyone's, and anyone in it can start it.
